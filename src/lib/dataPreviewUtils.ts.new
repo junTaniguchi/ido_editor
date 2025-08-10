@@ -1,0 +1,247 @@
+import { parse } from 'js-yaml';
+
+/**
+ * データをCSV形式に変換する
+ * @param data データオブジェクトの配列
+ * @returns CSV形式の文字列
+ */
+export const convertDataToCSV = (data: any[]) => {
+  if (!data || data.length === 0) return '';
+
+  // ヘッダー行の作成
+  const headers = Object.keys(data[0]);
+  const headerRow = headers.join(',');
+
+  // データ行の作成
+  const rows = data.map(row => {
+    return headers.map(header => {
+      const value = row[header];
+      // 文字列の場合はダブルクォートでエスケープ
+      if (typeof value === 'string') {
+        // カンマやダブルクォートを含む場合は、ダブルクォートでエスケープ
+        return `"${value.replace(/"/g, '""')}"`;
+      }
+      // null や undefined は空文字に
+      if (value === null || value === undefined) {
+        return '';
+      }
+      return String(value);
+    }).join(',');
+  });
+
+  // ヘッダーとデータ行を結合
+  return [headerRow, ...rows].join('\n');
+};
+
+/**
+ * データをTSV形式に変換する
+ * @param data データオブジェクトの配列
+ * @returns TSV形式の文字列
+ */
+export const convertDataToTSV = (data: any[]) => {
+  if (!data || data.length === 0) return '';
+
+  // ヘッダー行の作成
+  const headers = Object.keys(data[0]);
+  const headerRow = headers.join('\t');
+
+  // データ行の作成
+  const rows = data.map(row => {
+    return headers.map(header => {
+      const value = row[header];
+      // 文字列の場合は必要に応じてエスケープ
+      if (typeof value === 'string') {
+        // タブを含む場合は、ダブルクォートでエスケープ
+        if (value.includes('\t')) {
+          return `"${value.replace(/"/g, '""')}"`;
+        }
+        return value;
+      }
+      // null や undefined は空文字に
+      if (value === null || value === undefined) {
+        return '';
+      }
+      return String(value);
+    }).join('\t');
+  });
+
+  // ヘッダーとデータ行を結合
+  return [headerRow, ...rows].join('\n');
+};
+
+/**
+ * データをJSON形式に変換する
+ * @param data データオブジェクトの配列
+ * @returns JSON形式の文字列
+ */
+export const convertDataToJSON = (data: any[]) => {
+  if (!data || data.length === 0) return '[]';
+  return JSON.stringify(data, null, 2);
+};
+
+/**
+ * データをYAML形式に変換する
+ * @param data データオブジェクトの配列
+ * @returns YAML形式の文字列
+ */
+export const convertDataToYAML = (data: any[]) => {
+  if (!data || data.length === 0) return '';
+  // データを変換してYAML形式で出力
+  return `# データエクスポート\n${parse(data)}`;
+};
+
+/**
+ * データをParquet形式に変換する
+ * @param data データオブジェクトの配列
+ * @returns Parquet形式の文字列（仮実装）
+ */
+export const convertDataToParquet = (data: any[]) => {
+  // ブラウザでParquetを直接生成するのは複雑なため、この関数は簡易的な実装
+  // 実際の実装では、Apache Arrowなどのライブラリを使用することが推奨される
+  return convertDataToCSV(data); // 現状はCSVとして出力
+};
+
+/**
+ * データを指定された形式に変換する
+ * @param data データオブジェクトの配列
+ * @param format 出力形式 ('csv'|'tsv'|'json'|'yaml'|'parquet')
+ * @returns 変換された文字列
+ */
+export const convertDataToFormat = (data: any[], format: 'csv'|'tsv'|'json'|'yaml'|'parquet') => {
+  if (!data || data.length === 0) return '';
+
+  switch (format) {
+    case 'csv':
+      return convertDataToCSV(data);
+    case 'tsv':
+      return convertDataToTSV(data);
+    case 'json':
+      return convertDataToJSON(data);
+    case 'yaml':
+      return convertDataToYAML(data);
+    case 'parquet':
+      return convertDataToParquet(data);
+    default:
+      return convertDataToCSV(data);
+  }
+};
+
+/**
+ * データをダウンロードする
+ * @param data ダウンロードするデータ
+ * @param filename ファイル名
+ * @param format ファイル形式
+ */
+export const downloadData = (data: any[], filename: string, format: 'csv'|'tsv'|'json'|'yaml'|'parquet') => {
+  // データが空の場合は何もしない
+  if (!data || data.length === 0) return;
+
+  // データを指定された形式に変換
+  const content = convertDataToFormat(data, format);
+  
+  // MIMEタイプを決定
+  let mimeType = 'text/plain';
+  switch (format) {
+    case 'csv':
+      mimeType = 'text/csv';
+      break;
+    case 'tsv':
+      mimeType = 'text/tab-separated-values';
+      break;
+    case 'json':
+      mimeType = 'application/json';
+      break;
+    case 'yaml':
+      mimeType = 'application/x-yaml';
+      break;
+    case 'parquet':
+      mimeType = 'application/octet-stream';
+      break;
+  }
+
+  // ファイル名に拡張子を追加
+  const extension = format === 'yaml' ? 'yml' : format;
+  const fullFilename = filename.endsWith(`.${extension}`) ? filename : `${filename}.${extension}`;
+
+  // ダウンロードリンクを作成
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fullFilename;
+  
+  // リンクをクリックしてダウンロード開始
+  document.body.appendChild(link);
+  link.click();
+  
+  // クリーンアップ
+  document.body.removeChild(link);
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 100);
+};
+
+/**
+ * Mermaid図式をパースする
+ * @param content Mermaidの文字列データ
+ */
+export const parseMermaid = (content: string) => {
+  try {
+    // Mermaidはテキスト形式なので、基本的なバリデーションのみ行う
+    const lines = content.trim().split('\n');
+    
+    // 空のファイルかチェック
+    if (lines.length === 0 || (lines.length === 1 && lines[0].trim() === '')) {
+      return { 
+        data: { diagram: content, type: 'unknown', valid: false },
+        error: '空のMermaidファイルです', 
+        valid: false 
+      };
+    }
+    
+    // 一般的なMermaid図式タイプを検出
+    const firstLine = lines[0].trim().toLowerCase();
+    let diagramType = 'unknown';
+    
+    if (firstLine.startsWith('graph ') || firstLine.startsWith('flowchart ')) {
+      diagramType = 'flowchart';
+    } else if (firstLine.startsWith('sequencediagram')) {
+      diagramType = 'sequence';
+    } else if (firstLine.startsWith('classdiagram')) {
+      diagramType = 'class';
+    } else if (firstLine.startsWith('statediagram')) {
+      diagramType = 'state';
+    } else if (firstLine.startsWith('erdiagram')) {
+      diagramType = 'er';
+    } else if (firstLine.startsWith('gantt')) {
+      diagramType = 'gantt';
+    } else if (firstLine.startsWith('pie')) {
+      diagramType = 'pie';
+    }
+    
+    // メタデータを収集
+    const metadata = {
+      lines: lines.length,
+      type: diagramType,
+      preview: lines.slice(0, Math.min(5, lines.length)).join('\n') + (lines.length > 5 ? '...' : '')
+    };
+    
+    return { 
+      data: { 
+        diagram: content, 
+        type: diagramType,
+        metadata,
+        valid: true 
+      }, 
+      error: null,
+      valid: true
+    };
+  } catch (error) {
+    console.error('Error parsing Mermaid file:', error);
+    return { 
+      data: { diagram: content, type: 'unknown', valid: false },
+      error: error instanceof Error ? error.message : 'Mermaid図式の解析に失敗しました',
+      valid: false 
+    };
+  }
+};

@@ -1,0 +1,20 @@
+gantt
+    title プロジェクトタイムライン
+    dateFormat  YYYY-MM-DD
+    axisFormat  %m/%d
+    
+    section 計画フェーズ
+    要件定義          :a1, 2025-01-01, 15d
+    システム設計      :a2, after a1, 20d
+    
+    section 開発フェーズ
+    コーディング      :b1, after a2, 30d
+    単体テスト        :b2, after b1, 10d
+    
+    section テストフェーズ
+    結合テスト        :c1, after b2, 15d
+    システムテスト    :c2, after c1, 10d
+    
+    section リリース
+    デプロイ準備      :d1, after c2, 5d
+    リリース          :milestone, after d1, 0d

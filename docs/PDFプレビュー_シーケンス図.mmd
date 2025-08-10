@@ -1,0 +1,14 @@
+%% PDFプレビュー（PdfPreview.tsx）のシーケンス図
+sequenceDiagram
+    participant ユーザー
+    participant PDFプレビュー
+    participant PDFjs
+
+    ユーザー->>PDFプレビュー: PDFファイルURLを指定
+    PDFプレビュー->>PDFjs: getDocument(fileUrl)
+    PDFjs-->>PDFプレビュー: PDFデータ取得
+    PDFプレビュー->>PDFjs: getPage(1)
+    PDFjs-->>PDFプレビュー: ページデータ取得
+    PDFプレビュー->>PDFjs: render(page)
+    PDFjs-->>PDFプレビュー: Canvas描画
+    PDFプレビュー-->>ユーザー: PDFプレビュー表示

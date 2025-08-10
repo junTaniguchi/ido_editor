@@ -1,0 +1,15 @@
+%% 編集可能データテーブル（EditableDataTable.tsx）のシーケンス図
+sequenceDiagram
+    participant ユーザー
+    participant 編集可能データテーブル
+    participant 親コンポーネント
+
+    ユーザー->>編集可能データテーブル: セルをクリック
+    編集可能データテーブル->>編集可能データテーブル: startEditing(rowIndex, columnId, value)
+    ユーザー->>編集可能データテーブル: 編集内容入力
+    編集可能データテーブル->>編集可能データテーブル: finishEditing()
+    編集可能データテーブル->>親コンポーネント: onDataChange(newData)
+    ユーザー->>編集可能データテーブル: 行追加/削除ボタンをクリック
+    編集可能データテーブル->>編集可能データテーブル: addNewRow()/deleteSelectedRows()
+    ユーザー->>編集可能データテーブル: 保存ボタンをクリック
+    編集可能データテーブル->>親コンポーネント: onSave(newData)

@@ -1,0 +1,1343 @@
+---
+# 製品情報リスト
+products:
+  - id: P001
+    name: 超軽量ノートパソコン Pro
+    category: 電子機器
+    subcategory: ノートパソコン
+    price: 198000
+    discount_rate: 0.1
+    in_stock: true
+    created_at: 2024-01-15T10:30:00Z
+    manufacturer:
+      name: TechCorp
+      country: 日本
+      founded_year: 1985
+    specifications:
+      processor: Intel Core i7-1260P
+      ram: 16GB
+      storage: 512GB SSD
+      display:
+        size: 14
+        resolution: 2560x1600
+        type: IPS
+        touch_screen: false
+      battery:
+        capacity: 72Wh
+        life_hours: 12
+      dimensions:
+        width: 31.5
+        depth: 22.0
+        height: 1.5
+        weight: 1.1
+      ports:
+        - type: USB-C
+          count: 2
+          supports_thunderbolt: true
+        - type: USB-A
+          count: 1
+          supports_thunderbolt: false
+        - type: HDMI
+          count: 1
+          supports_thunderbolt: false
+    colors:
+      - name: シルバー
+        hex_code: "#C0C0C0"
+        available: true
+      - name: スペースグレイ
+        hex_code: "#343434"
+        available: true
+      - name: ゴールド
+        hex_code: "#FFD700"
+        available: false
+    reviews:
+      count: 128
+      average_rating: 4.7
+      distribution:
+        5_star: 85
+        4_star: 31
+        3_star: 8
+        2_star: 3
+        1_star: 1
+    tags:
+      - 軽量
+      - ビジネス用
+      - 高性能
+      - バッテリー長持ち
+    related_products:
+      - P005
+      - P008
+      - P012
+
+  - id: P002
+    name: スマートウォッチ Health+
+    category: 電子機器
+    subcategory: ウェアラブル
+    price: 42000
+    discount_rate: 0
+    in_stock: true
+    created_at: 2024-02-10T14:15:00Z
+    manufacturer:
+      name: WearTech
+      country: アメリカ
+      founded_year: 2010
+    specifications:
+      display:
+        size: 1.4
+        resolution: 460x460
+        type: AMOLED
+        touch_screen: true
+      battery:
+        capacity: 361mAh
+        life_hours: 48
+      sensors:
+        - 心拍数
+        - 血中酸素
+        - 睡眠トラッキング
+        - GPS
+      water_resistance:
+        rating: 5ATM
+        suitable_for_swimming: true
+      dimensions:
+        width: 4.2
+        depth: 4.2
+        height: 1.2
+        weight: 0.035
+    colors:
+      - name: ブラック
+        hex_code: "#000000"
+        available: true
+      - name: シルバー
+        hex_code: "#C0C0C0"
+        available: true
+      - name: ブルー
+        hex_code: "#0000FF"
+        available: true
+    reviews:
+      count: 352
+      average_rating: 4.5
+      distribution:
+        5_star: 210
+        4_star: 98
+        3_star: 32
+        2_star: 8
+        1_star: 4
+    tags:
+      - 健康管理
+      - フィットネス
+      - GPS
+      - スポーツ
+    related_products:
+      - P007
+      - P015
+      - P021
+
+  - id: P003
+    name: スマートホームハブ Connect
+    category: スマートホーム
+    subcategory: コントローラー
+    price: 25000
+    discount_rate: 0.15
+    in_stock: true
+    created_at: 2024-01-05T09:00:00Z
+    manufacturer:
+      name: HomeConnect
+      country: 韓国
+      founded_year: 2012
+    specifications:
+      connectivity:
+        - WiFi
+        - Bluetooth
+        - Zigbee
+        - Z-Wave
+      compatibility:
+        - Amazon Alexa
+        - Google Assistant
+        - Apple HomeKit
+      power: 電源アダプター
+      dimensions:
+        width: 10.0
+        depth: 10.0
+        height: 3.5
+        weight: 0.25
+      microphones: 
+        count: 4
+        far_field: true
+      speakers:
+        power: 2W
+    colors:
+      - name: ホワイト
+        hex_code: "#FFFFFF"
+        available: true
+      - name: ブラック
+        hex_code: "#000000"
+        available: true
+    reviews:
+      count: 89
+      average_rating: 4.3
+      distribution:
+        5_star: 48
+        4_star: 28
+        3_star: 9
+        2_star: 3
+        1_star: 1
+    tags:
+      - スマートホーム
+      - IoT
+      - 音声制御
+      - 家電連携
+    related_products:
+      - P009
+      - P014
+      - P018
+
+  - id: P004
+    name: プロフェッショナルカメラ X2
+    category: カメラ
+    subcategory: 一眼レフ
+    price: 280000
+    discount_rate: 0.05
+    in_stock: false
+    created_at: 2023-11-20T11:30:00Z
+    manufacturer:
+      name: OpticsLtd
+      country: ドイツ
+      founded_year: 1968
+    specifications:
+      sensor:
+        type: CMOS
+        size: フルサイズ
+        megapixels: 45.7
+      iso_range: 100-51200
+      shutter_speed:
+        min: 1/8000
+        max: 30
+        bulb_mode: true
+      video:
+        max_resolution: 4K
+        frame_rates:
+          - 24
+          - 30
+          - 60
+      connectivity:
+        - WiFi
+        - Bluetooth
+        - USB-C
+        - HDMI
+      dimensions:
+        width: 14.6
+        depth: 7.8
+        height: 11.4
+        weight: 0.86
+    colors:
+      - name: ブラック
+        hex_code: "#000000"
+        available: true
+    reviews:
+      count: 74
+      average_rating: 4.8
+      distribution:
+        5_star: 65
+        4_star: 7
+        3_star: 2
+        2_star: 0
+        1_star: 0
+    tags:
+      - プロフェッショナル
+      - 高画質
+      - 動画撮影
+      - 低照度対応
+    related_products:
+      - P013
+      - P019
+      - P023
+
+  - id: P005
+    name: ゲーミングデスクトップPC Beast
+    category: 電子機器
+    subcategory: デスクトップPC
+    price: 320000
+    discount_rate: 0.08
+    in_stock: true
+    created_at: 2024-03-01T16:45:00Z
+    manufacturer:
+      name: GamerTech
+      country: 台湾
+      founded_year: 2008
+    specifications:
+      processor: AMD Ryzen 9 5950X
+      ram: 32GB DDR4
+      storage:
+        - type: SSD
+          capacity: 1TB
+          interface: NVMe
+        - type: HDD
+          capacity: 4TB
+          interface: SATA
+      graphics:
+        model: NVIDIA GeForce RTX 3080
+        vram: 10GB
+      cooling:
+        type: 水冷
+        fans: 6
+      power_supply: 850W 80+ Gold
+      dimensions:
+        width: 23.0
+        depth: 52.0
+        height: 50.5
+        weight: 15.0
+    colors:
+      - name: ブラック/レッド
+        hex_code: "#8B0000"
+        available: true
+      - name: ホワイト/ブルー
+        hex_code: "#00008B"
+        available: true
+    reviews:
+      count: 65
+      average_rating: 4.6
+      distribution:
+        5_star: 45
+        4_star: 15
+        3_star: 3
+        2_star: 1
+        1_star: 1
+    tags:
+      - ゲーミング
+      - 高性能
+      - カスタマイズ可能
+      - RGB照明
+    related_products:
+      - P001
+      - P011
+      - P016
+
+  - id: P006
+    name: 有機ELテレビ CinemaView
+    category: 家電
+    subcategory: テレビ
+    price: 350000
+    discount_rate: 0.12
+    in_stock: true
+    created_at: 2024-01-25T13:20:00Z
+    manufacturer:
+      name: DisplayTech
+      country: 日本
+      founded_year: 1965
+    specifications:
+      display:
+        size: 65
+        type: OLED
+        resolution: 3840x2160
+        hdr: true
+        refresh_rate: 120
+      audio:
+        speakers:
+          count: 4
+          power: 10W
+        dolby_atmos: true
+      smart_features:
+        os: SmartOS 4.0
+        voice_assistants:
+          - Google Assistant
+          - Amazon Alexa
+        apps:
+          - Netflix
+          - Amazon Prime
+          - Disney+
+          - YouTube
+      connectivity:
+        - type: HDMI
+          version: 2.1
+          count: 4
+        - type: USB
+          version: 3.0
+          count: 3
+        - type: Ethernet
+          count: 1
+        - type: Optical
+          count: 1
+      dimensions:
+        width: 144.9
+        depth: 32.6
+        height: 87.8
+        weight: 22.7
+    colors:
+      - name: ブラック
+        hex_code: "#000000"
+        available: true
+    reviews:
+      count: 112
+      average_rating: 4.7
+      distribution:
+        5_star: 88
+        4_star: 16
+        3_star: 6
+        2_star: 1
+        1_star: 1
+    tags:
+      - 4K
+      - シネマ
+      - 薄型
+      - スマートTV
+    related_products:
+      - P017
+      - P024
+      - P027
+
+  - id: P007
+    name: ワイヤレスイヤホン SoundPods
+    category: オーディオ
+    subcategory: イヤホン
+    price: 29800
+    discount_rate: 0
+    in_stock: true
+    created_at: 2024-02-18T10:10:00Z
+    manufacturer:
+      name: SoundTech
+      country: アメリカ
+      founded_year: 2005
+    specifications:
+      driver:
+        type: ダイナミック
+        size: 11mm
+      battery:
+        earbuds: 6
+        case: 24
+      noise_cancellation: アクティブノイズキャンセリング
+      water_resistance:
+        rating: IPX4
+        suitable_for_workout: true
+      connectivity:
+        - Bluetooth 5.2
+        - Google Fast Pair
+        - Apple Quick Connect
+      controls: タッチ操作
+      dimensions:
+        earbuds:
+          width: 2.1
+          depth: 1.8
+          height: 2.3
+          weight: 0.0055
+        case:
+          width: 6.0
+          depth: 2.7
+          height: 4.8
+          weight: 0.042
+    colors:
+      - name: ブラック
+        hex_code: "#000000"
+        available: true
+      - name: ホワイト
+        hex_code: "#FFFFFF"
+        available: true
+      - name: ネイビー
+        hex_code: "#000080"
+        available: true
+      - name: ピンク
+        hex_code: "#FFC0CB"
+        available: false
+    reviews:
+      count: 415
+      average_rating: 4.5
+      distribution:
+        5_star: 245
+        4_star: 121
+        3_star: 38
+        2_star: 7
+        1_star: 4
+    tags:
+      - ワイヤレス
+      - ノイズキャンセリング
+      - 防水
+      - 高音質
+    related_products:
+      - P002
+      - P022
+      - P025
+
+  - id: P008
+    name: タブレットPC SlateX
+    category: 電子機器
+    subcategory: タブレット
+    price: 89800
+    discount_rate: 0.05
+    in_stock: true
+    created_at: 2023-12-10T09:30:00Z
+    manufacturer:
+      name: TechCorp
+      country: 日本
+      founded_year: 1985
+    specifications:
+      processor: A14 Bionic
+      ram: 8GB
+      storage: 256GB
+      display:
+        size: 10.9
+        resolution: 2360x1640
+        type: Liquid Retina
+        refresh_rate: 120
+      battery:
+        capacity: 28.6Wh
+        life_hours: 10
+      camera:
+        front: 12MP
+        rear: 12MP
+      biometrics:
+        face_recognition: true
+        fingerprint: false
+      connectivity:
+        - WiFi 6
+        - Bluetooth 5.0
+        - USB-C
+      dimensions:
+        width: 17.8
+        depth: 24.7
+        height: 0.63
+        weight: 0.46
+    colors:
+      - name: スペースグレー
+        hex_code: "#343434"
+        available: true
+      - name: シルバー
+        hex_code: "#C0C0C0"
+        available: true
+      - name: ゴールド
+        hex_code: "#FFD700"
+        available: true
+      - name: ブルー
+        hex_code: "#0000FF"
+        available: false
+    reviews:
+      count: 287
+      average_rating: 4.6
+      distribution:
+        5_star: 189
+        4_star: 78
+        3_star: 16
+        2_star: 3
+        1_star: 1
+    tags:
+      - タブレット
+      - 高性能
+      - クリエイティブ
+      - 持ち運び
+    related_products:
+      - P001
+      - P005
+      - P020
+
+  - id: P009
+    name: スマート電球 ColorBright
+    category: スマートホーム
+    subcategory: 照明
+    price: 4500
+    discount_rate: 0.1
+    in_stock: true
+    created_at: 2023-11-05T15:45:00Z
+    manufacturer:
+      name: HomeConnect
+      country: 韓国
+      founded_year: 2012
+    specifications:
+      wattage: 9W
+      brightness: 800lm
+      color:
+        temperature_range:
+          min: 2700K
+          max: 6500K
+        rgb: true
+        presets:
+          - リラックス
+          - 集中
+          - パーティー
+          - 読書
+      connectivity:
+        - WiFi
+        - Bluetooth
+      compatibility:
+        - Amazon Alexa
+        - Google Assistant
+        - Apple HomeKit
+      lifespan_hours: 25000
+      dimensions:
+        diameter: 6.0
+        height: 11.5
+        weight: 0.077
+      base_type: E26
+    colors:
+      - name: ホワイト
+        hex_code: "#FFFFFF"
+        available: true
+    reviews:
+      count: 324
+      average_rating: 4.4
+      distribution:
+        5_star: 185
+        4_star: 102
+        3_star: 29
+        2_star: 5
+        1_star: 3
+    tags:
+      - スマートホーム
+      - 照明
+      - 省エネ
+      - カラフル
+    related_products:
+      - P003
+      - P014
+      - P028
+
+  - id: P010
+    name: コーヒーメーカー BaristaPro
+    category: 家電
+    subcategory: キッチン家電
+    price: 58000
+    discount_rate: 0.08
+    in_stock: false
+    created_at: 2024-01-08T11:20:00Z
+    manufacturer:
+      name: KitchenTech
+      country: イタリア
+      founded_year: 1978
+    specifications:
+      type: 全自動エスプレッソマシン
+      pressure: 19バール
+      water_tank:
+        capacity: 1.8L
+        removable: true
+      bean_container:
+        capacity: 250g
+        grinder: 内蔵セラミックグラインダー
+      milk_system:
+        type: 自動フロッサー
+        removable: true
+      programs:
+        - エスプレッソ
+        - カプチーノ
+        - ラテ
+        - アメリカーノ
+        - ホットウォーター
+      display: タッチスクリーン
+      dimensions:
+        width: 28.0
+        depth: 44.0
+        height: 36.5
+        weight: 9.5
+      power: 1450W
+    colors:
+      - name: シルバー
+        hex_code: "#C0C0C0"
+        available: true
+      - name: ブラック
+        hex_code: "#000000"
+        available: true
+    reviews:
+      count: 156
+      average_rating: 4.6
+      distribution:
+        5_star: 108
+        4_star: 36
+        3_star: 9
+        2_star: 2
+        1_star: 1
+    tags:
+      - コーヒー
+      - バリスタ
+      - 全自動
+      - エスプレッソ
+    related_products:
+      - P026
+      - P029
+      - P030
+
+  - id: P011
+    name: ゲーミングモニター UltraSpeed
+    category: 電子機器
+    subcategory: モニター
+    price: 78000
+    discount_rate: 0.05
+    in_stock: true
+    created_at: 2024-02-05T14:30:00Z
+    manufacturer:
+      name: DisplayTech
+      country: 日本
+      founded_year: 1965
+    specifications:
+      display:
+        size: 27
+        resolution: 2560x1440
+        panel_type: IPS
+        refresh_rate: 240
+        response_time: 1
+      features:
+        adaptive_sync:
+          - NVIDIA G-Sync
+          - AMD FreeSync Premium Pro
+        hdr: HDR400
+        color_gamut:
+          srgb: 99%
+          dci_p3: 95%
+      connectivity:
+        - type: DisplayPort
+          version: 1.4
+          count: 1
+        - type: HDMI
+          version: 2.0
+          count: 2
+        - type: USB
+          version: 3.0
+          count: 4
+      ergonomics:
+        height_adjustable: true
+        tilt: true
+        swivel: true
+        pivot: true
+      dimensions:
+        width: 61.3
+        depth: 21.7
+        height: 51.8
+        weight: 6.5
+    colors:
+      - name: ブラック
+        hex_code: "#000000"
+        available: true
+    reviews:
+      count: 189
+      average_rating: 4.7
+      distribution:
+        5_star: 151
+        4_star: 25
+        3_star: 10
+        2_star: 2
+        1_star: 1
+    tags:
+      - ゲーミング
+      - 高リフレッシュレート
+      - 低遅延
+      - QHD
+    related_products:
+      - P005
+      - P016
+      - P024
+
+  - id: P012
+    name: ポータブルSSD Ultra
+    category: 電子機器
+    subcategory: ストレージ
+    price: 25000
+    discount_rate: 0
+    in_stock: true
+    created_at: 2023-12-20T13:15:00Z
+    manufacturer:
+      name: DataTech
+      country: アメリカ
+      founded_year: 1998
+    specifications:
+      capacity: 1TB
+      interface: USB 3.2 Gen 2x2
+      max_speed:
+        read: 2000MB/s
+        write: 1900MB/s
+      encryption: AES 256ビット
+      durability:
+        drop_resistance: 2m
+        water_resistance:
+          rating: IP55
+          suitable_for_rain: true
+        temperature_range:
+          operating:
+            min: 0
+            max: 45
+          storage:
+            min: -20
+            max: 85
+      dimensions:
+        width: 5.0
+        depth: 10.0
+        height: 1.0
+        weight: 0.048
+    colors:
+      - name: ブラック
+        hex_code: "#000000"
+        available: true
+      - name: ブルー
+        hex_code: "#0000FF"
+        available: true
+      - name: レッド
+        hex_code: "#FF0000"
+        available: true
+    reviews:
+      count: 278
+      average_rating: 4.8
+      distribution:
+        5_star: 236
+        4_star: 33
+        3_star: 7
+        2_star: 1
+        1_star: 1
+    tags:
+      - SSD
+      - 高速
+      - ポータブル
+      - 堅牢
+    related_products:
+      - P001
+      - P005
+      - P020
+
+  - id: P013
+    name: ドローン SkyExplorer
+    category: カメラ
+    subcategory: ドローン
+    price: 150000
+    discount_rate: 0.05
+    in_stock: true
+    created_at: 2024-01-15T09:45:00Z
+    manufacturer:
+      name: AeroCorp
+      country: 中国
+      founded_year: 2013
+    specifications:
+      flight:
+        max_flight_time: 31
+        max_speed: 72
+        max_distance: 15000
+        max_altitude: 5000
+        wind_resistance: 38
+      camera:
+        sensor: 1インチCMOS
+        resolution: 20MP
+        video:
+          max_resolution: 5.4K
+          frame_rates:
+            - 24
+            - 30
+            - 60
+        stabilization: 3軸ジンバル
+      battery:
+        capacity: 5000mAh
+        type: LiPo 4S
+        quick_charge: true
+      features:
+        obstacle_avoidance: 全方向
+        tracking_modes:
+          - ActiveTrack
+          - Spotlight
+          - POI
+        return_to_home: GPS支援
+      dimensions:
+        folded:
+          width: 18.0
+          depth: 9.7
+          height: 8.4
+        unfolded:
+          width: 30.3
+          depth: 24.1
+          height: 8.4
+        weight: 0.59
+    colors:
+      - name: グレー
+        hex_code: "#808080"
+        available: true
+    reviews:
+      count: 87
+      average_rating: 4.7
+      distribution:
+        5_star: 68
+        4_star: 14
+        3_star: 4
+        2_star: 1
+        1_star: 0
+    tags:
+      - ドローン
+      - 空撮
+      - 4K
+      - 長時間飛行
+    related_products:
+      - P004
+      - P019
+      - P023
+
+  - id: P014
+    name: スマートスピーカー EchoSound
+    category: スマートホーム
+    subcategory: スピーカー
+    price: 18000
+    discount_rate: 0.1
+    in_stock: true
+    created_at: 2023-11-10T16:30:00Z
+    manufacturer:
+      name: VoiceTech
+      country: アメリカ
+      founded_year: 2009
+    specifications:
+      audio:
+        speakers:
+          woofer: 3インチ
+          tweeter: デュアル0.8インチ
+        dolby_audio: true
+        room_adaptation: true
+      microphones:
+        count: 6
+        far_field: true
+        voice_recognition: 指向性ビームフォーミング
+      assistant: VoiceAssistant
+      connectivity:
+        - WiFi
+        - Bluetooth
+        - Zigbee
+        - Matter
+      smart_home_control:
+        compatible_devices:
+          - ライト
+          - サーモスタット
+          - ドアロック
+          - カメラ
+      dimensions:
+        diameter: 14.8
+        height: 17.5
+        weight: 0.97
+      power: 30W
+    colors:
+      - name: チャコール
+        hex_code: "#36454F"
+        available: true
+      - name: サンドストーン
+        hex_code: "#F5DEB3"
+        available: true
+      - name: ブルー
+        hex_code: "#1E90FF"
+        available: false
+    reviews:
+      count: 412
+      average_rating: 4.4
+      distribution:
+        5_star: 246
+        4_star: 124
+        3_star: 32
+        2_star: 7
+        1_star: 3
+    tags:
+      - スマートスピーカー
+      - 音声アシスタント
+      - スマートホーム
+      - 高音質
+    related_products:
+      - P003
+      - P009
+      - P022
+
+  - id: P015
+    name: フィットネストラッカー ActiveBand
+    category: 電子機器
+    subcategory: ウェアラブル
+    price: 15800
+    discount_rate: 0
+    in_stock: true
+    created_at: 2024-01-05T10:00:00Z
+    manufacturer:
+      name: FitTech
+      country: アメリカ
+      founded_year: 2011
+    specifications:
+      display:
+        size: 1.1
+        resolution: 126x294
+        type: AMOLED
+        touch_screen: true
+      battery:
+        capacity: 180mAh
+        life_days: 7
+      sensors:
+        - 心拍数
+        - 血中酸素
+        - 睡眠トラッキング
+        - 歩数計
+        - 階段計
+      water_resistance:
+        rating: 5ATM
+        suitable_for_swimming: true
+      connectivity:
+        - Bluetooth 5.0
+      dimensions:
+        width: 1.8
+        depth: 1.2
+        height: 1.0
+        weight: 0.023
+      band:
+        material: シリコン
+        width: 1.8
+    colors:
+      - name: ブラック
+        hex_code: "#000000"
+        available: true
+      - name: ブルー
+        hex_code: "#0000FF"
+        available: true
+      - name: レッド
+        hex_code: "#FF0000"
+        available: true
+      - name: グリーン
+        hex_code: "#008000"
+        available: false
+    reviews:
+      count: 563
+      average_rating: 4.3
+      distribution:
+        5_star: 287
+        4_star: 186
+        3_star: 67
+        2_star: 18
+        1_star: 5
+    tags:
+      - フィットネス
+      - 活動量計
+      - 健康管理
+      - 防水
+    related_products:
+      - P002
+      - P007
+      - P021
+
+  - id: P016
+    name: ゲーミングキーボード MechMaster
+    category: 電子機器
+    subcategory: 周辺機器
+    price: 19800
+    discount_rate: 0
+    in_stock: true
+    created_at: 2023-12-15T14:20:00Z
+    manufacturer:
+      name: GamerTech
+      country: 台湾
+      founded_year: 2008
+    specifications:
+      switch:
+        type: メカニカル
+        model: 独自スイッチ
+        actuation_force: 45g
+        travel_distance: 2.0mm
+        lifespan: 8000万回
+      keycaps:
+        material: PBT
+        double_shot: true
+      layout: 日本語配列
+      features:
+        nkro: true
+        anti_ghosting: true
+        macro_keys: 6
+        media_controls: true
+        wrist_rest: 着脱式
+      lighting:
+        rgb: true
+        per_key: true
+        effects: 16
+      connectivity:
+        - USB-C（取り外し可能）
+      dimensions:
+        width: 44.0
+        depth: 14.0
+        height: 4.0
+        weight: 1.1
+    colors:
+      - name: ブラック
+        hex_code: "#000000"
+        available: true
+      - name: ホワイト
+        hex_code: "#FFFFFF"
+        available: true
+    reviews:
+      count: 276
+      average_rating: 4.6
+      distribution:
+        5_star: 196
+        4_star: 58
+        3_star: 18
+        2_star: 3
+        1_star: 1
+    tags:
+      - ゲーミング
+      - メカニカルキーボード
+      - RGB
+      - カスタマイズ可能
+    related_products:
+      - P005
+      - P011
+      - P031
+
+  - id: P017
+    name: ホームシアタープロジェクター CinemaX
+    category: 家電
+    subcategory: プロジェクター
+    price: 248000
+    discount_rate: 0.1
+    in_stock: true
+    created_at: 2024-02-20T15:30:00Z
+    manufacturer:
+      name: ProjectorTech
+      country: 日本
+      founded_year: 1980
+    specifications:
+      display:
+        technology: DLP
+        native_resolution: 3840x2160
+        brightness: 2500ANSI
+        contrast_ratio: 1000000:1
+        hdr: HDR10
+        laser: true
+      projection:
+        screen_size:
+          min: 60
+          max: 150
+        throw_ratio: 0.23:1
+        lens_shift: 垂直±60%、水平±30%
+      audio:
+        speakers:
+          count: 2
+          power: 10W
+        dolby_audio: true
+      connectivity:
+        - type: HDMI
+          version: 2.0
+          count: 3
+        - type: USB
+          version: 3.0
+          count: 2
+        - type: Ethernet
+          count: 1
+        - type: Optical
+          count: 1
+      smart_features:
+        os: ProjectorOS
+        apps:
+          - Netflix
+          - Amazon Prime
+          - Disney+
+          - YouTube
+      dimensions:
+        width: 50.0
+        depth: 38.0
+        height: 15.0
+        weight: 9.5
+      lamp_life: 20000
+    colors:
+      - name: ホワイト
+        hex_code: "#FFFFFF"
+        available: true
+      - name: ブラック
+        hex_code: "#000000"
+        available: true
+    reviews:
+      count: 64
+      average_rating: 4.8
+      distribution:
+        5_star: 54
+        4_star: 8
+        3_star: 2
+        2_star: 0
+        1_star: 0
+    tags:
+      - 4K
+      - プロジェクター
+      - ホームシアター
+      - HDR
+    related_products:
+      - P006
+      - P024
+      - P027
+
+  - id: P018
+    name: スマート空気清浄機 PureAir
+    category: スマートホーム
+    subcategory: 空気清浄機
+    price: 45000
+    discount_rate: 0.05
+    in_stock: true
+    created_at: 2023-11-25T11:10:00Z
+    manufacturer:
+      name: HomeConnect
+      country: 韓国
+      founded_year: 2012
+    specifications:
+      filtration:
+        hepa: H13
+        carbon: 活性炭
+        ion: マイナスイオン
+        uv: UVライト
+      coverage: 60㎡
+      cadr: 500㎥/h
+      noise_level:
+        min: 24
+        max: 52
+      sensors:
+        - PM2.5
+        - VOC
+        - 湿度
+        - 温度
+      modes:
+        - 自動
+        - 睡眠
+        - ターボ
+        - エコ
+      connectivity:
+        - WiFi
+        - Bluetooth
+      compatibility:
+        - Amazon Alexa
+        - Google Assistant
+        - Apple HomeKit
+      dimensions:
+        width: 31.0
+        depth: 31.0
+        height: 68.0
+        weight: 8.5
+      power: 55W
+    colors:
+      - name: ホワイト
+        hex_code: "#FFFFFF"
+        available: true
+      - name: シルバー
+        hex_code: "#C0C0C0"
+        available: true
+    reviews:
+      count: 187
+      average_rating: 4.5
+      distribution:
+        5_star: 120
+        4_star: 48
+        3_star: 15
+        2_star: 3
+        1_star: 1
+    tags:
+      - 空気清浄
+      - スマートホーム
+      - HEPA
+      - 静音
+    related_products:
+      - P003
+      - P009
+      - P029
+
+  - id: P019
+    name: 望遠レンズ 70-200mm F2.8
+    category: カメラ
+    subcategory: レンズ
+    price: 198000
+    discount_rate: 0
+    in_stock: true
+    created_at: 2024-01-10T13:45:00Z
+    manufacturer:
+      name: OpticsLtd
+      country: ドイツ
+      founded_year: 1968
+    specifications:
+      optics:
+        focal_length: 70-200mm
+        maximum_aperture: F2.8
+        minimum_aperture: F22
+        lens_construction:
+          elements: 23
+          groups: 19
+        angle_of_view: 34.3°-12.5°
+        minimum_focus_distance: 0.96m
+      features:
+        image_stabilization: 5.5段
+        weather_sealing: 防塵防滴
+        focus_motor: リニアモーター
+        focus_limiter: あり
+      filter_size: 77mm
+      dimensions:
+        diameter: 88mm
+        length: 197mm
+        weight: 1.3
+      mount: Universal Pro Mount
+    colors:
+      - name: ブラック
+        hex_code: "#000000"
+        available: true
+    reviews:
+      count: 126
+      average_rating: 4.9
+      distribution:
+        5_star: 115
+        4_star: 10
+        3_star: 1
+        2_star: 0
+        1_star: 0
+    tags:
+      - レンズ
+      - 望遠
+      - F2.8
+      - プロフェッショナル
+    related_products:
+      - P004
+      - P013
+      - P023
+
+  - id: P020
+    name: グラフィックタブレット ProDraw
+    category: 電子機器
+    subcategory: タブレット
+    price: 85000
+    discount_rate: 0.05
+    in_stock: true
+    created_at: 2023-12-05T09:15:00Z
+    manufacturer:
+      name: CreativeTech
+      country: 日本
+      founded_year: 1992
+    specifications:
+      display:
+        size: 16
+        resolution: 3840x2160
+        colors: 16.7M
+        color_gamut:
+          srgb: 99%
+          adobe_rgb: 95%
+        laminated: true
+      pen:
+        pressure_levels: 8192
+        tilt_recognition: true
+        accuracy: ±0.5mm
+        hover_distance: 10mm
+        buttons: 2
+      express_keys: 8
+      connectivity:
+        - USB-C
+        - HDMI
+        - DisplayPort
+      dimensions:
+        width: 42.7
+        depth: 28.5
+        height: 1.8
+        weight: 1.6
+      stand:
+        included: true
+        adjustable: true
+        angles:
+          - 16°
+          - 19°
+          - 22°
+    colors:
+      - name: ブラック
+        hex_code: "#000000"
+        available: true
+    reviews:
+      count: 143
+      average_rating: 4.7
+      distribution:
+        5_star: 112
+        4_star: 23
+        3_star: 7
+        2_star: 1
+        1_star: 0
+    tags:
+      - グラフィックタブレット
+      - イラスト
+      - デザイン
+      - 4K
+    related_products:
+      - P008
+      - P012
+      - P032

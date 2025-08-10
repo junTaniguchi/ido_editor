@@ -1,0 +1,376 @@
+import Papa from 'papaparse';
+import YAML from 'js-yaml';
+import { tableFromArrays, Table } from 'apache-arrow';
+
+/**
+ * CSVデータをパースする
+ * @param content CSVの文字列データ
+ * @param delimiter 区切り文字（デフォルトはカンマ）
+ */
+export const parseCSV = (content: string, delimiter: string = ',') => {
+  try {
+    // デバッグ情報を追加（最初の数行のみ）
+    const sampleLines = content.split('\n').slice(0, 5).join('\n');
+    console.log('CSV解析デバッグ - 入力データサンプル:', sampleLines);
+    
+    // CSVヘッダー行を取得して列名を確認
+    const headerLine = content.split('\n')[0];
+    console.log('CSV解析デバッグ - ヘッダー行:', headerLine);
+    
+    const result = Papa.parse(content, {
+      header: true,
+      skipEmptyLines: true,
+      delimiter,
+      dynamicTyping: true, // 自動的に数値や真偽値に変換
+      // 空の値は undefined として扱い、0 に変換しないようにする
+      transformHeader: (header) => header.trim(),
+      transform: (value, field) => {
+        // デバッグ用に変換前の値を記録
+        if (field === 'sepal_length' || field === 'sepal_width' || field === 'petal_length' || field === 'petal_width') {
+          console.log(`CSV解析デバッグ - 列[${field}]の値変換:`, { 変換前: value, 型: typeof value });
+        }
+        
+        if (value === '') return null; // 空文字列は null に変換
+        
+        // 数値らしき文字列は明示的に数値に変換（PapaParseのdynamicTypingを補完）
+        if (typeof value === 'string' && /^-?\d*\.?\d+$/.test(value.trim())) {
+          const numValue = parseFloat(value);
+          if (!isNaN(numValue)) {
+            return numValue;
+          }
+        }
+        
+        return value; // その他の値はそのまま
+      }
+    });
+    
+    // 解析結果のサンプルをログに出力
+    if (result.data && result.data.length > 0) {
+      const firstRow = result.data[0] as Record<string, unknown>;
+      console.log('CSV解析デバッグ - 解析結果サンプル:', {
+        最初の行: firstRow,
+        カラム: result.meta.fields,
+        データの型: Object.entries(firstRow).map(([key, value]) => ({
+          列名: key,
+          値: value,
+          型: typeof value
+        }))
+      });
+    }
+    
+    return {
+      columns: result.meta.fields || [],
+      data: result.data,
+      error: null
+    };
+  } catch (error) {
+    console.error('Error parsing CSV:', error);
+    return {
+      columns: [],
+      data: [],
+      error: error instanceof Error ? error.message : 'CSV解析エラー'
+    };
+  }
+};
+
+/**
+ * JSONデータをパースする
+ * @param content JSONの文字列データ
+ */
+export const parseJSON = (content: string) => {
+  try {
+    const data = JSON.parse(content);
+    return { data, error: null };
+  } catch (error) {
+    console.error('Error parsing JSON:', error);
+    return { 
+      data: null, 
+      error: error instanceof Error ? error.message : 'JSON解析エラー'
+    };
+  }
+};
+
+/**
+ * ネストされたオブジェクトをフラット化する
+ * @param data オブジェクトまたは配列
+ * @param parentKey 親キー（階層表現用）
+ * @returns フラット化されたオブジェクト配列
+ */
+export const flattenNestedObjects = (data: any, parentPrefix: string = ''): any[] => {
+  // YAMLやJSONでトップレベルがオブジェクトで、その中に配列がある場合の特別処理
+  if (!Array.isArray(data) && data !== null && typeof data === 'object') {
+    // トップレベルのキーを探し、配列を見つける
+    const arrayKeys = Object.keys(data).filter(key => Array.isArray(data[key]));
+    
+    if (arrayKeys.length > 0) {
+      // 最初の配列を使用（複数ある場合は最初のものを優先）
+      const firstArrayKey = arrayKeys[0];
+      const arrayData = data[firstArrayKey];
+      
+      // 配列をフラット化して返す
+      if (Array.isArray(arrayData) && arrayData.length > 0) {
+        return flattenNestedObjects(arrayData, firstArrayKey);
+      }
+    }
+  }
+
+  // 通常のフラット化処理
+  if (!Array.isArray(data) || data.length === 0) {
+    return Array.isArray(data) ? data : [];
+  }
+  
+  // データがオブジェクトの配列かチェック
+  const allObjects = data.every(item => item !== null && typeof item === 'object' && !Array.isArray(item));
+  if (!allObjects) {
+    return data;
+  }
+  
+  // すべてのネストされたオブジェクトとプロパティを検出
+  const nestedProperties = new Map<string, boolean>();
+  
+  data.forEach(item => {
+    if (item !== null && typeof item === 'object') {
+      Object.entries(item).forEach(([key, value]) => {
+        if (value !== null && typeof value === 'object') {
+          nestedProperties.set(key, true);
+        }
+      });
+    }
+  });
+  
+  // 結果のフラット化データ
+  const flattened = data.map(item => {
+    const flatItem: Record<string, any> = {};
+    
+    Object.entries(item).forEach(([key, value]) => {
+      if (value !== null && typeof value === 'object') {
+        // ネストされたオブジェクト/配列の処理
+        if (Array.isArray(value)) {
+          // 配列の場合、各要素を親のキー名付きでフラット化
+          const prefix = parentPrefix ? `${parentPrefix}.${key}` : key;
+          
+          // 配列の各要素がオブジェクトの場合
+          if (value.length > 0 && typeof value[0] === 'object' && !Array.isArray(value[0])) {
+            Object.keys(value[0]).forEach(nestedKey => {
+              value.forEach((nestedItem, index) => {
+                if (nestedItem && typeof nestedItem === 'object') {
+                  flatItem[`${prefix}[${index}].${nestedKey}`] = nestedItem[nestedKey];
+                }
+              });
+            });
+          } else {
+            // 配列の要素がプリミティブな場合
+            value.forEach((val, index) => {
+              flatItem[`${prefix}[${index}]`] = val;
+            });
+          }
+        } else if (typeof value === 'object') {
+          // ネストされたオブジェクトの場合
+          const prefix = parentPrefix ? `${parentPrefix}.${key}` : key;
+          
+          Object.entries(value).forEach(([nestedKey, nestedValue]) => {
+            flatItem[`${prefix}.${nestedKey}`] = nestedValue;
+          });
+        }
+      } else {
+        // 通常のプロパティはそのまま追加
+        flatItem[key] = value;
+      }
+    });
+    
+    return flatItem;
+  });
+  
+  return flattened;
+};
+
+/**
+ * YAMLデータをパースする
+ * @param content YAMLの文字列データ
+ */
+export const parseYAML = (content: string) => {
+  try {
+    const data = YAML.load(content);
+    return { data, error: null };
+  } catch (error) {
+    console.error('Error parsing YAML:', error);
+    return { 
+      data: null, 
+      error: error instanceof Error ? error.message : 'YAML解析エラー'
+    };
+  }
+};
+
+/**
+ * Parquetデータをパースする (ブラウザではサポート制限あり)
+ * @param content Parquetの文字列データ（実際はバイナリデータ）
+ */
+export const parseParquet = async (content: string): Promise<{
+  table: Table | null;
+  headers: string[];
+  rows: any[][];
+  error: string | null;
+}> => {
+  try {
+    // ブラウザでのParquet解析は複雑なため、簡易的な対応として
+    // CSVのようにテキストベースで処理する
+    // 注: 実際のParquetファイルはバイナリなので、本来はapache-arrowを使用してバイナリ解析が必要
+    
+    // 行に分割し、先頭行をヘッダーとして扱う（簡易的処理）
+    const lines = content.split('\n').filter(line => line.trim().length > 0);
+    
+    if (lines.length === 0) {
+      return {
+        table: null,
+        headers: [],
+        rows: [],
+        error: 'データが空です'
+      };
+    }
+    
+    // 1行目をヘッダーとして扱う
+    const headers = lines[0].split(/[,\t]/).map(h => h.trim());
+    
+    // 2行目以降をデータとして扱う
+    const rows = lines.slice(1).map(line => {
+      const values = line.split(/[,\t]/);
+      // ヘッダー数に合わせて配列の長さを調整
+      while (values.length < headers.length) {
+        values.push('');
+      }
+      return values.slice(0, headers.length);
+    });
+    
+    // Apache Arrowのテーブルに変換
+    try {
+      const table = tableFromArrays({
+        columns: headers.map((h, i) => {
+          const columnData = rows.map(r => r[i] || '');
+          return { name: h, data: columnData };
+        })
+      });
+      
+      return {
+        table,
+        headers,
+        rows,
+        error: null
+      };
+    } catch (arrowError) {
+      console.error('Arrow table creation error:', arrowError);
+      // テーブル作成に失敗してもヘッダーとデータは返す
+      return {
+        table: null,
+        headers,
+        rows,
+        error: null
+      };
+    }
+  } catch (error) {
+    console.error('Error parsing Parquet:', error);
+    return { 
+      table: null,
+      headers: [],
+      rows: [],
+      error: error instanceof Error ? error.message : 'Parquetファイル解析エラー'
+    };
+  }
+};
+
+/**
+ * ファイルの拡張子からファイルタイプを判定する
+ * @param fileName ファイル名
+ */
+/**
+ * Mermaid図式をパースする
+ * @param content Mermaidの文字列データ
+ */
+export const parseMermaid = (content: string) => {
+  try {
+    // Mermaidはテキスト形式なので、基本的なバリデーションのみ行う
+    const lines = content.trim().split('\n');
+    
+    // 空のファイルかチェック
+    if (lines.length === 0 || (lines.length === 1 && lines[0].trim() === '')) {
+      return { 
+        data: { diagram: content, type: 'unknown', valid: false },
+        error: '空のMermaidファイルです', 
+        valid: false 
+      };
+    }
+    
+    // 一般的なMermaid図式タイプを検出
+    const firstLine = lines[0].trim().toLowerCase();
+    let diagramType = 'unknown';
+    
+    if (firstLine.startsWith('graph ') || firstLine.startsWith('flowchart ')) {
+      diagramType = 'flowchart';
+    } else if (firstLine.startsWith('sequencediagram')) {
+      diagramType = 'sequence';
+    } else if (firstLine.startsWith('classdiagram')) {
+      diagramType = 'class';
+    } else if (firstLine.startsWith('statediagram')) {
+      diagramType = 'state';
+    } else if (firstLine.startsWith('erdiagram')) {
+      diagramType = 'er';
+    } else if (firstLine.startsWith('gantt')) {
+      diagramType = 'gantt';
+    } else if (firstLine.startsWith('pie')) {
+      diagramType = 'pie';
+    }
+    
+    // メタデータを収集
+    const metadata = {
+      lines: lines.length,
+      type: diagramType,
+      preview: lines.slice(0, Math.min(5, lines.length)).join('\n') + (lines.length > 5 ? '...' : '')
+    };
+    
+    return { 
+      data: { 
+        diagram: content, 
+        type: diagramType,
+        metadata,
+        valid: true 
+      }, 
+      error: null,
+      valid: true
+    };
+  } catch (error) {
+    console.error('Error parsing Mermaid file:', error);
+    return { 
+      data: { diagram: content, type: 'unknown', valid: false },
+      error: error instanceof Error ? error.message : 'Mermaid図式の解析に失敗しました',
+      valid: false 
+    };
+  }
+};
+
+export const getFileType = (fileName: string): 'text' | 'markdown' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' => {
+  const extension = fileName.split('.').pop()?.toLowerCase() || '';
+  
+  switch (extension) {
+    case 'md':
+      return 'markdown';
+    case 'html':
+    case 'htm':
+      return 'html';
+    case 'json':
+      return 'json';
+    case 'yml':
+    case 'yaml':
+      return 'yaml';
+    case 'sql':
+      return 'sql';
+    case 'csv':
+      return 'csv';
+    case 'tsv':
+      return 'tsv';
+    case 'parquet':
+      return 'parquet';
+    case 'mmd':
+      return 'mermaid';
+    default:
+      return 'text';
+  }
+};

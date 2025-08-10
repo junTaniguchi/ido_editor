@@ -1,0 +1,28 @@
+erDiagram
+    顧客 ||--o{ 注文 : 行う
+    顧客 {
+        int 顧客ID
+        string 名前
+        string メール
+        string 住所
+    }
+    注文 ||--|{ 注文項目 : 含む
+    注文 {
+        int 注文ID
+        int 顧客ID
+        date 注文日
+        decimal 合計金額
+    }
+    商品 ||--o{ 注文項目 : 含まれる
+    商品 {
+        int 商品ID
+        string 商品名
+        decimal 価格
+        int 在庫数
+    }
+    注文項目 {
+        int 注文項目ID
+        int 注文ID
+        int 商品ID
+        int 数量
+    }

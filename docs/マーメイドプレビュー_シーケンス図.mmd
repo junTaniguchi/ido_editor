@@ -1,0 +1,11 @@
+%% マーメイドプレビュー（MermaidPreview.tsx）のシーケンス図
+sequenceDiagram
+    participant ユーザー
+    participant マーメイドプレビュー
+    participant Mermaidライブラリ
+
+    ユーザー->>マーメイドプレビュー: Mermaid記法テキストを入力
+    マーメイドプレビュー->>Mermaidライブラリ: mermaid.render(content)
+    Mermaidライブラリ-->>マーメイドプレビュー: SVG生成
+    マーメイドプレビュー-->>ユーザー: グラフプレビュー表示
+    Mermaidライブラリ-->>マーメイドプレビュー: エラー発生時はエラーメッセージ表示

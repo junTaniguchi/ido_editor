@@ -1,0 +1,10 @@
+%% マークダウンプレビュー（MarkdownPreview.tsx）のシーケンス図
+sequenceDiagram
+    participant ユーザー
+    participant マークダウンプレビュー
+    participant レンダラー
+
+    ユーザー->>マークダウンプレビュー: Markdownテキストを入力
+    マークダウンプレビュー->>レンダラー: MarkdownをHTMLに変換
+    レンダラー-->>マークダウンプレビュー: HTML出力
+    マークダウンプレビュー-->>ユーザー: プレビュー表示

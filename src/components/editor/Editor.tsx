@@ -1,0 +1,287 @@
+
+/**
+ * Editor.tsx
+ * このファイルは、CodeMirrorベースのエディタと、Markdown/データ/Mermaidプレビューを切り替えて表示するReactコンポーネントです。
+ * 主な機能:
+ * - タブごとのエディタ・プレビュー表示
+ * - CodeMirrorによるコード編集
+ * - Markdown/データ/Mermaidプレビュー
+ * - エディタ設定・保存・分析
+ */
+'use client';
+
+import React, { useEffect, useState, useRef, forwardRef } from 'react';
+import CodeMirror from '@uiw/react-codemirror';
+import { useEditorStore } from '@/store/editorStore';
+import { getLanguageByFileName, getTheme, getEditorExtensions } from '@/lib/editorUtils';
+import { TabData } from '@/types';
+import { IoCodeSlash, IoEye, IoAnalytics, IoSave, IoGrid } from 'react-icons/io5';
+import DataPreview from '@/components/preview/DataPreview';
+import MermaidPreview from '@/components/preview/MermaidPreview';
+import MarkdownPreview from '@/components/preview/MarkdownPreview';
+import MarkdownEditorExtension from '@/components/markdown/MarkdownEditorExtension';
+
+export interface EditorProps {
+  tabId: string;
+  onScroll?: (e: React.UIEvent<HTMLDivElement>) => void;
+}
+
+/**
+ * Editorコンポーネント
+ * CodeMirrorベースのエディタと、Markdown/データ/Mermaidプレビューを切り替えて表示する。
+ * - タブごとのエディタ・プレビュー表示
+ * - CodeMirrorによるコード編集
+ * - Markdown/データ/Mermaidプレビュー
+ * - エディタ設定・保存・分析
+ * @param tabId 編集対象タブID
+ * @param onScroll スクロールイベントコールバック
+ */
+const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref) => {
+  const { 
+    tabs, 
+    updateTab, 
+    editorSettings, 
+    getViewMode,
+    setViewMode,
+    paneState,
+    updatePaneState
+  } = useEditorStore();
+  
+  const [currentTab, setCurrentTab] = useState<TabData | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const editorRef = useRef(null);
+  // CodeMirrorのscroller要素をrefで取得
+  const codeMirrorScrollerRef = useRef<HTMLDivElement | null>(null);
+  
+  const viewMode = getViewMode(tabId);
+  
+  // 初期化時にタブデータを設定
+  useEffect(() => {
+    const tab = tabs.get(tabId);
+    if (tab) {
+      setCurrentTab(tab);
+      setIsDirty(tab.isDirty);
+      setIsInitialized(true);
+    }
+  }, [tabId, tabs]);
+  
+  // エディタの変更処理
+  const handleChange = (value: string) => {
+    if (!currentTab) return;
+    
+    // 内容が変更されたかチェック
+    const newIsDirty = value !== currentTab.originalContent;
+    
+    // ストアの状態を更新
+    updateTab(tabId, {
+      content: value,
+      isDirty: newIsDirty,
+    });
+    
+    // ローカルの状態も更新
+    setIsDirty(newIsDirty);
+    setCurrentTab((prev) => {
+      if (!prev) return null;
+      return { ...prev, content: value, isDirty: newIsDirty };
+    });
+  };
+  
+  const toggleViewMode = () => {
+    // エディタ → プレビュー → 分割表示 → エディタ の順に切り替え
+    let newMode: 'editor' | 'preview' | 'split';
+    if (viewMode === 'editor') {
+      newMode = 'preview';
+    } else if (viewMode === 'preview') {
+      newMode = 'split';
+    } else {
+      newMode = 'editor';
+    }
+    
+    // 設定前にログ出力（デバッグ用）
+    console.log(`タブID: ${tabId}, 現在のモード: ${viewMode}, 新しいモード: ${newMode}, ファイルタイプ: ${currentTab?.type}`);
+    
+    // モード変更を適用（editorStoreに保存）
+    setViewMode(tabId, newMode);
+    
+    // 強制的に状態を更新して再レンダリングを促す
+    // これによりモード変更が確実に反映されるようにする
+    setTimeout(() => {
+      const currentMode = getViewMode(tabId);
+      console.log(`適用後の状態確認 - タブID: ${tabId}, モード: ${currentMode}`);
+      
+      // ここで強制的にローカル状態も更新
+      if (currentTab) {
+        setCurrentTab({...currentTab}); // 新しいオブジェクトを作成して再レンダリングを強制
+      }
+    }, 50);
+  };
+  
+  const toggleAnalysisMode = () => {
+    updatePaneState({ isAnalysisVisible: !paneState.isAnalysisVisible });
+  };
+
+  // ファイルの保存処理
+  const saveFile = () => {
+    if (!currentTab) return;
+
+    // タブの状態を更新して保存済みにする
+    updateTab(tabId, {
+      originalContent: currentTab.content,
+      isDirty: false
+    });
+
+    // ローカルの状態も更新
+    setIsDirty(false);
+    setCurrentTab((prev) => {
+      if (!prev) return null;
+      return { ...prev, originalContent: prev.content, isDirty: false };
+    });
+  };
+  
+  // タブデータがなければ何も表示しない
+  if (!currentTab || !isInitialized) {
+    return (
+      <div className="flex items-center justify-center h-full text-gray-500">
+        ファイルが選択されていません
+      </div>
+    );
+  }
+  
+  // 対応するファイルタイプかどうかチェック
+  const isPreviewable = currentTab.type === 'csv' || currentTab.type === 'tsv' || 
+                          currentTab.type === 'json' || currentTab.type === 'yaml' || 
+                          currentTab.type === 'parquet' || currentTab.type === 'mermaid' || 
+                          currentTab.type === 'markdown' || currentTab.type === 'md' || 
+                          currentTab.type === 'mmd';
+  
+  // エディタ設定
+  const { theme, fontSize, lineWrapping, rectangularSelection } = editorSettings;
+  const isDarkTheme = theme === 'dark';
+  const language = getLanguageByFileName(currentTab.name);
+  const themeExtension = getTheme(isDarkTheme);
+  const extensions = getEditorExtensions(language, themeExtension, currentTab.isReadOnly, lineWrapping, rectangularSelection);
+  
+  return (
+    <div className="h-full flex flex-col">
+      {isPreviewable && (
+        <div className="p-2 border-b border-gray-300 dark:border-gray-700 flex justify-between items-center">
+          <div className="flex items-center">
+            <span className="font-medium mr-2">エディタモード</span>
+            {isDirty && <span className="text-sm text-amber-500 ml-2">(未保存の変更があります)</span>}
+          </div>
+          <div className="flex items-center">
+            {/* データファイルの場合は常に分析モードボタンを保存ボタンの左隣に表示 */}
+            {(currentTab.type === 'csv' || currentTab.type === 'tsv' || 
+              currentTab.type === 'json' || currentTab.type === 'yaml' || 
+              currentTab.type === 'parquet') && (
+              <button
+                className={`px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 mr-2 flex items-center ${paneState.isAnalysisVisible ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
+                onClick={toggleAnalysisMode}
+                title={paneState.isAnalysisVisible ? '分析モードを閉じる' : '分析モードに切り替え'}
+              >
+                <IoAnalytics size={20} className="mr-1" /> 分析
+              </button>
+            )}
+            <button 
+              className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 mr-2"
+              onClick={saveFile}
+              disabled={!isDirty}
+            >
+              <IoSave className="inline mr-1" /> 保存
+            </button>
+            {/* モード切替ボタン（目アイコンは不要なので削除、分割/プレビューのみ表示） */}
+            {viewMode === 'preview' && (
+              <button
+                className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                onClick={toggleViewMode}
+                title="分割表示モードに切り替え"
+              >
+                <IoGrid size={20} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      <div 
+        className={`flex-1 min-h-0 overflow-auto ${isDarkTheme ? '!bg-[#1e1e1e] !text-[#d4d4d4]' : 'bg-white text-gray-900'}`}
+        style={{ fontSize: `${fontSize}px` }}
+        ref={ref}
+        onScroll={onScroll}
+      >
+        {/* エディタを表示 - split モードの場合もエディタは表示する */}
+        {(viewMode === 'editor' || viewMode === 'split') && (
+          <div className="h-full flex flex-col">
+            {(currentTab.type === 'markdown' || currentTab.type === 'md') && (
+              <MarkdownEditorExtension tabId={tabId} editorRef={editorRef} />
+            )}
+            <CodeMirror
+              value={currentTab.content}
+              height="100%"
+              extensions={extensions}
+              onChange={handleChange}
+              readOnly={currentTab.isReadOnly}
+              className={`h-full ${isDarkTheme ? 'cm-theme-dark' : ''}`}
+              basicSetup={{
+                lineNumbers: true,
+                highlightActiveLineGutter: true,
+                highlightActiveLine: true,
+                foldGutter: true,
+                indentOnInput: true,
+                autocompletion: true,
+              }}
+              // CodeMirrorのscroller要素にrefを付与
+              onCreateEditor={editor => {
+                // CodeMirror v6: scroller要素は editor.contentDOM.parentElement
+                if (editor && editor.contentDOM && editor.contentDOM.parentElement) {
+                  codeMirrorScrollerRef.current = editor.contentDOM.parentElement as HTMLDivElement;
+                  // forwardRefで受け取ったrefにもscroller要素をセット
+                  if (ref && typeof ref === 'object' && ref !== null) {
+                    (ref as React.MutableRefObject<HTMLDivElement | null>).current = codeMirrorScrollerRef.current;
+                  }
+                  // VSCode風ダーク配色をscrollerに直接適用
+                  if (isDarkTheme) {
+                    codeMirrorScrollerRef.current.style.background = '#1e1e1e';
+                    codeMirrorScrollerRef.current.style.color = '#d4d4d4';
+                  } else {
+                    codeMirrorScrollerRef.current.style.background = '#fff';
+                    codeMirrorScrollerRef.current.style.color = '#222';
+                  }
+                }
+              }}
+            />
+          </div>
+        )}
+        
+        {/* プレビューモードの場合のみプレビュー表示（分割表示はMainLayoutで処理） */}
+        {isPreviewable && viewMode === 'preview' && (
+          <div className="h-full">
+            {currentTab.type === 'mermaid' || currentTab.type === 'mmd' ? (
+              <MermaidPreview content={currentTab.content} fileName={currentTab.name} />
+            ) : currentTab.type === 'markdown' || currentTab.type === 'md' ? (
+              <div className="h-full">
+                <MarkdownPreview tabId={tabId} />
+              </div>
+            ) : (
+              <div className="h-full">
+                <DataPreview tabId={tabId} />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      
+      {/* ステータスバー */}
+      <div className="h-6 bg-gray-100 dark:bg-gray-800 text-xs flex items-center px-2 border-t border-gray-300 dark:border-gray-700">
+        <div className="flex-1">
+          {currentTab.name} {isDirty ? '(未保存)' : ''}
+        </div>
+        <div>
+          {currentTab.type.toUpperCase()}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+export default Editor;

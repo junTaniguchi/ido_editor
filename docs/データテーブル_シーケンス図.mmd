@@ -1,0 +1,16 @@
+%% データテーブル（DataTable.tsx）のシーケンス図
+sequenceDiagram
+    participant ユーザー
+    participant データテーブル
+    participant クリップボード
+    participant オブジェクトビューア
+
+    ユーザー->>データテーブル: 列表示/非表示切替ボタンをクリック
+    データテーブル->>データテーブル: setShowColumnSelector()
+    ユーザー->>データテーブル: マークダウン表コピーアイコンをクリック
+    データテーブル->>データテーブル: handleCopyMarkdownTable()
+    データテーブル->>クリップボード: writeText(markdown)
+    クリップボード-->>ユーザー: コピー完了通知
+    ユーザー->>データテーブル: ネストデータセルをクリック
+    データテーブル->>オブジェクトビューア: ObjectViewer表示
+    オブジェクトビューア-->>ユーザー: ネストデータ展開

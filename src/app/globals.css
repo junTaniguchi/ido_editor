@@ -1,0 +1,98 @@
+@import "tailwindcss";
+@import "github-markdown-css/github-markdown.css";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  --md-bg: #ffffff;
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+    --md-bg: #0d1117;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* GitHub風マークダウンスタイルのカスタマイズ */
+.markdown-body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  font-size: 16px;
+  line-height: 1.5;
+  word-wrap: break-word;
+}
+
+/* GitHub風のシンタックスハイライト */
+.markdown-body pre {
+  background-color: #f6f8fa;
+  border-radius: 6px;
+  padding: 16px;
+  overflow: auto;
+  margin-bottom: 16px;
+  font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+.dark .markdown-body pre {
+  background-color: #161b22;
+}
+
+.dark .markdown-body {
+  color-scheme: dark;
+}
+
+/* テーブルスタイル */
+.markdown-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 16px 0;
+}
+
+.markdown-body table th,
+.markdown-body table td {
+  padding: 6px 13px;
+  border: 1px solid #d0d7de;
+}
+
+.dark .markdown-body table th,
+.dark .markdown-body table td {
+  border: 1px solid #30363d;
+}
+
+.markdown-body table tr {
+  background-color: #ffffff;
+  border-top: 1px solid #d0d7de;
+}
+
+.dark .markdown-body table tr {
+  background-color: #0d1117;
+  border-top: 1px solid #30363d;
+}
+
+.markdown-body table tr:nth-child(2n) {
+  background-color: #f6f8fa;
+}
+
+.dark .markdown-body table tr:nth-child(2n) {
+  background-color: #161b22;
+}
+
+/* アニメーション */
+@keyframes fadeInOut {
+  0% { opacity: 0; transform: translateY(10px); }
+  10% { opacity: 1; transform: translateY(0); }
+  90% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-10px); }
+}
+
+.animate-fade-in-out {
+  animation: fadeInOut 3s ease-in-out;
+}

@@ -1,0 +1,7 @@
+sequenceDiagram
+    participant User
+    participant MarkdownToolbar
+    participant Editor
+    User->>MarkdownToolbar: ボタン操作
+    MarkdownToolbar->>Editor: マークダウン挿入
+    Editor-->>User: エディタに反映

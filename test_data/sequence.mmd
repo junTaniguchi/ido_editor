@@ -1,0 +1,21 @@
+sequenceDiagram
+    autonumber
+    participant ユーザー
+    participant フロントエンド
+    participant バックエンド
+    participant データベース
+    
+    ユーザー->>フロントエンド: アクションを実行
+    activate フロントエンド
+    フロントエンド->>バックエンド: APIリクエスト
+    activate バックエンド
+    バックエンド->>データベース: クエリ実行
+    activate データベース
+    データベース-->>バックエンド: 結果を返す
+    deactivate データベース
+    バックエンド-->>フロントエンド: レスポンス
+    deactivate バックエンド
+    フロントエンド-->>ユーザー: 画面更新
+    deactivate フロントエンド
+    
+    Note right of データベース: トランザクションが完了

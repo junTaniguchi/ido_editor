@@ -1,0 +1,899 @@
+[
+  {
+    "id": 1,
+    "first_name": "田中",
+    "last_name": "太郎",
+    "email": "tanaka.taro@example.com",
+    "birth_date": "1985-03-15",
+    "department": "営業部",
+    "position": "部長",
+    "salary": 850000,
+    "is_manager": true,
+    "years_of_service": 12,
+    "performance_rating": 4.7,
+    "skills": ["交渉", "プレゼンテーション", "マネジメント"],
+    "certifications": [
+      {
+        "name": "営業マネジメント資格",
+        "issued_date": "2018-05-10",
+        "expires_date": "2023-05-09"
+      },
+      {
+        "name": "リーダーシップ認定",
+        "issued_date": "2019-11-22",
+        "expires_date": null
+      }
+    ],
+    "address": {
+      "postal_code": "100-0001",
+      "prefecture": "東京都",
+      "city": "千代田区",
+      "street": "丸の内1-1-1",
+      "building": "東京ビル5階"
+    },
+    "emergency_contact": null,
+    "joining_date": "2013-04-01T09:00:00Z",
+    "projects": [
+      {
+        "name": "新規顧客開拓",
+        "budget": 5000000,
+        "start_date": "2024-01-15",
+        "end_date": "2024-06-30",
+        "completed": false,
+        "team_size": 8
+      }
+    ]
+  },
+  {
+    "id": 2,
+    "first_name": "佐藤",
+    "last_name": "花子",
+    "email": "sato.hanako@example.com",
+    "birth_date": "1990-07-23",
+    "department": "マーケティング部",
+    "position": "主任",
+    "salary": 550000,
+    "is_manager": false,
+    "years_of_service": 7,
+    "performance_rating": 4.2,
+    "skills": ["デジタルマーケティング", "SNS運用", "コンテンツ制作"],
+    "certifications": [
+      {
+        "name": "デジタルマーケティング検定",
+        "issued_date": "2020-02-15",
+        "expires_date": "2025-02-14"
+      }
+    ],
+    "address": {
+      "postal_code": "150-0002",
+      "prefecture": "東京都",
+      "city": "渋谷区",
+      "street": "渋谷2-2-2",
+      "building": "渋谷マンション303"
+    },
+    "emergency_contact": {
+      "name": "佐藤健太",
+      "relationship": "夫",
+      "phone": "090-1234-5678"
+    },
+    "joining_date": "2018-04-01T09:00:00Z",
+    "projects": [
+      {
+        "name": "ブランドリニューアル",
+        "budget": 3000000,
+        "start_date": "2024-03-01",
+        "end_date": "2024-09-30",
+        "completed": false,
+        "team_size": 5
+      }
+    ]
+  },
+  {
+    "id": 3,
+    "first_name": "鈴木",
+    "last_name": "一郎",
+    "email": "suzuki.ichiro@example.com",
+    "birth_date": "1988-11-05",
+    "department": "技術開発部",
+    "position": "シニアエンジニア",
+    "salary": 750000,
+    "is_manager": true,
+    "years_of_service": 9,
+    "performance_rating": 4.8,
+    "skills": ["Java", "Python", "AWS", "機械学習"],
+    "certifications": [
+      {
+        "name": "AWS認定ソリューションアーキテクト",
+        "issued_date": "2021-08-20",
+        "expires_date": "2024-08-19"
+      },
+      {
+        "name": "データサイエンティスト検定",
+        "issued_date": "2022-01-15",
+        "expires_date": null
+      }
+    ],
+    "address": {
+      "postal_code": "220-0003",
+      "prefecture": "神奈川県",
+      "city": "横浜市",
+      "street": "西区高島1-1-1",
+      "building": "横浜タワー15階"
+    },
+    "emergency_contact": {
+      "name": "鈴木美香",
+      "relationship": "妻",
+      "phone": "090-8765-4321"
+    },
+    "joining_date": "2016-04-01T09:00:00Z",
+    "projects": [
+      {
+        "name": "AIチャットボット開発",
+        "budget": 8000000,
+        "start_date": "2023-10-01",
+        "end_date": "2024-03-31",
+        "completed": true,
+        "team_size": 6
+      },
+      {
+        "name": "クラウド移行プロジェクト",
+        "budget": 12000000,
+        "start_date": "2024-04-01",
+        "end_date": "2025-03-31",
+        "completed": false,
+        "team_size": 10
+      }
+    ]
+  },
+  {
+    "id": 4,
+    "first_name": "山田",
+    "last_name": "直子",
+    "email": "yamada.naoko@example.com",
+    "birth_date": "1992-05-18",
+    "department": "人事部",
+    "position": "人事担当",
+    "salary": 480000,
+    "is_manager": false,
+    "years_of_service": 5,
+    "performance_rating": 4.0,
+    "skills": ["採用", "労務管理", "研修企画"],
+    "certifications": [
+      {
+        "name": "社会保険労務士",
+        "issued_date": "2023-01-10",
+        "expires_date": null
+      }
+    ],
+    "address": {
+      "postal_code": "160-0004",
+      "prefecture": "東京都",
+      "city": "新宿区",
+      "street": "四谷3-3-3",
+      "building": "四谷ハイツ505"
+    },
+    "emergency_contact": null,
+    "joining_date": "2020-04-01T09:00:00Z",
+    "projects": [
+      {
+        "name": "新卒採用プロジェクト",
+        "budget": 2000000,
+        "start_date": "2024-06-01",
+        "end_date": "2025-03-31",
+        "completed": false,
+        "team_size": 4
+      }
+    ]
+  },
+  {
+    "id": 5,
+    "first_name": "高橋",
+    "last_name": "健太",
+    "email": "takahashi.kenta@example.com",
+    "birth_date": "1986-09-30",
+    "department": "財務部",
+    "position": "財務マネージャー",
+    "salary": 700000,
+    "is_manager": true,
+    "years_of_service": 10,
+    "performance_rating": 4.5,
+    "skills": ["財務分析", "予算管理", "税務"],
+    "certifications": [
+      {
+        "name": "公認会計士",
+        "issued_date": "2015-03-25",
+        "expires_date": null
+      },
+      {
+        "name": "税理士",
+        "issued_date": "2017-06-12",
+        "expires_date": null
+      }
+    ],
+    "address": {
+      "postal_code": "102-0074",
+      "prefecture": "東京都",
+      "city": "千代田区",
+      "street": "九段南4-4-4",
+      "building": "九段ビル8階"
+    },
+    "emergency_contact": {
+      "name": "高橋由美",
+      "relationship": "妻",
+      "phone": "090-2222-3333"
+    },
+    "joining_date": "2015-04-01T09:00:00Z",
+    "projects": [
+      {
+        "name": "業績管理システム導入",
+        "budget": 6000000,
+        "start_date": "2023-07-01",
+        "end_date": "2024-02-29",
+        "completed": true,
+        "team_size": 7
+      }
+    ]
+  },
+  {
+    "id": 6,
+    "first_name": "渡辺",
+    "last_name": "真理",
+    "email": "watanabe.mari@example.com",
+    "birth_date": "1991-12-14",
+    "department": "デザイン部",
+    "position": "シニアデザイナー",
+    "salary": 520000,
+    "is_manager": false,
+    "years_of_service": 6,
+    "performance_rating": 4.6,
+    "skills": ["UIデザイン", "グラフィックデザイン", "Figma", "Adobe Creative Suite"],
+    "certifications": [],
+    "address": {
+      "postal_code": "153-0051",
+      "prefecture": "東京都",
+      "city": "目黒区",
+      "street": "上目黒5-5-5",
+      "building": "目黒グリーンハイツ202"
+    },
+    "emergency_contact": {
+      "name": "渡辺隆",
+      "relationship": "父",
+      "phone": "090-3333-4444"
+    },
+    "joining_date": "2019-04-01T09:00:00Z",
+    "projects": [
+      {
+        "name": "Webサイトリニューアル",
+        "budget": 4000000,
+        "start_date": "2024-02-01",
+        "end_date": "2024-07-31",
+        "completed": false,
+        "team_size": 6
+      }
+    ]
+  },
+  {
+    "id": 7,
+    "first_name": "伊藤",
+    "last_name": "浩二",
+    "email": "ito.koji@example.com",
+    "birth_date": "1984-01-25",
+    "department": "営業部",
+    "position": "営業担当",
+    "salary": 600000,
+    "is_manager": false,
+    "years_of_service": 8,
+    "performance_rating": 4.3,
+    "skills": ["提案営業", "カスタマーリレーション", "契約交渉"],
+    "certifications": [
+      {
+        "name": "販売士2級",
+        "issued_date": "2019-10-05",
+        "expires_date": null
+      }
+    ],
+    "address": {
+      "postal_code": "210-0005",
+      "prefecture": "神奈川県",
+      "city": "川崎市",
+      "street": "川崎区6-6-6",
+      "building": "川崎マンション101"
+    },
+    "emergency_contact": null,
+    "joining_date": "2017-04-01T09:00:00Z",
+    "projects": [
+      {
+        "name": "大手企業向け営業強化",
+        "budget": 3500000,
+        "start_date": "2024-04-01",
+        "end_date": "2024-09-30",
+        "completed": false,
+        "team_size": 5
+      }
+    ]
+  },
+  {
+    "id": 8,
+    "first_name": "小林",
+    "last_name": "美穂",
+    "email": "kobayashi.miho@example.com",
+    "birth_date": "1993-08-07",
+    "department": "カスタマーサポート部",
+    "position": "サポートリーダー",
+    "salary": 450000,
+    "is_manager": true,
+    "years_of_service": 4,
+    "performance_rating": 4.1,
+    "skills": ["カスタマーサポート", "クレーム対応", "CRMシステム管理"],
+    "certifications": [],
+    "address": {
+      "postal_code": "530-0001",
+      "prefecture": "大阪府",
+      "city": "大阪市",
+      "street": "北区梅田7-7-7",
+      "building": "梅田ビル12階"
+    },
+    "emergency_contact": {
+      "name": "小林健一",
+      "relationship": "父",
+      "phone": "090-4444-5555"
+    },
+    "joining_date": "2021-04-01T09:00:00Z",
+    "projects": [
+      {
+        "name": "サポート品質向上プロジェクト",
+        "budget": 1500000,
+        "start_date": "2024-01-01",
+        "end_date": "2024-06-30",
+        "completed": false,
+        "team_size": 8
+      }
+    ]
+  },
+  {
+    "id": 9,
+    "first_name": "中村",
+    "last_name": "大輔",
+    "email": "nakamura.daisuke@example.com",
+    "birth_date": "1987-06-29",
+    "department": "研究開発部",
+    "position": "研究員",
+    "salary": 680000,
+    "is_manager": false,
+    "years_of_service": 11,
+    "performance_rating": 4.9,
+    "skills": ["機械学習", "データ分析", "アルゴリズム開発", "R言語"],
+    "certifications": [
+      {
+        "name": "統計検定1級",
+        "issued_date": "2018-12-10",
+        "expires_date": null
+      },
+      {
+        "name": "Python認定エンジニア",
+        "issued_date": "2020-05-22",
+        "expires_date": "2023-05-21"
+      }
+    ],
+    "address": {
+      "postal_code": "606-0001",
+      "prefecture": "京都府",
+      "city": "京都市",
+      "street": "左京区8-8-8",
+      "building": "京都リサーチパーク3号館"
+    },
+    "emergency_contact": {
+      "name": "中村洋子",
+      "relationship": "母",
+      "phone": "090-5555-6666"
+    },
+    "joining_date": "2014-04-01T09:00:00Z",
+    "projects": [
+      {
+        "name": "予測モデル研究",
+        "budget": 7000000,
+        "start_date": "2023-04-01",
+        "end_date": "2024-03-31",
+        "completed": true,
+        "team_size": 4
+      },
+      {
+        "name": "新アルゴリズム開発",
+        "budget": 9000000,
+        "start_date": "2024-04-01",
+        "end_date": "2025-03-31",
+        "completed": false,
+        "team_size": 6
+      }
+    ]
+  },
+  {
+    "id": 10,
+    "first_name": "加藤",
+    "last_name": "裕子",
+    "email": "kato.yuko@example.com",
+    "birth_date": "1989-10-10",
+    "department": "法務部",
+    "position": "法務担当",
+    "salary": 620000,
+    "is_manager": false,
+    "years_of_service": 7,
+    "performance_rating": 4.4,
+    "skills": ["契約審査", "法務相談", "コンプライアンス"],
+    "certifications": [
+      {
+        "name": "弁護士",
+        "issued_date": "2016-09-15",
+        "expires_date": null
+      }
+    ],
+    "address": {
+      "postal_code": "105-0001",
+      "prefecture": "東京都",
+      "city": "港区",
+      "street": "虎ノ門9-9-9",
+      "building": "虎ノ門ビル20階"
+    },
+    "emergency_contact": {
+      "name": "加藤哲也",
+      "relationship": "夫",
+      "phone": "090-6666-7777"
+    },
+    "joining_date": "2018-04-01T09:00:00Z",
+    "projects": [
+      {
+        "name": "契約書管理システム導入",
+        "budget": 3000000,
+        "start_date": "2023-09-01",
+        "end_date": "2024-02-29",
+        "completed": true,
+        "team_size": 3
+      }
+    ]
+  },
+  {
+    "id": 11,
+    "first_name": "山本",
+    "last_name": "隆",
+    "email": "yamamoto.takashi@example.com",
+    "birth_date": "1986-03-20",
+    "department": "生産管理部",
+    "position": "生産管理マネージャー",
+    "salary": 650000,
+    "is_manager": true,
+    "years_of_service": 9,
+    "performance_rating": 4.2,
+    "skills": ["生産計画", "在庫管理", "品質管理", "サプライチェーン管理"],
+    "certifications": [
+      {
+        "name": "生産管理技術者",
+        "issued_date": "2017-07-20",
+        "expires_date": null
+      }
+    ],
+    "address": {
+      "postal_code": "450-0002",
+      "prefecture": "愛知県",
+      "city": "名古屋市",
+      "street": "中村区10-10-10",
+      "building": "名古屋ステーション7階"
+    },
+    "emergency_contact": null,
+    "joining_date": "2016-04-01T09:00:00Z",
+    "projects": [
+      {
+        "name": "工場自動化プロジェクト",
+        "budget": 15000000,
+        "start_date": "2023-10-01",
+        "end_date": "2024-09-30",
+        "completed": false,
+        "team_size": 12
+      }
+    ]
+  },
+  {
+    "id": 12,
+    "first_name": "松田",
+    "last_name": "恵子",
+    "email": "matsuda.keiko@example.com",
+    "birth_date": "1990-11-12",
+    "department": "総務部",
+    "position": "総務担当",
+    "salary": 430000,
+    "is_manager": false,
+    "years_of_service": 6,
+    "performance_rating": 3.9,
+    "skills": ["総務業務", "施設管理", "社内イベント企画"],
+    "certifications": [],
+    "address": {
+      "postal_code": "980-0001",
+      "prefecture": "宮城県",
+      "city": "仙台市",
+      "street": "青葉区11-11-11",
+      "building": "仙台ビル3階"
+    },
+    "emergency_contact": {
+      "name": "松田健太",
+      "relationship": "兄",
+      "phone": "090-7777-8888"
+    },
+    "joining_date": "2019-04-01T09:00:00Z",
+    "projects": [
+      {
+        "name": "オフィス移転プロジェクト",
+        "budget": 8000000,
+        "start_date": "2024-07-01",
+        "end_date": "2024-12-31",
+        "completed": false,
+        "team_size": 5
+      }
+    ]
+  },
+  {
+    "id": 13,
+    "first_name": "井上",
+    "last_name": "誠",
+    "email": "inoue.makoto@example.com",
+    "birth_date": "1983-07-05",
+    "department": "技術開発部",
+    "position": "テクニカルアーキテクト",
+    "salary": 800000,
+    "is_manager": true,
+    "years_of_service": 12,
+    "performance_rating": 4.7,
+    "skills": ["システム設計", "アーキテクチャ", "クラウド技術", "サーバーレス"],
+    "certifications": [
+      {
+        "name": "情報処理技術者",
+        "issued_date": "2012-04-15",
+        "expires_date": null
+      },
+      {
+        "name": "クラウドアーキテクト",
+        "issued_date": "2020-11-30",
+        "expires_date": "2023-11-29"
+      }
+    ],
+    "address": {
+      "postal_code": "812-0011",
+      "prefecture": "福岡県",
+      "city": "福岡市",
+      "street": "博多区12-12-12",
+      "building": "博多ステーションビル15階"
+    },
+    "emergency_contact": {
+      "name": "井上さくら",
+      "relationship": "妻",
+      "phone": "090-8888-9999"
+    },
+    "joining_date": "2013-04-01T09:00:00Z",
+    "projects": [
+      {
+        "name": "次世代プラットフォーム開発",
+        "budget": 20000000,
+        "start_date": "2023-01-01",
+        "end_date": "2024-12-31",
+        "completed": false,
+        "team_size": 15
+      }
+    ]
+  },
+  {
+    "id": 14,
+    "first_name": "佐々木",
+    "last_name": "優",
+    "email": "sasaki.yu@example.com",
+    "birth_date": "1994-02-18",
+    "department": "マーケティング部",
+    "position": "Webマーケター",
+    "salary": 470000,
+    "is_manager": false,
+    "years_of_service": 3,
+    "performance_rating": 4.0,
+    "skills": ["SEO", "SEM", "コンテンツマーケティング", "データ分析"],
+    "certifications": [
+      {
+        "name": "Google広告認定資格",
+        "issued_date": "2022-05-20",
+        "expires_date": "2023-05-19"
+      }
+    ],
+    "address": {
+      "postal_code": "150-0043",
+      "prefecture": "東京都",
+      "city": "渋谷区",
+      "street": "道玄坂13-13-13",
+      "building": "渋谷センタービル6階"
+    },
+    "emergency_contact": null,
+    "joining_date": "2022-04-01T09:00:00Z",
+    "projects": [
+      {
+        "name": "SEO改善プロジェクト",
+        "budget": 2500000,
+        "start_date": "2024-03-01",
+        "end_date": "2024-08-31",
+        "completed": false,
+        "team_size": 4
+      }
+    ]
+  },
+  {
+    "id": 15,
+    "first_name": "吉田",
+    "last_name": "拓也",
+    "email": "yoshida.takuya@example.com",
+    "birth_date": "1985-09-02",
+    "department": "情報システム部",
+    "position": "システム管理者",
+    "salary": 550000,
+    "is_manager": false,
+    "years_of_service": 8,
+    "performance_rating": 4.3,
+    "skills": ["ネットワーク管理", "サーバー管理", "セキュリティ", "ヘルプデスク"],
+    "certifications": [
+      {
+        "name": "CCNA",
+        "issued_date": "2018-08-10",
+        "expires_date": "2021-08-09"
+      },
+      {
+        "name": "情報セキュリティスペシャリスト",
+        "issued_date": "2020-03-15",
+        "expires_date": null
+      }
+    ],
+    "address": {
+      "postal_code": "330-0001",
+      "prefecture": "埼玉県",
+      "city": "さいたま市",
+      "street": "大宮区14-14-14",
+      "building": "大宮駅前ビル9階"
+    },
+    "emergency_contact": {
+      "name": "吉田晴美",
+      "relationship": "妻",
+      "phone": "090-1111-2222"
+    },
+    "joining_date": "2017-04-01T09:00:00Z",
+    "projects": [
+      {
+        "name": "セキュリティ強化プロジェクト",
+        "budget": 5000000,
+        "start_date": "2023-12-01",
+        "end_date": "2024-05-31",
+        "completed": false,
+        "team_size": 6
+      }
+    ]
+  },
+  {
+    "id": 16,
+    "first_name": "斎藤",
+    "last_name": "美咲",
+    "email": "saito.misaki@example.com",
+    "birth_date": "1992-12-28",
+    "department": "広報部",
+    "position": "広報担当",
+    "salary": 490000,
+    "is_manager": false,
+    "years_of_service": 5,
+    "performance_rating": 4.5,
+    "skills": ["メディア対応", "プレスリリース作成", "広報戦略立案"],
+    "certifications": [
+      {
+        "name": "PR検定1級",
+        "issued_date": "2021-07-30",
+        "expires_date": null
+      }
+    ],
+    "address": {
+      "postal_code": "550-0001",
+      "prefecture": "大阪府",
+      "city": "大阪市",
+      "street": "西区15-15-15",
+      "building": "うめだタワー11階"
+    },
+    "emergency_contact": {
+      "name": "斎藤健",
+      "relationship": "父",
+      "phone": "090-2222-3333"
+    },
+    "joining_date": "2020-04-01T09:00:00Z",
+    "projects": [
+      {
+        "name": "企業ブランディング強化",
+        "budget": 4000000,
+        "start_date": "2024-02-01",
+        "end_date": "2024-11-30",
+        "completed": false,
+        "team_size": 7
+      }
+    ]
+  },
+  {
+    "id": 17,
+    "first_name": "藤田",
+    "last_name": "雄一",
+    "email": "fujita.yuichi@example.com",
+    "birth_date": "1984-04-15",
+    "department": "経営企画部",
+    "position": "経営企画マネージャー",
+    "salary": 780000,
+    "is_manager": true,
+    "years_of_service": 10,
+    "performance_rating": 4.6,
+    "skills": ["経営戦略", "事業計画立案", "M&A分析", "プロジェクト管理"],
+    "certifications": [
+      {
+        "name": "中小企業診断士",
+        "issued_date": "2016-03-20",
+        "expires_date": null
+      }
+    ],
+    "address": {
+      "postal_code": "103-0027",
+      "prefecture": "東京都",
+      "city": "中央区",
+      "street": "日本橋16-16-16",
+      "building": "日本橋ビル18階"
+    },
+    "emergency_contact": {
+      "name": "藤田直子",
+      "relationship": "妻",
+      "phone": "090-3333-4444"
+    },
+    "joining_date": "2015-04-01T09:00:00Z",
+    "projects": [
+      {
+        "name": "中期経営計画策定",
+        "budget": 3000000,
+        "start_date": "2023-10-01",
+        "end_date": "2024-03-31",
+        "completed": true,
+        "team_size": 8
+      },
+      {
+        "name": "新規事業開発",
+        "budget": 10000000,
+        "start_date": "2024-04-01",
+        "end_date": "2025-03-31",
+        "completed": false,
+        "team_size": 10
+      }
+    ]
+  },
+  {
+    "id": 18,
+    "first_name": "中島",
+    "last_name": "亮太",
+    "email": "nakajima.ryota@example.com",
+    "birth_date": "1991-06-30",
+    "department": "品質管理部",
+    "position": "品質管理担当",
+    "salary": 510000,
+    "is_manager": false,
+    "years_of_service": 6,
+    "performance_rating": 4.1,
+    "skills": ["品質管理", "検査", "ISO知識"],
+    "certifications": [
+      {
+        "name": "品質管理検定2級",
+        "issued_date": "2019-11-15",
+        "expires_date": null
+      }
+    ],
+    "address": {
+      "postal_code": "730-0001",
+      "prefecture": "広島県",
+      "city": "広島市",
+      "street": "中区17-17-17",
+      "building": "広島駅前ビル4階"
+    },
+    "emergency_contact": null,
+    "joining_date": "2019-04-01T09:00:00Z",
+    "projects": [
+      {
+        "name": "品質マネジメントシステム改善",
+        "budget": 2500000,
+        "start_date": "2024-01-01",
+        "end_date": "2024-06-30",
+        "completed": false,
+        "team_size": 5
+      }
+    ]
+  },
+  {
+    "id": 19,
+    "first_name": "木村",
+    "last_name": "絵里",
+    "email": "kimura.eri@example.com",
+    "birth_date": "1988-08-10",
+    "department": "研修部",
+    "position": "研修トレーナー",
+    "salary": 520000,
+    "is_manager": false,
+    "years_of_service": 7,
+    "performance_rating": 4.4,
+    "skills": ["研修設計", "ファシリテーション", "eラーニング開発"],
+    "certifications": [
+      {
+        "name": "人材育成コンサルタント資格",
+        "issued_date": "2020-05-25",
+        "expires_date": "2025-05-24"
+      }
+    ],
+    "address": {
+      "postal_code": "461-0001",
+      "prefecture": "愛知県",
+      "city": "名古屋市",
+      "street": "東区18-18-18",
+      "building": "栄ビル7階"
+    },
+    "emergency_contact": {
+      "name": "木村大輔",
+      "relationship": "夫",
+      "phone": "090-4444-5555"
+    },
+    "joining_date": "2018-04-01T09:00:00Z",
+    "projects": [
+      {
+        "name": "新入社員研修プログラム刷新",
+        "budget": 3000000,
+        "start_date": "2024-05-01",
+        "end_date": "2024-09-30",
+        "completed": false,
+        "team_size": 4
+      }
+    ]
+  },
+  {
+    "id": 20,
+    "first_name": "清水",
+    "last_name": "翔太",
+    "email": "shimizu.shota@example.com",
+    "birth_date": "1987-12-05",
+    "department": "国際事業部",
+    "position": "海外営業マネージャー",
+    "salary": 750000,
+    "is_manager": true,
+    "years_of_service": 9,
+    "performance_rating": 4.5,
+    "skills": ["国際取引", "多言語（英語、中国語）", "異文化コミュニケーション", "輸出入業務"],
+    "certifications": [
+      {
+        "name": "TOEIC 950点",
+        "issued_date": "2019-01-20",
+        "expires_date": null
+      },
+      {
+        "name": "中国語検定2級",
+        "issued_date": "2021-03-15",
+        "expires_date": null
+      }
+    ],
+    "address": {
+      "postal_code": "231-0001",
+      "prefecture": "神奈川県",
+      "city": "横浜市",
+      "street": "中区19-19-19",
+      "building": "横浜ポートタワー22階"
+    },
+    "emergency_contact": {
+      "name": "清水久美子",
+      "relationship": "妻",
+      "phone": "090-5555-6666"
+    },
+    "joining_date": "2016-04-01T09:00:00Z",
+    "projects": [
+      {
+        "name": "アジア市場拡大プロジェクト",
+        "budget": 15000000,
+        "start_date": "2023-07-01",
+        "end_date": "2024-06-30",
+        "completed": false,
+        "team_size": 12
+      }
+    ]
+  }
+]

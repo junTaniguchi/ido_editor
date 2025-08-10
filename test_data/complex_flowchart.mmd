@@ -1,0 +1,32 @@
+graph LR
+    A[スタート] --> B(データ入力)
+    B --> C{有効なデータ?}
+    C -->|Yes| D[データ処理]
+    C -->|No| E[エラー処理]
+    D --> F[結果表示]
+    E --> G[エラーメッセージ表示]
+    F --> H{続行?}
+    G --> H
+    H -->|Yes| B
+    H -->|No| I[終了]
+    
+    subgraph データ処理フロー
+        D
+        F
+    end
+    
+    subgraph エラー処理フロー
+        E
+        G
+    end
+    
+    %% スタイルの適用
+    classDef start fill:#f96,stroke:#333,stroke-width:2px;
+    classDef process fill:#bbf,stroke:#33f,stroke-width:1px;
+    classDef decision fill:#fcf,stroke:#f6f,stroke-width:1px;
+    classDef end fill:#cfc,stroke:#3c3,stroke-width:1px;
+    
+    class A start;
+    class B,D,F process;
+    class C,H decision;
+    class I end;

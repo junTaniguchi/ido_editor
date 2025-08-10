@@ -1,0 +1,534 @@
+
+/**
+ * FileExplorer.tsx
+ * このファイルは、ローカル/仮想ファイルシステムのディレクトリ・ファイル構造をツリー表示し、
+ * ファイル操作（新規作成・削除・リネーム・選択・右クリックメニュー）を行うReactコンポーネントを提供します。
+ * 主な機能:
+ * - ディレクトリ・ファイルのツリー表示
+ * - ファイル/フォルダの新規作成・削除・リネーム
+ * - 右クリックメニューによる操作
+ * - ダイアログによる入力・確認
+ */
+'use client';
+
+import React, { useState, useEffect, useCallback } from 'react';
+import { 
+  IoFolderOutline, IoDocumentOutline, IoChevronForward, IoChevronDown,
+  IoAddOutline, IoCreateOutline, IoTrashOutline, IoReloadOutline
+} from 'react-icons/io5';
+import { useEditorStore } from '@/store/editorStore';
+import { readFileContent, readDirectoryContents, createNewFile, createNewDirectory, deleteFile, deleteDirectory, renameFile, renameDirectory } from '@/lib/fileSystemUtils';
+import { getFileType } from '@/lib/editorUtils';
+import { FileTreeItem, TabData } from '@/types';
+import ContextMenu from '@/components/modals/ContextMenu';
+import InputDialog from '@/components/modals/InputDialog';
+import ConfirmDialog from '@/components/modals/ConfirmDialog';
+
+/**
+ * FileExplorerコンポーネント
+ * ファイル/フォルダのツリー表示と各種ファイル操作を提供する。
+ * - ディレクトリ・ファイルのツリー表示
+ * - ファイル/フォルダの新規作成・削除・リネーム
+ * - 右クリックメニューによる操作
+ * - ダイアログによる入力・確認
+ */
+const FileExplorer = () => {
+  const { 
+    rootFileTree, 
+    rootDirHandle, 
+    rootFolderName,
+    setRootDirHandle, 
+    setRootFileTree, 
+    setRootFolderName,
+    addTab,
+    activeTabId,
+    setActiveTabId,
+    tabs,
+    setContextMenuTarget,
+    contextMenuTarget
+  } = useEditorStore();
+  
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [apiSupported, setApiSupported] = useState<boolean>(true);
+  
+  // モーダル関連の状態
+  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [showContextMenu, setShowContextMenu] = useState(false);
+  const [showInputDialog, setShowInputDialog] = useState(false);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [inputDialogMode, setInputDialogMode] = useState<'newFile' | 'newFolder' | 'rename' | 'tempFile'>('newFile');
+  const [inputDialogInitialValue, setInputDialogInitialValue] = useState('');
+  const [selectedItem, setSelectedItem] = useState<FileTreeItem | null>(null);
+  
+  // コンポーネントマウント時にAPIサポートを確認
+  useEffect(() => {
+    // File System Access APIのサポートを確認
+    if (!('showDirectoryPicker' in window)) {
+      setApiSupported(false);
+      console.warn('File System Access API is not supported in this browser.');
+    }
+  }, []);
+
+  // フォルダ内容を更新する関数
+  const refreshFolderContents = useCallback(async (dirHandle: FileSystemDirectoryHandle | null = null) => {
+    try {
+      const targetDirHandle = dirHandle || rootDirHandle;
+      if (!targetDirHandle) return;
+      
+      const fileTree = await readDirectoryContents(targetDirHandle);
+      setRootFileTree(fileTree);
+    } catch (error) {
+      console.error('Failed to refresh directory contents:', error);
+      alert(`フォルダの内容を更新できませんでした: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }, [rootDirHandle, setRootFileTree]);
+
+  // フォルダの選択処理
+  const handleSelectFolder = async () => {
+    try {
+      // File System Access APIがサポートされているか確認
+      if (!('showDirectoryPicker' in window)) {
+        alert('このブラウザはFile System Access APIをサポートしていません。最新のChrome、Edge、またはChromiumベースのブラウザをご使用ください。');
+        return;
+      }
+      
+      // ファイルシステムアクセスAPIを使用してフォルダを選択
+      // @ts-ignore - TypeScriptの型定義エラーを無視
+      const dirHandle = await window.showDirectoryPicker();
+      setRootDirHandle(dirHandle);
+      setRootFolderName(dirHandle.name);
+      
+      // フォルダ内容を読み込む
+      try {
+        const fileTree = await readDirectoryContents(dirHandle);
+        setRootFileTree(fileTree);
+        // ルートフォルダを展開状態にする
+        setExpandedFolders(new Set([fileTree.path]));
+      } catch (readError) {
+        console.error('Failed to read directory contents:', readError);
+        alert(`フォルダの内容を読み込めませんでした: ${readError instanceof Error ? readError.message : 'Unknown error'}`);
+      }
+    } catch (error) {
+      // ユーザーがキャンセルした場合は静かにリターン（エラーログを出力しない）
+      if (error instanceof Error && error.name === 'AbortError') {
+        // キャンセルは正常な操作なのでログを出さない
+        return;
+      }
+      
+      // その他のエラーはログを出力し、ユーザーにフィードバックを提供
+      console.error('Failed to select folder:', error);
+      alert(`フォルダの選択中にエラーが発生しました: ${error instanceof Error ? error.message : '不明なエラー'}`);
+    }
+  };
+  
+  // フォルダの展開状態を切り替え
+  const toggleFolder = (path: string) => {
+    const newExpandedFolders = new Set(expandedFolders);
+    if (newExpandedFolders.has(path)) {
+      newExpandedFolders.delete(path);
+    } else {
+      newExpandedFolders.add(path);
+    }
+    setExpandedFolders(newExpandedFolders);
+  };
+  
+  // ファイルをクリックしたときの処理
+  const handleFileClick = async (item: FileTreeItem) => {
+    if (!item.fileHandle) return;
+    
+    // 既に開いているタブがあるか確認
+    let existingTabId: string | undefined;
+    
+    for (const [id, tab] of tabs.entries()) {
+      if (tab.name === item.name || tab.name === item.path) {
+        existingTabId = id;
+        break;
+      }
+    }
+    
+    if (existingTabId) {
+      // 既存のタブがあればアクティブにする
+      setActiveTabId(existingTabId);
+    } else {
+      // 新しいタブを作成
+      try {
+        const content = await readFileContent(item.fileHandle);
+        
+        const newTab: TabData = {
+          id: item.path,
+          name: item.name,
+          content,
+          originalContent: content,
+          isDirty: false,
+          type: getFileType(item.name),
+          isReadOnly: false,
+        };
+        
+        addTab(newTab);
+      } catch (error) {
+        console.error('Failed to read file:', error);
+      }
+    }
+  };
+  
+  // コンテキストメニューを表示
+  const handleContextMenu = (e: React.MouseEvent, item: FileTreeItem) => {
+    e.preventDefault();
+    setContextMenuPos({ x: e.clientX, y: e.clientY });
+    setSelectedItem(item);
+    setShowContextMenu(true);
+  };
+  
+  // コンテキストメニューを閉じる
+  const handleCloseContextMenu = () => {
+    setShowContextMenu(false);
+  };
+  
+  // ルートフォルダに新規ファイルを作成する
+  const handleNewFileInRoot = () => {
+    if (rootDirHandle) {
+      // ルートディレクトリが選択されている場合
+      setSelectedItem(rootFileTree);
+      
+      // 新規ファイル作成ダイアログを表示
+      setInputDialogMode('newFile');
+      setInputDialogInitialValue('');
+      setShowInputDialog(true);
+    } else {
+      // ルートディレクトリが選択されていない場合は一時ファイル作成ダイアログを表示
+      setInputDialogMode('tempFile');
+      setInputDialogInitialValue('');
+      setShowInputDialog(true);
+    }
+  };
+  
+  // 新規ファイル作成ダイアログを表示
+  const handleNewFile = () => {
+    if (!selectedItem || !selectedItem.isDirectory) return;
+    
+    setInputDialogMode('newFile');
+    setInputDialogInitialValue('');
+    setShowInputDialog(true);
+  };
+  
+  // 新規フォルダ作成ダイアログを表示
+  const handleNewFolder = () => {
+    if (!selectedItem || !selectedItem.isDirectory) return;
+    
+    setInputDialogMode('newFolder');
+    setInputDialogInitialValue('');
+    setShowInputDialog(true);
+  };
+  
+  // リネームダイアログを表示
+  const handleRename = () => {
+    if (!selectedItem) return;
+    
+    setInputDialogMode('rename');
+    setInputDialogInitialValue(selectedItem.name);
+    setShowInputDialog(true);
+  };
+  
+  // 削除確認ダイアログを表示
+  const handleDelete = () => {
+    if (!selectedItem) return;
+    
+    setShowConfirmDialog(true);
+  };
+  
+  // 入力ダイアログの確認処理
+  const handleInputConfirm = async (value: string) => {
+    setShowInputDialog(false);
+
+    try {
+      // ファイル名が空の場合 Untitled にする
+      let finalValue = value;
+      if (!finalValue.trim()) {
+        // 拡張子を取得（InputDialogの拡張子選択機能で .md などが付与されている想定）
+        // valueが空の場合は Untitled.md などにする
+        if (inputDialogMode === 'newFile' || inputDialogMode === 'tempFile') {
+          // extensionsリストの最初をデフォルト拡張子とする
+          const defaultExt = 'md';
+          finalValue = `Untitled.${defaultExt}`;
+        } else {
+          finalValue = 'Untitled';
+        }
+      }
+
+      if (inputDialogMode === 'tempFile') {
+        // 一時ファイル作成
+        const parts = finalValue.split('.');
+        const fileType = parts.length > 1 ? parts[parts.length - 1].toLowerCase() : 'md';
+        useEditorStore.getState().addTempTab(fileType, finalValue);
+        return;
+      }
+
+      if (!selectedItem || !rootDirHandle) return;
+
+      if (inputDialogMode === 'newFile') {
+        // 新規ファイル作成
+        if (!selectedItem.directoryHandle) return;
+        await createNewFile(selectedItem.directoryHandle, finalValue, '');
+        await refreshFolderContents();
+      } else if (inputDialogMode === 'newFolder') {
+        // 新規フォルダ作成
+        if (!selectedItem.directoryHandle) return;
+        
+        await createNewDirectory(selectedItem.directoryHandle, value);
+        await refreshFolderContents();
+        
+      } else if (inputDialogMode === 'rename') {
+        // ファイル/フォルダのリネーム
+        const pathParts = selectedItem.path.split('/');
+        const parentPath = pathParts.slice(0, -1).join('/');
+        
+        // 親ディレクトリのハンドルを取得
+        let parentDirHandle = rootDirHandle;
+        const pathSegments = parentPath.split('/').filter(segment => segment);
+        
+        for (const segment of pathSegments) {
+          parentDirHandle = await parentDirHandle.getDirectoryHandle(segment);
+        }
+        
+        if (selectedItem.isDirectory) {
+          // ディレクトリのリネーム
+          await renameDirectory(parentDirHandle, selectedItem.name, value);
+        } else {
+          // ファイルのリネーム
+          await renameFile(parentDirHandle, selectedItem.name, value);
+        }
+        
+        await refreshFolderContents();
+      }
+    } catch (error) {
+      console.error('Failed to perform file operation:', error);
+      alert(`操作に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+  
+  // 削除確認ダイアログの確認処理
+  const handleDeleteConfirm = async () => {
+    if (!selectedItem || !rootDirHandle) return;
+    
+    setShowConfirmDialog(false);
+    
+    try {
+      const pathParts = selectedItem.path.split('/');
+      const parentPath = pathParts.slice(0, -1).join('/');
+      
+      // 親ディレクトリのハンドルを取得
+      let parentDirHandle = rootDirHandle;
+      const pathSegments = parentPath.split('/').filter(segment => segment);
+      
+      for (const segment of pathSegments) {
+        parentDirHandle = await parentDirHandle.getDirectoryHandle(segment);
+      }
+      
+      if (selectedItem.isDirectory) {
+        // ディレクトリの削除
+        await deleteDirectory(parentDirHandle, selectedItem.name);
+      } else {
+        // ファイルの削除
+        await deleteFile(parentDirHandle, selectedItem.name);
+      }
+      
+      await refreshFolderContents();
+    } catch (error) {
+      console.error('Failed to delete:', error);
+      alert(`削除に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+  
+  // 入力値の検証
+  const validateFileName = (value: string): string | null => {
+    if (!value.trim()) {
+      return '名前を入力してください';
+    }
+    
+    if (value.includes('/') || value.includes('\\')) {
+      return 'ファイル名に / や \\ を含めることはできません';
+    }
+    
+    if (value.startsWith('.')) {
+      return 'ファイル名は . で始めることはできません';
+    }
+    
+    return null;
+  };
+  
+  // ファイルツリーを再帰的に描画
+  const renderFileTree = (item: FileTreeItem, level = 0) => {
+    const isExpanded = expandedFolders.has(item.path);
+    const paddingLeft = `${level * 12 + 4}px`;
+    
+    if (item.isDirectory) {
+      return (
+        <div key={item.path}>
+          <div 
+            className="flex items-center py-1 hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer"
+            style={{ paddingLeft }}
+            onClick={() => toggleFolder(item.path)}
+            onContextMenu={(e) => handleContextMenu(e, item)}
+          >
+            <span className="mr-1">
+              {isExpanded ? <IoChevronDown size={16} /> : <IoChevronForward size={16} />}
+            </span>
+            <IoFolderOutline className="mr-1 text-yellow-500" size={16} />
+            <span className="truncate">{item.name}</span>
+          </div>
+          
+          {isExpanded && item.children && (
+            <div>
+              {item.children.map(child => renderFileTree(child, level + 1))}
+            </div>
+          )}
+        </div>
+      );
+    } else {
+      return (
+        <div 
+          key={item.path}
+          className="flex items-center py-1 hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer"
+          style={{ paddingLeft }}
+          onClick={() => handleFileClick(item)}
+          onContextMenu={(e) => handleContextMenu(e, item)}
+        >
+          <IoDocumentOutline className="mr-1 text-blue-500" size={16} />
+          <span className="truncate">{item.name}</span>
+        </div>
+      );
+    }
+  };
+  
+  return (
+    <div className="h-full flex flex-col bg-gray-100 dark:bg-gray-800 border-r border-gray-300 dark:border-gray-700">
+      {/* ヘッダー */}
+      <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-700 flex justify-between items-center">
+        <h2 className="font-medium text-sm">ファイルエクスプローラ</h2>
+        <div className="flex space-x-1">
+          <button 
+            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+            onClick={handleNewFileInRoot}
+            title="新規ファイル作成"
+          >
+            <IoCreateOutline size={18} />
+          </button>
+          <button 
+            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+            onClick={handleSelectFolder}
+            title="フォルダを開く"
+          >
+            <IoFolderOutline size={18} />
+          </button>
+          <button 
+            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+            onClick={() => rootDirHandle && refreshFolderContents()}
+            title="更新"
+            disabled={!rootDirHandle}
+          >
+            <IoReloadOutline size={18} />
+          </button>
+        </div>
+      </div>
+      
+      {/* ファイルツリー */}
+      <div className="flex-1 overflow-auto">
+        {rootFileTree ? (
+          <div className="py-1 text-sm">
+            {renderFileTree(rootFileTree)}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full text-gray-500 p-4 text-center">
+            <IoFolderOutline size={32} className="mb-2" />
+            <p className="mb-4">フォルダが選択されていません</p>
+            {apiSupported ? (
+              <button
+                className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                onClick={handleSelectFolder}
+              >
+                フォルダを開く
+              </button>
+            ) : (
+              <div>
+                <p className="text-yellow-600 mb-3">
+                  このブラウザはFile System Access APIをサポートしていません
+                </p>
+                <p className="text-sm mb-4">
+                  Chrome、Edge、またはChromiumベースのブラウザの最新版をご使用ください
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      
+      {/* フッター：選択されているフォルダ名 */}
+      {rootFolderName && (
+        <div className="px-3 py-2 border-t border-gray-300 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400 truncate">
+          {rootFolderName}
+        </div>
+      )}
+      
+      {/* コンテキストメニュー */}
+      {showContextMenu && selectedItem && (
+        <ContextMenu
+          x={contextMenuPos.x}
+          y={contextMenuPos.y}
+          onClose={handleCloseContextMenu}
+          onCreateFile={handleNewFile}
+          onCreateFolder={handleNewFolder}
+          onRename={handleRename}
+          onDelete={handleDelete}
+          onRefresh={() => refreshFolderContents()}
+          isFile={!selectedItem.isDirectory}
+        />
+      )}
+      
+      {/* 入力ダイアログ */}
+      {showInputDialog && (
+        <InputDialog
+          isOpen={showInputDialog}
+          title={
+            inputDialogMode === 'newFile' 
+              ? '新規ファイル作成' 
+              : inputDialogMode === 'newFolder' 
+                ? '新規フォルダ作成' 
+                : inputDialogMode === 'tempFile'
+                  ? '一時ファイル作成'
+                  : '名前の変更'
+          }
+          label={
+            inputDialogMode === 'newFile' 
+              ? 'ファイル名' 
+              : inputDialogMode === 'newFolder' 
+                ? 'フォルダ名' 
+                : inputDialogMode === 'tempFile'
+                  ? 'ファイル名'
+                  : '新しい名前'
+          }
+          showExtensionSelect={inputDialogMode === 'newFile' || inputDialogMode === 'tempFile'}
+          extensions={['md', 'txt', 'json', 'csv', 'tsv', 'yaml', 'html', 'js', 'ts', 'css', 'mmd']}
+          initialValue={inputDialogInitialValue}
+          validateInput={validateFileName}
+          onConfirm={handleInputConfirm}
+          onCancel={() => setShowInputDialog(false)}
+        />
+      )}
+      
+      {/* 削除確認ダイアログ */}
+      {showConfirmDialog && selectedItem && (
+        <ConfirmDialog
+          isOpen={showConfirmDialog}
+          title={`${selectedItem.isDirectory ? 'フォルダ' : 'ファイル'}を削除`}
+          message={`"${selectedItem.name}" を削除してもよろしいですか？${selectedItem.isDirectory ? 'フォルダ内のすべてのファイルとフォルダも削除されます。' : ''}`}
+          confirmLabel="削除"
+          isDestructive={true}
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => setShowConfirmDialog(false)}
+        />
+      )}
+    </div>
+  );
+};
+
+export default FileExplorer;

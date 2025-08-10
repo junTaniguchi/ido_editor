@@ -1,0 +1,12 @@
+{
+  "nodes": [
+    { "id": "n1", "label": "Person", "properties": { "name": "Alice", "age": 30 } },
+    { "id": "n2", "label": "Person", "properties": { "name": "Bob", "age": 25 } },
+    { "id": "n3", "label": "Company", "properties": { "name": "Acme Corp" } }
+  ],
+  "edges": [
+    { "id": "e1", "source": "n1", "target": "n2", "label": "FRIEND", "properties": { "since": 2020 } },
+    { "id": "e2", "source": "n1", "target": "n3", "label": "WORKS_AT", "properties": { "role": "Engineer" } },
+    { "id": "e3", "source": "n2", "target": "n3", "label": "WORKS_AT", "properties": { "role": "Designer" } }
+  ]
+}

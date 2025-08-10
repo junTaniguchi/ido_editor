@@ -1,0 +1,10 @@
+sequenceDiagram
+    participant User
+    participant MainLayout
+    participant EditorStore
+    participant MermaidPreview
+    User->>MainLayout: プレビューパネル表示
+    MainLayout->>EditorStore: getTab(tabId)
+    EditorStore-->>MainLayout: タブ情報取得
+    MainLayout->>MermaidPreview: Mermaid描画
+    MermaidPreview-->>User: プレビュー表示

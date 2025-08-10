@@ -1,0 +1,13 @@
+sequenceDiagram
+    participant User
+    participant MainLayout
+    participant EditorStore
+    participant MarkdownEditor
+    participant MarkdownPreview
+    User->>MainLayout: モード切替ボタンをクリック
+    MainLayout->>EditorStore: setViewMode(tabId, nextMode)
+    EditorStore-->>MainLayout: viewMode更新
+    MainLayout->>MarkdownEditor: editorモードの場合、エディタ表示
+    MainLayout->>MarkdownPreview: previewモードの場合、プレビュー表示
+    MainLayout->>MarkdownEditor: splitモードの場合、両方表示
+    Note over MainLayout: 状態に応じて表示を切り替え

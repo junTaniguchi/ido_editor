@@ -1,0 +1,10 @@
+sequenceDiagram
+    participant User
+    participant MainLayout
+    participant EditorStore
+    participant MarkdownPreview
+    User->>MainLayout: プレビューパネル表示
+    MainLayout->>EditorStore: getTab(tabId)
+    EditorStore-->>MainLayout: タブ情報取得
+    MainLayout->>MarkdownPreview: Markdown描画
+    MarkdownPreview-->>User: プレビュー表示
