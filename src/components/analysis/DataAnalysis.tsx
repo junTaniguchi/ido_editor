@@ -3,9 +3,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useEditorStore } from '@/store/editorStore';
 import { parseCSV, parseJSON, parseYAML, parseParquet, flattenNestedObjects } from '@/lib/dataPreviewUtils';
-import { executeQuery, calculateStatistics, aggregateData, prepareChartData } from '@/lib/dataAnalysisUtils';
+import { executeQuery, calculateStatistics, aggregateData, prepareChartData, calculateInfo } from '@/lib/dataAnalysisUtils';
 import { IoAlertCircleOutline, IoAnalyticsOutline, IoBarChartOutline, IoStatsChartOutline, IoCodeSlash, IoEye, IoLayersOutline, IoCreate, IoSave, IoGitNetwork } from 'react-icons/io5';
 import QueryResultTable from './QueryResultTable';
+import InfoResultTable from './InfoResultTable';
 import EditableQueryResultTable from './EditableQueryResultTable';
 import { 
   Chart as ChartJS, 
@@ -97,6 +98,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
   const [queryResult, setQueryResult] = useState<any[] | null>(null);
   const [originalQueryResult, setOriginalQueryResult] = useState<any[] | null>(null); // クエリ結果の元データ
   const [statisticsResult, setStatisticsResult] = useState<Record<string, any> | null>(null);
+  const [infoResult, setInfoResult] = useState<Record<string, any> | null>(null);
   const [chartData, setChartData] = useState<any | null>(null);
   const [activeTab, setActiveTab] = useState<'query' | 'stats' | 'chart' | 'relationship'>('query');
   const [isQueryEditing, setIsQueryEditing] = useState(false);
@@ -300,6 +302,11 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
               };
             });
             console.log('最初の行の各カラム値の詳細:', columnValues);
+            // info summary を計算
+            const info = calculateInfo(data);
+            if (!info.error && info.info) {
+              setInfoResult(info.info);
+            }
             
             // 全レコードのspeciesカラムの値を調べる
             const speciesColumn = cols.find(col => 
@@ -381,6 +388,11 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
             data = jsonProcessedData;
             setOriginalData(jsonOriginalData);
             cols = Object.keys(jsonProcessedData[0]);
+            // info summary を計算
+            const info = calculateInfo(data);
+            if (!info.error && info.info) {
+              setInfoResult(info.info);
+            }
           } else {
             setError('JSONデータを表形式に変換できませんでした');
             setLoading(false);
@@ -430,6 +442,11 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
             data = processedData;
             setOriginalData(yamlOriginalData);
             cols = Object.keys(processedData[0]);
+            // info summary を計算
+            const info = calculateInfo(data);
+            if (!info.error && info.info) {
+              setInfoResult(info.info);
+            }
           } else {
             setError('YAMLデータを表形式に変換できませんでした');
             setLoading(false);
@@ -1625,79 +1642,91 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
   };
   
   // 統計情報の表示
+  // 統計・info summary の表示
   const renderStatistics = () => {
-    if (!statisticsResult) {
-      return <div className="text-center p-4 text-gray-500">統計情報はありません</div>;
-    }
-    
     return (
-      <div className="overflow-auto">
-        <table className="min-w-full divide-y divide-gray-300 dark:divide-gray-700">
-          <thead className="bg-gray-100 dark:bg-gray-800 sticky top-0">
-            <tr>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">列名</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">個数</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">平均</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">標準偏差</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">最小値</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">第1四分位</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">中央値</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">第3四分位</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">最大値</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-800">
-            {Object.entries(statisticsResult).map(([column, stats]) => (
-              <tr key={column} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                <td className="px-3 py-2 text-sm font-medium text-gray-900 dark:text-gray-300">{column}</td>
-                <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-300">
-                  {(stats as any).count}
-                </td>
-                {(stats as any).type === 'non-numeric' ? (
-                  <td colSpan={7} className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
-                    非数値データ (ユニーク値: {(stats as any).uniqueCount})
-                    {editorSettings.dataDisplayMode === 'nested' && (stats as any).examples && (
-                      <div className="mt-1">
-                        <span className="text-xs text-gray-500">例:</span>
-                        <div className="mt-1 max-h-24 overflow-auto">
-                          <ObjectViewer 
-                            data={(stats as any).examples} 
-                            expandLevel={1} 
-                            compactMode={true} 
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </td>
-                ) : (
-                  <>
-                    <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-300">
-                      {(stats as any).mean?.toFixed(2)}
-                    </td>
-                    <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-300">
-                      {(stats as any).std?.toFixed(2)}
-                    </td>
-                    <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-300">
-                      {(stats as any).min?.toFixed(2)}
-                    </td>
-                    <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-300">
-                      {(stats as any).q1?.toFixed(2)}
-                    </td>
-                    <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-300">
-                      {(stats as any).median?.toFixed(2)}
-                    </td>
-                    <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-300">
-                      {(stats as any).q3?.toFixed(2)}
-                    </td>
-                    <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-300">
-                      {(stats as any).max?.toFixed(2)}
-                    </td>
-                  </>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="flex flex-col gap-8">
+        {/* info summary テーブル */}
+        <div>
+          <h3 className="font-bold mb-2">項目ごとの型・最大文字数サマリー</h3>
+          {infoResult ? (
+            <InfoResultTable infoResult={infoResult} />
+          ) : <div>型・最大文字数サマリーがありません</div>}
+        </div>
+        {/* describe 統計テーブル */}
+        <div>
+          <h3 className="font-bold mb-2">数値型項目の統計情報</h3>
+          {statisticsResult ? (
+            <div className="overflow-auto">
+              <table className="min-w-full divide-y divide-gray-300 dark:divide-gray-700">
+                <thead className="bg-gray-100 dark:bg-gray-800 sticky top-0">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">列名</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">個数</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">平均</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">標準偏差</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">最小値</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">第1四分位</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">中央値</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">第3四分位</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">最大値</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-800">
+                  {Object.entries(statisticsResult).map(([column, stats]) => (
+                    <tr key={column} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                      <td className="px-3 py-2 text-sm font-medium text-gray-900 dark:text-gray-300">{column}</td>
+                      <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-300">
+                        {(stats as any).count}
+                      </td>
+                      {(stats as any).type === 'non-numeric' ? (
+                        <td colSpan={7} className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+                          非数値データ (ユニーク値: {(stats as any).uniqueCount})
+                          {editorSettings.dataDisplayMode === 'nested' && (stats as any).examples && (
+                            <div className="mt-1">
+                              <span className="text-xs text-gray-500">例:</span>
+                              <div className="mt-1 max-h-24 overflow-auto">
+                                <ObjectViewer 
+                                  data={(stats as any).examples} 
+                                  expandLevel={1} 
+                                  compactMode={true} 
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </td>
+                      ) : (
+                        <>
+                          <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-300">
+                            {(stats as any).mean?.toFixed(2)}
+                          </td>
+                          <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-300">
+                            {(stats as any).std?.toFixed(2)}
+                          </td>
+                          <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-300">
+                            {(stats as any).min?.toFixed(2)}
+                          </td>
+                          <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-300">
+                            {(stats as any).q1?.toFixed(2)}
+                          </td>
+                          <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-300">
+                            {(stats as any).median?.toFixed(2)}
+                          </td>
+                          <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-300">
+                            {(stats as any).q3?.toFixed(2)}
+                          </td>
+                          <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-300">
+                            {(stats as any).max?.toFixed(2)}
+                          </td>
+                        </>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : <div>統計情報はありません</div>}
+        </div>
       </div>
     );
   };

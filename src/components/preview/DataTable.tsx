@@ -325,7 +325,7 @@ const DataTable: React.FC<DataTableProps> = (props) => {
           )}
         </div>
       </div>
-      <div className="overflow-auto">
+  <div className="overflow-auto max-h-[500px]">
         {table.getRowModel().rows.length > 0 ? (
           <table className="min-w-full divide-y divide-gray-300 dark:divide-gray-700">
             <thead className="bg-gray-100 dark:bg-gray-800 sticky top-0 z-10">

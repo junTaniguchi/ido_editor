@@ -606,7 +606,8 @@ const EditableDataTable: React.FC<EditableDataTableProps> = ({
         </div>
       </div>
       
-      <table ref={tableRef} className="min-w-full divide-y divide-gray-300 dark:divide-gray-700 border-collapse">
+      <div className="overflow-auto max-h-[500px]">
+        <table ref={tableRef} className="min-w-full divide-y divide-gray-300 dark:divide-gray-700 border-collapse">
         <thead className="bg-gray-100 dark:bg-gray-800 sticky top-0">
           {table.getHeaderGroups().map(headerGroup => (
             <tr key={headerGroup.id}>
@@ -674,7 +675,8 @@ const EditableDataTable: React.FC<EditableDataTableProps> = ({
             </tr>
           ))}
         </tbody>
-      </table>
+        </table>
+      </div>
       
       {/* ページネーション */}
       <div className="p-2 flex items-center justify-between border-t border-gray-200 dark:border-gray-800">

@@ -299,7 +299,7 @@ const QueryResultTable: React.FC<QueryResultTableProps> = ({ data }) => {
   }
 
   return (
-    <div className="overflow-auto">
+  <div className="overflow-auto max-h-[500px]">
       <div className="flex justify-between mb-2 relative">
         <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
           結果: {data.length}行

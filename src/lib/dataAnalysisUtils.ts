@@ -1,3 +1,50 @@
+/**
+ * データの型・最大文字数などのサマリーを算出（pandas.info()相当）
+ * @param data サマリーを算出するデータ
+ * @param enableNestedAccess ネストされたプロパティへのアクセスを有効にするかどうか
+ * @returns info summary object
+ */
+export const calculateInfo = (data: any[], enableNestedAccess: boolean = true) => {
+  if (!data || data.length === 0) {
+    return { info: null, error: 'データがありません' };
+  }
+  try {
+    const processedData = enableNestedAccess ? flattenObjectsWithDotNotation(data) : data;
+    const columns = Object.keys(processedData[0]);
+    const info: Record<string, any> = {};
+    columns.forEach(column => {
+      const values = processedData.map(row => row[column]);
+      const nonNullValues = values.filter(v => v !== null && v !== undefined);
+      let dtype = 'null';
+      if (nonNullValues.length > 0) {
+        const types = new Set(nonNullValues.map(v => Array.isArray(v) ? 'array' : typeof v));
+        if (types.size === 1) {
+          dtype = Array.from(types)[0];
+        } else {
+          dtype = Array.from(types).join('|');
+        }
+      }
+      let maxLength = null;
+      if (dtype === 'string') {
+        maxLength = nonNullValues.reduce((max, v) => Math.max(max, v.length), 0);
+      }
+      info[column] = {
+        type: dtype,
+        count: values.length,
+        nonNullCount: nonNullValues.length,
+        maxLength,
+        sample: nonNullValues.slice(0, 3)
+      };
+    });
+    return { info, error: null };
+  } catch (error) {
+    console.error('Error calculating info:', error);
+    return {
+      info: null,
+      error: error instanceof Error ? error.message : 'info計算エラー'
+    };
+  }
+};
 'use client';
 
 import alasql from 'alasql';
