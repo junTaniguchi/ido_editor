@@ -323,6 +323,16 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
     setError(null);
 
     try {
+      console.log('チャート設定デバッグ - 更新開始時の設定:', {
+        X軸: chartSettings.xAxis,
+        Y軸: chartSettings.yAxis,
+        カテゴリフィールド: chartSettings.categoryField,
+        データソース: chartSettings.dataSource,
+        チャートタイプ: chartSettings.type,
+        集計方法: chartSettings.aggregation,
+        オプション: chartSettings.options
+      });
+
       const dataSource = chartSettings.dataSource === 'queryResult' && queryResult 
         ? queryResult 
         : combinedData;
@@ -333,15 +343,72 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         return;
       }
 
+      // 散布図の場合、X軸とY軸が必須
+      if (chartSettings.type === 'scatter' && (!chartSettings.xAxis || !chartSettings.yAxis)) {
+        setError('散布図にはX軸とY軸の設定が必要です');
+        setLoading(false);
+        return;
+      }
+
+      // ヒストグラムの場合、X軸のみ必須
+      if (chartSettings.type === 'histogram' && !chartSettings.xAxis) {
+        setError('ヒストグラムにはX軸の設定が必要です');
+        setLoading(false);
+        return;
+      }
+
+      // 線形回帰の場合、X軸とY軸が必須
+      if (chartSettings.type === 'regression' && (!chartSettings.xAxis || !chartSettings.yAxis)) {
+        setError('線形回帰グラフにはX軸とY軸の設定が必要です');
+        setLoading(false);
+        return;
+      }
+
+      // 基本的なチャートの場合、X軸は必須
+      if (!chartSettings.xAxis && chartSettings.type !== 'pie') {
+        setError('X軸の設定が必要です');
+        setLoading(false);
+        return;
+      }
+
       let processedData = dataSource;
 
-      // 集計が指定されている場合
-      if (chartSettings.aggregation !== 'none') {
+      // ヒストグラムと散布図以外で集計処理を行う
+      if (chartSettings.type !== 'histogram' && 
+          chartSettings.type !== 'scatter' && 
+          chartSettings.aggregation && 
+          chartSettings.aggregation !== 'none') {
+        
+        console.log('集計処理開始:', {
+          集計方法: chartSettings.aggregation,
+          X軸: chartSettings.xAxis,
+          Y軸: chartSettings.yAxis
+        });
+
         const { data: aggregatedData, error } = aggregateData(
           dataSource,
           chartSettings.xAxis,
-          chartSettings.yAxis,
+          chartSettings.yAxis || '',
           chartSettings.aggregation as any,
+          true
+        );
+
+        if (error) {
+          setError(error);
+          setLoading(false);
+          return;
+        }
+
+        processedData = aggregatedData || [];
+        console.log('集計後のデータ:', processedData);
+      } else if (chartSettings.aggregation === 'count' && chartSettings.type !== 'histogram') {
+        // カウント集計の場合の特別処理
+        console.log('カウント集計処理開始');
+        const { data: aggregatedData, error } = aggregateData(
+          dataSource,
+          chartSettings.xAxis,
+          chartSettings.yAxis || '',
+          'count',
           true
         );
 
@@ -354,6 +421,12 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         processedData = aggregatedData || [];
       }
 
+      console.log('チャートデータ準備開始:', {
+        データ件数: processedData.length,
+        チャートタイプ: chartSettings.type,
+        処理データ: processedData.slice(0, 3)
+      });
+
       const chartDataResult = prepareChartData(
         processedData,
         chartSettings.xAxis,
@@ -364,13 +437,16 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
       );
 
       if (chartDataResult) {
+        console.log('チャートデータ生成成功:', chartDataResult);
         setChartData(chartDataResult);
+        setError(null);
       } else {
         setError('チャートデータの生成に失敗しました');
       }
     } catch (err) {
       console.error('Chart generation error:', err);
       setError(err instanceof Error ? err.message : 'チャート生成エラー');
+      setChartData(null);
     } finally {
       setLoading(false);
     }
@@ -670,73 +746,197 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         {/* チャート設定 */}
         {activeTab === 'chart' && (
           <div>
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  チャートタイプ
-                </label>
+            <div className="flex flex-wrap gap-2 mb-4">
+              <div className="w-32">
+                <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">グラフタイプ</div>
                 <select
                   value={chartSettings.type}
-                  onChange={(e) => updateChartSettings({ type: e.target.value as any })}
-                  className="w-full p-2 border border-gray-300 rounded"
+                  onChange={(e) => {
+                    const newType = e.target.value as any;
+                    updateChartSettings({ 
+                      type: newType,
+                      // 散布図かヒストグラムの場合は集計なしに設定
+                      aggregation: (newType === 'scatter' || newType === 'histogram') 
+                        ? undefined 
+                        : chartSettings.aggregation
+                    });
+                    // グラフタイプが変更されたらすぐにチャートを更新
+                    setTimeout(() => generateChartData(), 50);
+                  }}
+                  className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                 >
                   <option value="bar">棒グラフ</option>
-                  <option value="line">線グラフ</option>
+                  <option value="line">折れ線グラフ</option>
                   <option value="pie">円グラフ</option>
                   <option value="scatter">散布図</option>
+                  <option value="stacked-bar">積立棒グラフ</option>
+                  <option value="regression">線形回帰グラフ</option>
+                  <option value="histogram">ヒストグラム</option>
                 </select>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  データソース
-                </label>
+              
+              {chartSettings.type !== 'histogram' && chartSettings.type !== 'regression' && (
+                <div className="w-36">
+                  <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+                    集計方法 <span title="単一項目の出現頻度分析: X軸に分析したい項目、集計方法に「カウント」を選択、Y軸は空でOK&#10;各区分ごとの合計値: 例）部門別売上合計&#10;各区分ごとの平均値: 例）地域別平均気温&#10;各区分ごとの最大値: 例）月別最高気温&#10;各区分ごとの最小値: 例）製品別最低価格" className="text-red-500 cursor-help">*</span>
+                  </div>
+                  <select
+                    value={chartSettings.aggregation || 'none'}
+                    onChange={(e) => {
+                      updateChartSettings({ aggregation: e.target.value === 'none' ? undefined : e.target.value as any });
+                      // 集計方法が変更されたらすぐにチャートを更新
+                      setTimeout(() => generateChartData(), 50);
+                    }}
+                    className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="none">集計なし</option>
+                    <option value="sum">合計</option>
+                    <option value="avg">平均</option>
+                    <option value="count">カウント</option>
+                    <option value="min">最小値</option>
+                    <option value="max">最大値</option>
+                  </select>
+                </div>
+              )}
+              
+              <div className="w-36">
+                <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">データソース</div>
                 <select
                   value={chartSettings.dataSource}
-                  onChange={(e) => updateChartSettings({ dataSource: e.target.value as any })}
-                  className="w-full p-2 border border-gray-300 rounded"
+                  onChange={(e) => updateChartSettings({ dataSource: e.target.value as 'originalData' | 'queryResult' })}
+                  className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                 >
                   <option value="originalData">統合データ</option>
                   <option value="queryResult">クエリ結果</option>
                 </select>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  X軸
-                </label>
-                <select
-                  value={chartSettings.xAxis}
-                  onChange={(e) => updateChartSettings({ xAxis: e.target.value })}
-                  className="w-full p-2 border border-gray-300 rounded"
-                >
-                  {availableColumns.map(col => (
-                    <option key={col} value={col}>{col}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Y軸
-                </label>
-                <select
-                  value={chartSettings.yAxis}
-                  onChange={(e) => updateChartSettings({ yAxis: e.target.value })}
-                  className="w-full p-2 border border-gray-300 rounded"
-                >
-                  {availableColumns.map(col => (
-                    <option key={col} value={col}>{col}</option>
-                  ))}
-                </select>
-              </div>
+              
+              {chartSettings.type === 'histogram' && (
+                <div className="w-24">
+                  <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">ビン数</div>
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={chartSettings.options?.bins || 10}
+                    onChange={(e) => {
+                      updateChartSettings({ 
+                        options: { 
+                          ...chartSettings.options, 
+                          bins: parseInt(e.target.value) || 10 
+                        } 
+                      });
+                      // ビン数が変更されたらすぐにチャートを更新
+                      setTimeout(() => generateChartData(), 50);
+                    }}
+                    className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                  />
+                </div>
+              )}
             </div>
             
             <button
+              className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
               onClick={generateChartData}
-              disabled={loading || !combinedData || combinedData.length === 0}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
             >
-              <IoBarChartOutline size={16} className="mr-2" />
-              チャート作成
+              グラフを更新
             </button>
+            
+            {loading && activeTab === 'chart' && (
+              <div className="inline-flex items-center text-sm text-blue-600 ml-4">
+                <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full mr-2"></div>
+                更新中...
+              </div>
+            )}
+            
+            <div className="flex flex-wrap gap-2 mt-4 mb-2">
+              <div className="w-48">
+                <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">X軸（カテゴリ）</div>
+                <select
+                  value={chartSettings.xAxis}
+                  onChange={(e) => {
+                    updateChartSettings({ xAxis: e.target.value });
+                    // X軸が変更されたらすぐにチャートを更新
+                    setTimeout(() => generateChartData(), 50);
+                  }}
+                  className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                >
+                  <option value="">X軸を選択</option>
+                  {availableColumns.map(col => (
+                    <option key={col} value={col}>{col}</option>
+                  ))}
+                </select>
+              </div>
+              {/* ヒストグラムの場合はY軸選択を表示しない */}
+              {chartSettings.type !== 'histogram' && (
+                <div className="w-48">
+                  <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+                    Y軸（値）{chartSettings.aggregation === 'count' ? <span className="text-xs text-gray-500">（省略可）</span> : ''}
+                    {chartSettings.aggregation === 'count' && <span title="頻度分析の場合、Y軸は省略できます。&#10;省略するとX軸の各値の出現回数が自動的にカウントされます。" className="ml-1 text-red-500 cursor-help">*</span>}
+                  </div>
+                  <select
+                    value={chartSettings.yAxis}
+                    onChange={(e) => {
+                      updateChartSettings({ yAxis: e.target.value });
+                      // Y軸が変更されたらすぐにチャートを更新
+                      setTimeout(() => generateChartData(), 50);
+                    }}
+                    className={`w-full p-1.5 text-sm border ${chartSettings.aggregation === 'count' ? 'border-gray-200 dark:border-gray-600' : 'border-gray-300 dark:border-gray-700'} rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100`}
+                    required={chartSettings.aggregation !== 'count'}
+                  >
+                    <option value="">{chartSettings.aggregation === 'count' ? 'Y軸なし（頻度分析）' : 'Y軸を選択'}</option>
+                    {availableColumns.map(col => (
+                      <option key={col} value={col}>{col}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="w-48">
+                <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+                  グループ分け <span title="グループ分けの使い方：&#10;・単一項目の頻度分析時は空白のままにします&#10;・X軸の各カテゴリごとに複数の棒/線を表示する場合に使用します&#10;・例：「地域別、製品カテゴリ別の売上」ではX軸に地域、グループ分けに製品カテゴリを指定" className="text-red-500 cursor-help">*</span>
+                </div>
+                <select
+                  value={chartSettings.categoryField || ''}
+                  onChange={(e) => {
+                    updateChartSettings({ categoryField: e.target.value || undefined });
+                    // カテゴリフィールドが変更されたらすぐにチャートを更新
+                    setTimeout(() => generateChartData(), 50);
+                  }}
+                  className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                >
+                  <option value="">カテゴリなし</option>
+                  {availableColumns.map(col => (
+                    <option key={col} value={col}>{col}</option>
+                  ))}
+                </select>
+              </div>
+              
+              {chartSettings.type === 'regression' && (
+                <div className="w-48">
+                  <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">回帰タイプ</div>
+                  <select
+                    value={chartSettings.options?.regressionType || 'linear'}
+                    onChange={(e) => {
+                      updateChartSettings({ 
+                        options: { 
+                          ...chartSettings.options, 
+                          regressionType: e.target.value as any 
+                        } 
+                      });
+                      // 回帰タイプが変更されたらすぐにチャートを更新
+                      setTimeout(() => generateChartData(), 50);
+                    }}
+                    className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="linear">線形</option>
+                    <option value="exponential">指数</option>
+                    <option value="polynomial">多項式</option>
+                    <option value="power">累乗</option>
+                    <option value="logarithmic">対数</option>
+                  </select>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -835,9 +1035,9 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
             
             {infoResult && (
               <div>
-                <h3 className="text-lg font-semibold mb-2">データ型情報</h3>
+                <h3 className="text-lg font-semibold mb-2">項目ごとの型・最大文字数サマリー</h3>
                 <div className="border border-gray-200 rounded">
-                  <InfoResultTable data={infoResult} />
+                  <InfoResultTable infoResult={infoResult} />
                 </div>
               </div>
             )}
