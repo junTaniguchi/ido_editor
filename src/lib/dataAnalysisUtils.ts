@@ -1314,17 +1314,22 @@ export const prepareChartData = (
     return null;
   }
   
+  // categoryFieldが空文字列の場合はundefinedに変換
+  const normalizedCategoryField = categoryField && categoryField.trim() !== '' 
+    ? categoryField 
+    : undefined;
+  
   // データの初期確認（デバッグ用）
   console.log('チャートデータ準備 - 入力データ確認:', {
     データ型: chartType,
     レコード数: data.length,
     X軸フィールド: labelField,
     Y軸フィールド: valueField,
-    カテゴリフィールド: categoryField,
+    カテゴリフィールド: normalizedCategoryField,
     サンプルデータ: data.slice(0, 3).map(item => ({
       [labelField]: item[labelField],
       [valueField]: item[valueField],
-      [categoryField || 'カテゴリなし']: categoryField ? item[categoryField] : 'なし'
+      [normalizedCategoryField || 'カテゴリなし']: normalizedCategoryField ? item[normalizedCategoryField] : 'なし'
     }))
   });
   
@@ -1351,8 +1356,8 @@ export const prepareChartData = (
       const values = data.map(item => item[valueField]);
       
       // カテゴリフィールドが指定されている場合、カテゴリごとに色分け
-      if (categoryField) {
-        const categories = [...new Set(data.map(item => item[categoryField]))];
+      if (normalizedCategoryField) {
+        const categories = [...new Set(data.map(item => item[normalizedCategoryField]))];
         
         console.log('積み上げ棒グラフのカテゴリ:', {
           カテゴリ一覧: categories,
@@ -1361,7 +1366,7 @@ export const prepareChartData = (
         
         // カテゴリごとのデータセットを作成
         const datasets = categories.map((category, index) => {
-          const categoryData = data.filter(item => item[categoryField] === category);
+          const categoryData = data.filter(item => item[normalizedCategoryField] === category);
           const categoryLabels = categoryData.map(item => item[labelField]);
           const categoryValues = categoryData.map(item => item[valueField]);
           
@@ -1438,12 +1443,12 @@ export const prepareChartData = (
       const values = data.map(item => item[valueField]);
       
       // カテゴリフィールドが指定されている場合、カテゴリごとに色分け
-      if (categoryField) {
-        const categories = [...new Set(data.map(item => item[categoryField]))];
+      if (normalizedCategoryField) {
+        const categories = [...new Set(data.map(item => item[normalizedCategoryField]))];
         
         // カテゴリごとのデータセットを作成
         const datasets = categories.map((category, index) => {
-          const categoryData = data.filter(item => item[categoryField] === category);
+          const categoryData = data.filter(item => item[normalizedCategoryField] === category);
           const categoryLabels = categoryData.map(item => item[labelField]);
           const categoryValues = categoryData.map(item => item[valueField]);
           
@@ -1493,7 +1498,7 @@ export const prepareChartData = (
         データ件数: data.length,
         X軸フィールド: labelField,
         Y軸フィールド: valueField,
-        カテゴリフィールド: categoryField,
+        カテゴリフィールド: normalizedCategoryField,
         サンプルデータ: data.slice(0, 3)
       });
       
@@ -1764,8 +1769,8 @@ export const prepareChartData = (
           x: numX,
           y: numY,
           // カテゴリフィールドの値を追加（利用可能な場合）
-          category: categoryField && item[categoryField] !== undefined ? 
-                    String(item[categoryField]) : 
+          category: normalizedCategoryField && item[normalizedCategoryField] !== undefined ? 
+                    String(item[normalizedCategoryField]) : 
                     valueField, // valueFieldをデフォルトとして使用
           // 元の値も保持（デバッグ用）
           originalX: xRaw,
@@ -1791,17 +1796,17 @@ export const prepareChartData = (
       });
       
       // カテゴリフィールドが指定されている場合、カテゴリごとに色分け
-      if (categoryField) {
+      if (normalizedCategoryField) {
         // categoryFieldが存在する項目のみから一意なカテゴリ値を抽出
         const categories = [...new Set(data
-          .filter(item => item[categoryField as string] !== undefined)
-          .map(item => String(item[categoryField as string]))
+          .filter(item => item[normalizedCategoryField as string] !== undefined)
+          .map(item => String(item[normalizedCategoryField as string]))
         )];
         
         const datasets = categories.map((category, index) => {
           const categoryData = data.filter(item => 
-            categoryField !== undefined && 
-            item[categoryField as string] === category
+            normalizedCategoryField !== undefined && 
+            item[normalizedCategoryField as string] === category
           );
           
           // カテゴリデータからX値とY値を抽出し、明示的に数値に変換
@@ -1851,11 +1856,11 @@ export const prepareChartData = (
             label: valueField,
             data: scatterData.map(point => {
               // カテゴリフィールドが指定されている場合、各データポイントにカテゴリ情報を追加
-              if (categoryField && !point.category) {
+              if (normalizedCategoryField && !point.category) {
                 const idx = scatterData.indexOf(point);
                 const item = idx < data.length ? data[idx] : null;
-                if (item && item[categoryField as string] !== undefined) {
-                  point.category = String(item[categoryField as string]);
+                if (item && item[normalizedCategoryField as string] !== undefined) {
+                  point.category = String(item[normalizedCategoryField as string]);
                 } else {
                   point.category = valueField; // デフォルトはvalueField
                 }
@@ -1878,7 +1883,7 @@ export const prepareChartData = (
       const yValues = data.map(item => item[valueField]);
       
       // カテゴリフィールドが指定されている場合、カテゴリ値も抽出
-      const hasCategory = categoryField && categoryField !== '';
+      const hasCategory = normalizedCategoryField && normalizedCategoryField !== '';
       
       // 散布図のデータポイント形式に変換
       const scatterData = xValues.map((x, i) => {
@@ -1889,7 +1894,7 @@ export const prepareChartData = (
         
         // カテゴリ情報があれば追加
         if (hasCategory && data[i]) {
-          const categoryValue = data[i][categoryField as string];
+          const categoryValue = data[i][normalizedCategoryField as string];
           point.category = categoryValue !== undefined ? String(categoryValue) : '';
         }
         
@@ -1936,7 +1941,7 @@ export const prepareChartData = (
       const dataPoints = data.map(item => {
         const val = item[valueField];
         // カテゴリフィールドが指定されていれば、その値も含める
-        const category = categoryField ? String(item[categoryField] || '') : '';
+        const category = normalizedCategoryField ? String(item[normalizedCategoryField] || '') : '';
         return typeof val === 'number' && !isNaN(val) ? { value: val, category } : null;
       }).filter(point => point !== null) as { value: number, category: string }[];
       
@@ -1951,8 +1956,8 @@ export const prepareChartData = (
       console.log('ヒストグラム用データ:', { 
         field: valueField, 
         count: values.length,
-        categoryField: categoryField || 'なし',
-        hasCategoryData: !!categoryField
+        categoryField: normalizedCategoryField || 'なし',
+        hasCategoryData: !!normalizedCategoryField
       });
       
       // ビン数の決定（デフォルトは10）
@@ -1966,7 +1971,7 @@ export const prepareChartData = (
       const binWidth = (max - min) / bins;
       
       // カテゴリがある場合は、カテゴリごとに処理
-      const hasCategories = categoryField && dataPoints.some(p => p.category);
+      const hasCategories = normalizedCategoryField && dataPoints.some(p => p.category);
       
       // ビンの幅が0の場合（全て同じ値など）
       if (binWidth <= 0) {
@@ -2217,11 +2222,11 @@ export const prepareChartData = (
       // カテゴリフィールドが指定されている場合、カテゴリごとに色分け
       let datasets = [];
       
-      if (categoryField) {
-        const categories = [...new Set(data.map(item => item[categoryField]))];
+      if (normalizedCategoryField) {
+        const categories = [...new Set(data.map(item => item[normalizedCategoryField]))];
         
         datasets = categories.map((category, index) => {
-          const categoryData = data.filter(item => item[categoryField] === category);
+          const categoryData = data.filter(item => item[normalizedCategoryField] === category);
           const categoryGanttData = categoryData.map(item => {
             const start = new Date(item[startDateField]);
             const end = new Date(item[endDateField]);
@@ -2266,12 +2271,12 @@ export const prepareChartData = (
       const values = data.map(item => item[valueField]);
       
       // カテゴリフィールドが指定されている場合、カテゴリごとに色分け
-      if (categoryField) {
-        const categories = [...new Set(data.map(item => item[categoryField]))];
+      if (normalizedCategoryField) {
+        const categories = [...new Set(data.map(item => item[normalizedCategoryField]))];
         
         // カテゴリごとのデータセットを作成
         const datasets = categories.map((category, index) => {
-          const categoryData = data.filter(item => item[categoryField] === category);
+          const categoryData = data.filter(item => item[normalizedCategoryField] === category);
           const categoryLabels = categoryData.map(item => item[labelField]);
           const categoryValues = categoryData.map(item => item[valueField]);
           

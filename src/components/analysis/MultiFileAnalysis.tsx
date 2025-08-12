@@ -24,7 +24,9 @@ import {
   IoCodeSlash,
   IoEye,
   IoLayersOutline,
-  IoGitNetwork
+  IoGitNetwork,
+  IoChevronUpOutline,
+  IoChevronDownOutline
 } from 'react-icons/io5';
 import QueryResultTable from './QueryResultTable';
 import InfoResultTable from './InfoResultTable';
@@ -80,6 +82,8 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
   
   // 分析タブの管理
   const [activeTab, setActiveTab] = useState<'combine' | 'query' | 'stats' | 'chart' | 'relationship'>('combine');
+  const [isSettingsCollapsed, setIsSettingsCollapsed] = useState(false);
+  const [isQueryCollapsed, setIsQueryCollapsed] = useState(false);
   
   // データ統合関連
   const [joinType, setJoinType] = useState<'union' | 'intersection' | 'join'>('union');
@@ -102,6 +106,10 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
   const [isQueryEditing, setIsQueryEditing] = useState(false);
   const [editedQueryResult, setEditedQueryResult] = useState<any[] | null>(null);
   const [showQueryHelp, setShowQueryHelp] = useState(false);
+  
+  // Cypher クエリ関連
+  const [cypherQuery, setCypherQuery] = useState<string>('');
+  const [cypherParseError, setCypherParseError] = useState<string | null>(null);
   
   // 統計情報関連
   const [statisticsResult, setStatisticsResult] = useState<Record<string, any> | null>(null);
@@ -427,12 +435,24 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         処理データ: processedData.slice(0, 3)
       });
 
+      console.log('prepareChartData呼び出しパラメータ:', {
+        labelField: chartSettings.xAxis,
+        valueField: chartSettings.yAxis,
+        chartType: chartSettings.type,
+        categoryField: chartSettings.categoryField,
+        正規化後categoryField: chartSettings.categoryField && chartSettings.categoryField.trim() !== '' 
+          ? chartSettings.categoryField 
+          : undefined
+      });
+
       const chartDataResult = prepareChartData(
         processedData,
         chartSettings.xAxis,
         chartSettings.yAxis,
         chartSettings.type as any,
-        chartSettings.categoryField,
+        chartSettings.categoryField && chartSettings.categoryField.trim() !== '' 
+          ? chartSettings.categoryField 
+          : undefined,
         chartSettings.options
       );
 
@@ -566,7 +586,26 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
       </div>
 
       {/* 設定パネル */}
-      <div className="p-4 border-b border-gray-200 bg-gray-50">
+      <div className="border-b border-gray-200 bg-gray-50">
+        {/* 設定パネルヘッダー */}
+        <div className="px-4 py-2 flex items-center justify-between bg-gray-100">
+          <h3 className="text-sm font-medium text-gray-700">設定</h3>
+          <button
+            onClick={() => setIsSettingsCollapsed(!isSettingsCollapsed)}
+            className="p-1 hover:bg-gray-200 rounded"
+            title={isSettingsCollapsed ? '設定を展開' : '設定を折りたたむ'}
+          >
+            {isSettingsCollapsed ? (
+              <IoChevronDownOutline size={16} />
+            ) : (
+              <IoChevronUpOutline size={16} />
+            )}
+          </button>
+        </div>
+        
+        {/* 設定パネル内容 */}
+        {!isSettingsCollapsed && (
+          <div className="p-4">
         {/* データ統合設定 */}
         {activeTab === 'combine' && (
           <div>
@@ -940,24 +979,60 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
           </div>
         )}
 
-        {/* 共通ボタン */}
-        {activeTab !== 'stats' && activeTab !== 'relationship' && (
-          <div className="flex justify-end mt-4 pt-4 border-t border-gray-200">
+        {/* 関係性設定 */}
+        {activeTab === 'relationship' && (
+          <div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Cypherクエリ
+              </label>
+              <textarea
+                className="w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-sm resize-vertical min-h-[80px] max-h-[240px] focus:outline-none focus:ring-2 focus:ring-blue-400"
+                style={{ lineHeight: '1.6', tabSize: 4 }}
+                placeholder="Cypherクエリを入力 (例: MATCH (n:Person) RETURN n)"
+                value={cypherQuery}
+                onChange={(e) => setCypherQuery(e.target.value)}
+                rows={4}
+              />
+              {cypherParseError && (
+                <div className="text-red-500 text-sm mt-1">{cypherParseError}</div>
+              )}
+            </div>
+            
             <button
               onClick={() => {
-                clearSelectedFiles();
-                onClose();
+                // TODO: Cypherクエリ実行処理をここに移動
+                setCypherParseError(null);
               }}
-              className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+              disabled={loading}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
             >
-              選択をクリア
+              <IoGitNetwork size={16} className="mr-2" />
+              クエリ実行
             </button>
+          </div>
+        )}
+
+            {/* 共通ボタン */}
+            {activeTab !== 'stats' && activeTab !== 'relationship' && (
+              <div className="flex justify-end mt-4 pt-4 border-t border-gray-200">
+                <button
+                  onClick={() => {
+                    clearSelectedFiles();
+                    onClose();
+                  }}
+                  className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+                >
+                  選択をクリア
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
 
       {/* 結果表示エリア */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto min-h-0">
         {loading && (
           <div className="flex items-center justify-center p-8">
             <div className="text-center">
@@ -1052,11 +1127,105 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
               チャート
             </h3>
             <div className="border border-gray-200 rounded p-4 bg-white">
-              <div className="flex justify-center">
-                {chartSettings.type === 'bar' && <Bar data={chartData} />}
-                {chartSettings.type === 'line' && <Line data={chartData} />}
-                {chartSettings.type === 'pie' && <Pie data={chartData} />}
-                {chartSettings.type === 'scatter' && <Scatter data={chartData} />}
+              <div className="flex justify-center h-96">
+                {chartSettings.type === 'bar' && (
+                  <Bar 
+                    data={chartData} 
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      plugins: {
+                        datalabels: {
+                          display: false // データラベルを非表示
+                        }
+                      }
+                    }}
+                  />
+                )}
+                {chartSettings.type === 'line' && (
+                  <Line 
+                    data={chartData} 
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      plugins: {
+                        datalabels: {
+                          display: false
+                        }
+                      }
+                    }}
+                  />
+                )}
+                {chartSettings.type === 'pie' && (
+                  <Pie 
+                    data={chartData} 
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      plugins: {
+                        datalabels: {
+                          display: false
+                        }
+                      }
+                    }}
+                  />
+                )}
+                {chartSettings.type === 'scatter' && (
+                  <Scatter 
+                    data={chartData} 
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      plugins: {
+                        datalabels: {
+                          display: false
+                        }
+                      }
+                    }}
+                  />
+                )}
+                {chartSettings.type === 'stacked-bar' && (
+                  <Bar 
+                    data={chartData} 
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      plugins: {
+                        datalabels: {
+                          display: false
+                        }
+                      }
+                    }}
+                  />
+                )}
+                {chartSettings.type === 'regression' && (
+                  <Scatter 
+                    data={chartData} 
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      plugins: {
+                        datalabels: {
+                          display: false
+                        }
+                      }
+                    }}
+                  />
+                )}
+                {chartSettings.type === 'histogram' && (
+                  <Bar 
+                    data={chartData} 
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      plugins: {
+                        datalabels: {
+                          display: false
+                        }
+                      }
+                    }}
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -1064,17 +1233,19 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
 
         {/* 関係性タブ */}
         {activeTab === 'relationship' && combinedData && combinedData.length > 0 && (
-          <div className="p-4 h-full flex flex-col">
+          <div className="p-4">
             <h3 className="text-lg font-semibold mb-2 flex items-center">
               <IoGitNetwork size={20} className="mr-2" />
               データ関係性分析
             </h3>
-            <div className="flex-1 border border-gray-200 rounded bg-white" ref={graphContainerRef}>
+            <div className="h-96 border border-gray-200 rounded bg-white" ref={graphContainerRef}>
               <RelationshipGraph
                 data={combinedData}
                 width={graphSize.width}
                 height={graphSize.height}
                 theme={currentTheme}
+                isQueryCollapsed={isQueryCollapsed}
+                onToggleQueryCollapse={() => setIsQueryCollapsed(!isQueryCollapsed)}
               />
             </div>
           </div>
