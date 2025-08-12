@@ -32,6 +32,7 @@ import ObjectViewer from './ObjectViewer';
 import MermaidPreview from './MermaidPreview';
 import IpynbPreview from './IpynbPreview';
 import PdfPreview from './PdfPreview';
+import ExcelPreview from './ExcelPreview';
 import { IoAlertCircleOutline, IoCodeSlash, IoEye, IoAnalytics, IoLayers, IoGrid, IoSave, IoClose, IoDownload } from 'react-icons/io5';
 import * as XLSX from 'xlsx';
 import { Document, Packer, Paragraph } from 'docx';
@@ -96,7 +97,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   };
   const { tabs, updateTab, getViewMode, setViewMode, paneState, updatePaneState, editorSettings, updateEditorSettings } = useEditorStore();
   const [content, setContent] = useState('');
-  const [type, setType] = useState<'text' | 'markdown' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' | 'ipynb' | 'pdf' | null>(null);
+  const [type, setType] = useState<'text' | 'markdown' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' | 'ipynb' | 'pdf' | 'excel' | null>(null);
   const [parsedData, setParsedData] = useState<any>(null);
   const [originalData, setOriginalData] = useState<any>(null); // 元のネスト構造データ
   const [columns, setColumns] = useState<string[]>([]);
@@ -412,6 +413,17 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
             setParsedData(parsedRows);
             setOriginalData(parsedRows);
             setColumns(parquetResult.headers);
+          }
+          break;
+          
+        case 'excel':
+          // Excelファイルの処理
+          try {
+            // FileのArrayBufferを取得
+            const buffer = await tab.file.arrayBuffer();
+            setContent(buffer as any); // ArrayBufferをcontentに設定（ExcelPreviewで使用）
+          } catch (err) {
+            setError(`Excelファイルの読み込みに失敗しました: ${err instanceof Error ? err.message : 'Unknown error'}`);
           }
           break;
           
@@ -772,7 +784,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
               </button>
             )}
             {/* 分析モード切替アイコン（データ系ファイルで常に表示） */}
-            {(type === 'csv' || type === 'tsv' || type === 'json' || type === 'yaml' || type === 'parquet') && (
+            {(type === 'csv' || type === 'tsv' || type === 'json' || type === 'yaml' || type === 'parquet' || type === 'excel') && (
               <button
                 className={`px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 mr-2 flex items-center ${paneState.isAnalysisVisible ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
                 onClick={() => updatePaneState({ isAnalysisVisible: !paneState.isAnalysisVisible })}
@@ -816,6 +828,13 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
             <div className="p-2">
               <PdfPreview fileUrl={parsedData} />
             </div>
+          )}
+          {/* Excelプレビュー */}
+          {type === 'excel' && content && (
+            <ExcelPreview 
+              content={content as ArrayBuffer} 
+              fileName={tabs.get(tabId)?.name || 'excel-file'} 
+            />
           )}
           {/* CSV、TSV、JSONとYAMLの配列形式のデータはテーブルで表示 */}
           {((type === 'csv' || type === 'tsv' || type === 'parquet' || 

@@ -1,6 +1,7 @@
 import Papa from 'papaparse';
 import YAML from 'js-yaml';
 import { tableFromArrays, Table } from 'apache-arrow';
+import * as XLSX from 'xlsx';
 
 /**
  * CSVデータをパースする
@@ -559,7 +560,135 @@ export const getFileType = (fileName: string): 'text' | 'markdown' | 'html' | 'j
       return 'parquet';
     case 'mmd':
       return 'mermaid';
+    case 'xlsx':
+    case 'xls':
+      return 'excel';
     default:
       return 'text';
+  }
+};
+
+// Excel関連のインターフェース
+export interface ExcelSheetInfo {
+  name: string;
+  range: string;
+  rowCount: number;
+  colCount: number;
+}
+
+export interface ExcelParseOptions {
+  sheetName?: string;
+  startRow?: number;
+  startCol?: number;
+  endRow?: number;
+  endCol?: number;
+  hasHeader?: boolean;
+}
+
+/**
+ * Excelファイルからシート情報を取得する
+ * @param buffer ファイルのArrayBuffer
+ */
+export const getExcelSheets = (buffer: ArrayBuffer): ExcelSheetInfo[] => {
+  try {
+    const workbook = XLSX.read(buffer, { type: 'array' });
+    
+    return workbook.SheetNames.map(name => {
+      const worksheet = workbook.Sheets[name];
+      const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1:A1');
+      
+      return {
+        name,
+        range: worksheet['!ref'] || 'A1:A1',
+        rowCount: range.e.r - range.s.r + 1,
+        colCount: range.e.c - range.s.c + 1
+      };
+    });
+  } catch (error) {
+    console.error('Excel sheet information extraction failed:', error);
+    return [];
+  }
+};
+
+/**
+ * Excelファイルのシートからデータを読み取る
+ * @param buffer ファイルのArrayBuffer
+ * @param options パース設定
+ */
+export const parseExcel = (buffer: ArrayBuffer, options: ExcelParseOptions = {}) => {
+  try {
+    const workbook = XLSX.read(buffer, { type: 'array' });
+    
+    // シート選択（デフォルトは最初のシート）
+    const sheetName = options.sheetName || workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    
+    if (!worksheet) {
+      throw new Error(`シート '${sheetName}' が見つかりません`);
+    }
+    
+    // 範囲の調整
+    let range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1:A1');
+    
+    if (options.startRow !== undefined) {
+      range.s.r = Math.max(0, options.startRow - 1); // 1-based to 0-based
+    }
+    if (options.startCol !== undefined) {
+      range.s.c = Math.max(0, options.startCol - 1); // 1-based to 0-based
+    }
+    if (options.endRow !== undefined) {
+      range.e.r = Math.min(range.e.r, options.endRow - 1); // 1-based to 0-based
+    }
+    if (options.endCol !== undefined) {
+      range.e.c = Math.min(range.e.c, options.endCol - 1); // 1-based to 0-based
+    }
+    
+    // 調整した範囲でデータを取得
+    const adjustedRef = XLSX.utils.encode_range(range);
+    const data = XLSX.utils.sheet_to_json(worksheet, {
+      range: adjustedRef,
+      header: options.hasHeader !== false ? 1 : undefined, // デフォルトでヘッダー行ありとする
+      defval: null // 空のセルはnullに
+    });
+    
+    console.log('Excel解析完了:', {
+      シート名: sheetName,
+      データ範囲: adjustedRef,
+      行数: data.length,
+      ヘッダー有無: options.hasHeader !== false
+    });
+    
+    return data;
+  } catch (error) {
+    console.error('Excel parsing failed:', error);
+    throw error;
+  }
+};
+
+/**
+ * Excelファイルのプレビュー用データを取得する（最初のシートの最初の100行）
+ * @param buffer ファイルのArrayBuffer
+ */
+export const previewExcel = (buffer: ArrayBuffer) => {
+  try {
+    const sheets = getExcelSheets(buffer);
+    if (sheets.length === 0) {
+      throw new Error('有効なシートが見つかりません');
+    }
+    
+    // 最初のシートから最大100行のデータを取得
+    const previewData = parseExcel(buffer, {
+      sheetName: sheets[0].name,
+      endRow: Math.min(100, sheets[0].rowCount)
+    });
+    
+    return {
+      sheets,
+      previewData,
+      currentSheet: sheets[0].name
+    };
+  } catch (error) {
+    console.error('Excel preview failed:', error);
+    throw error;
   }
 };
