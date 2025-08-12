@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useEditorStore } from '@/store/editorStore';
 import { parseCSV, parseJSON, parseYAML, parseParquet, flattenNestedObjects } from '@/lib/dataPreviewUtils';
 import { executeQuery, calculateStatistics, aggregateData, prepareChartData, calculateInfo } from '@/lib/dataAnalysisUtils';
-import { IoAlertCircleOutline, IoAnalyticsOutline, IoBarChartOutline, IoStatsChartOutline, IoCodeSlash, IoEye, IoLayersOutline, IoCreate, IoSave, IoGitNetwork } from 'react-icons/io5';
+import { IoAlertCircleOutline, IoAnalyticsOutline, IoBarChartOutline, IoStatsChartOutline, IoCodeSlash, IoEye, IoLayersOutline, IoCreate, IoSave, IoGitNetwork, IoChevronUpOutline, IoChevronDownOutline } from 'react-icons/io5';
 import QueryResultTable from './QueryResultTable';
 import InfoResultTable from './InfoResultTable';
 import EditableQueryResultTable from './EditableQueryResultTable';
@@ -131,6 +131,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
   
   // 関係グラフのサイズを更新するためのステート
   const [graphSize, setGraphSize] = useState({ width: 800, height: 600 });
+  const [isSettingsCollapsed, setIsSettingsCollapsed] = useState(false);
   
   // 関係グラフのサイズを更新
   useEffect(() => {
@@ -3138,7 +3139,8 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
           }`}
           onClick={() => setActiveTab('query')}
         >
-          SQLクエリ
+          <IoCodeSlash className="inline mr-1" size={16} />
+          クエリ
         </button>
         <button
           className={`px-4 py-2 ${
@@ -3148,6 +3150,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
           }`}
           onClick={() => setActiveTab('stats')}
         >
+          <IoStatsChartOutline className="inline mr-1" size={16} />
           統計情報
         </button>
         <button
@@ -3158,7 +3161,8 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
           }`}
           onClick={() => setActiveTab('chart')}
         >
-          グラフ作成
+          <IoBarChartOutline className="inline mr-1" size={16} />
+          チャート
         </button>
         <button
           className={`px-4 py-2 ${
@@ -3206,56 +3210,60 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
         </button>
       </div>
       
-      {/* タブコンテンツ */}
-      <div className="flex-1 overflow-hidden">
-        {/* SQLクエリタブ */}
-        {activeTab === 'query' && (
-          <div className="h-full flex flex-col">
-            <div className="p-4 border-b border-gray-300 dark:border-gray-700">
-              <textarea
-                value={sqlQuery}
-                onChange={(e) => setSqlQuery(e.target.value)}
-                className="w-full h-32 p-2 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                placeholder="SELECT * FROM ? LIMIT 10"
-              />
-              <div className="mt-2 flex justify-between items-center">
-                <div className="text-sm text-gray-500 dark:text-gray-400">
-                  テーブルは ?（クエスチョンマーク）で参照できます
+      {/* 設定パネル */}
+      <div className="border-b border-gray-200 bg-gray-50 dark:bg-gray-800">
+        {/* 設定パネルヘッダー */}
+        <div className="px-4 py-2 flex items-center justify-between bg-gray-100 dark:bg-gray-700">
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">設定</h3>
+          <button
+            onClick={() => setIsSettingsCollapsed(!isSettingsCollapsed)}
+            className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
+            title={isSettingsCollapsed ? '設定を展開' : '設定を折りたたむ'}
+          >
+            {isSettingsCollapsed ? (
+              <IoChevronDownOutline size={16} />
+            ) : (
+              <IoChevronUpOutline size={16} />
+            )}
+          </button>
+        </div>
+        
+        {/* 設定パネル内容 */}
+        {!isSettingsCollapsed && (
+          <div className="p-4">
+            {/* SQLクエリ設定 */}
+            {activeTab === 'query' && (
+              <div>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    SQLクエリ
+                  </label>
+                  <textarea
+                    value={sqlQuery}
+                    onChange={(e) => setSqlQuery(e.target.value)}
+                    className="w-full h-32 p-2 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                    placeholder="SELECT * FROM ? LIMIT 10"
+                  />
+                  <div className="mt-2 flex justify-between items-center">
+                    <div className="text-sm text-gray-500 dark:text-gray-400">
+                      テーブルは ?（クエスチョンマーク）で参照できます
+                    </div>
+                    <button
+                      className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                      onClick={executeUserQuery}
+                    >
+                      実行
+                    </button>
+                  </div>
                 </div>
-                <button
-                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                  onClick={executeUserQuery}
-                >
-                  実行
-                </button>
               </div>
-            </div>
-            <div className="flex-1 overflow-auto">
-              {renderQueryResult()}
-            </div>
-          </div>
-        )}
-        
-        {/* 統計情報タブ */}
-        {activeTab === 'stats' && (
-          <div className="h-full flex flex-col">
-            <div className="p-4 border-b border-gray-300 dark:border-gray-700 flex items-center">
-              <IoStatsChartOutline className="mr-2 text-blue-500" size={20} />
-              <span className="font-medium">データの基本統計情報（describe）</span>
-            </div>
-            <div className="flex-1 overflow-auto p-4">
-              {renderStatistics()}
-            </div>
-          </div>
-        )}
-        
-        {/* グラフ作成タブ */}
-        {activeTab === 'chart' && (
-          <div className="h-full flex flex-col">
-            <div className="p-2 border-b border-gray-300 dark:border-gray-700">
-              <div className="flex flex-wrap gap-2 items-center mb-2">
-                <div className="flex gap-2 items-end">
-                  <div className="w-36">
+            )}
+
+            {/* チャート設定 */}
+            {activeTab === 'chart' && (
+              <div>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+                  <div>
                     <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">グラフタイプ</div>
                     <select
                       value={chartSettings.type}
@@ -3284,7 +3292,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                   </div>
                   
                   {chartSettings.type !== 'histogram' && chartSettings.type !== 'regression' && (
-                    <div className="w-36">
+                    <div>
                       <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">
                         集計方法 <span title="単一項目の出現頻度分析: X軸に分析したい項目、集計方法に「カウント」を選択、Y軸は空でOK&#10;各区分ごとの合計値: 例）部門別売上合計&#10;各区分ごとの平均値: 例）地域別平均気温&#10;各区分ごとの最大値: 例）月別最高気温&#10;各区分ごとの最小値: 例）製品別最低価格" className="text-red-500 cursor-help">*</span>
                       </div>
@@ -3307,7 +3315,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                     </div>
                   )}
                   
-                  <div className="w-36">
+                  <div>
                     <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">データソース</div>
                     <select
                       value={chartSettings.dataSource}
@@ -3320,18 +3328,18 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                   </div>
                   
                   {chartSettings.type === 'histogram' && (
-                    <div className="w-24">
+                    <div>
                       <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">ビン数</div>
                       <input
                         type="number"
                         min="1"
                         max="100"
-                        value={chartSettings.options?.bins || 10}
+                        value={chartSettings.options?.binCount || 10}
                         onChange={(e) => {
                           updateChartSettings({ 
                             options: { 
                               ...chartSettings.options, 
-                              bins: parseInt(e.target.value) || 10 
+                              binCount: parseInt(e.target.value) || 10 
                             } 
                           });
                           // ビン数が変更されたらすぐにチャートを更新
@@ -3341,64 +3349,19 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                       />
                     </div>
                   )}
-                </div>
-                
-                <button
-                  className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
-                  onClick={updateChart}
-                >
-                  グラフを更新
-                </button>
-                
-                {loading && activeTab === 'chart' && (
-                  <div className="inline-flex items-center text-sm text-blue-600">
-                    <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full mr-2"></div>
-                    更新中...
-                  </div>
-                )}
-              </div>
-              
-              <div className="flex flex-wrap gap-2 mb-2">
-                <div className="w-48">
-                  <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">X軸（カテゴリ）</div>
-                  <select
-                    value={chartSettings.xAxis}
-                    onChange={(e) => {
-                      updateChartSettings({ xAxis: e.target.value });
-                      // X軸が変更されたらすぐにチャートを更新
-                      setTimeout(() => updateChart(), 50);
-                    }}
-                    className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                  >
-                    <option value="">X軸を選択</option>
-                    {chartSettings.dataSource === 'queryResult' && queryResult && queryResult.length > 0
-                      ? Object.keys(queryResult[0]).map(col => (
-                          <option key={col} value={col}>{col}</option>
-                        ))
-                      : columns.map(col => (
-                          <option key={col} value={col}>{col}</option>
-                        ))
-                    }
-                  </select>
-                </div>
-                {/* ヒストグラムの場合はY軸選択を表示しない */}
-                {chartSettings.type !== 'histogram' && (
-                  <div className="w-48">
-                    <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-                      Y軸（値）{chartSettings.aggregation === 'count' ? <span className="text-xs text-gray-500">（省略可）</span> : ''}
-                      {chartSettings.aggregation === 'count' && <span title="頻度分析の場合、Y軸は省略できます。&#10;省略するとX軸の各値の出現回数が自動的にカウントされます。" className="ml-1 text-red-500 cursor-help">*</span>}
-                    </div>
+                  
+                  <div>
+                    <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">X軸</div>
                     <select
-                      value={chartSettings.yAxis}
+                      value={chartSettings.xAxis || ''}
                       onChange={(e) => {
-                        updateChartSettings({ yAxis: e.target.value });
-                        // Y軸が変更されたらすぐにチャートを更新
+                        updateChartSettings({ xAxis: e.target.value || undefined });
+                        // X軸が変更されたらすぐにチャートを更新
                         setTimeout(() => updateChart(), 50);
                       }}
-                      className={`w-full p-1.5 text-sm border ${chartSettings.aggregation === 'count' ? 'border-gray-200 dark:border-gray-600' : 'border-gray-300 dark:border-gray-700'} rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100`}
-                      required={chartSettings.aggregation !== 'count'}
+                      className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                     >
-                      <option value="">{chartSettings.aggregation === 'count' ? 'Y軸なし（頻度分析）' : 'Y軸を選択'}</option>
+                      <option value="">X軸を選択</option>
                       {chartSettings.dataSource === 'queryResult' && queryResult && queryResult.length > 0
                         ? Object.keys(queryResult[0]).map(col => (
                             <option key={col} value={col}>{col}</option>
@@ -3409,88 +3372,139 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                       }
                     </select>
                   </div>
-                )}
-                <div className="w-48">
-                  <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-                    グループ分け <span title="グループ分けの使い方：&#10;・単一項目の頻度分析時は空白のままにします&#10;・X軸の各カテゴリごとに複数の棒/線を表示する場合に使用します&#10;・例：「地域別、製品カテゴリ別の売上」ではX軸に地域、グループ分けに製品カテゴリを指定" className="text-red-500 cursor-help">*</span>
-                  </div>
-                  <select
-                    value={chartSettings.categoryField || ''}
-                    onChange={(e) => {
-                      updateChartSettings({ categoryField: e.target.value || undefined });
-                      // カテゴリフィールドが変更されたらすぐにチャートを更新
-                      setTimeout(() => updateChart(), 50);
-                    }}
-                    className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                  >
-                    <option value="">カテゴリなし</option>
-                    {chartSettings.dataSource === 'queryResult' && queryResult && queryResult.length > 0
-                      ? Object.keys(queryResult[0]).map(col => (
-                          <option key={col} value={col}>{col}</option>
-                        ))
-                      : columns.map(col => (
-                          <option key={col} value={col}>{col}</option>
-                        ))
-                    }
-                  </select>
-                </div>
-                
-                {chartSettings.type === 'regression' && (
-                  <div className="w-48">
-                    <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">回帰タイプ</div>
+                  
+                  {chartSettings.type !== 'histogram' && chartSettings.aggregation !== 'count' && (
+                    <div>
+                      <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">Y軸</div>
+                      <select
+                        value={chartSettings.yAxis || ''}
+                        onChange={(e) => {
+                          updateChartSettings({ yAxis: e.target.value || undefined });
+                          // Y軸が変更されたらすぐにチャートを更新
+                          setTimeout(() => updateChart(), 50);
+                        }}
+                        className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                      >
+                        <option value="">{chartSettings.aggregation === 'count' ? 'Y軸なし（頻度分析）' : 'Y軸を選択'}</option>
+                        {chartSettings.dataSource === 'queryResult' && queryResult && queryResult.length > 0
+                          ? Object.keys(queryResult[0]).map(col => (
+                              <option key={col} value={col}>{col}</option>
+                            ))
+                          : columns.map(col => (
+                              <option key={col} value={col}>{col}</option>
+                            ))
+                        }
+                      </select>
+                    </div>
+                  )}
+                  
+                  <div>
+                    <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+                      グループ分け <span title="グループ分けの使い方：&#10;・単一項目の頻度分析時は空白のままにします&#10;・X軸の各カテゴリごとに複数の棒/線を表示する場合に使用します&#10;・例：「地域別、製品カテゴリ別の売上」ではX軸に地域、グループ分けに製品カテゴリを指定" className="text-red-500 cursor-help">*</span>
+                    </div>
                     <select
-                      value={chartSettings.options?.regressionType || 'linear'}
+                      value={chartSettings.categoryField || ''}
                       onChange={(e) => {
-                        updateChartSettings({ 
-                          options: { 
-                            ...chartSettings.options, 
-                            regressionType: e.target.value as any 
-                          } 
-                        });
-                        // 回帰タイプが変更されたらすぐにチャートを更新
+                        updateChartSettings({ categoryField: e.target.value || undefined });
+                        // カテゴリフィールドが変更されたらすぐにチャートを更新
                         setTimeout(() => updateChart(), 50);
                       }}
                       className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                     >
-                      <option value="linear">線形</option>
-                      <option value="exponential">指数</option>
-                      <option value="polynomial">多項式</option>
-                      <option value="power">累乗</option>
-                      <option value="logarithmic">対数</option>
+                      <option value="">カテゴリなし</option>
+                      {chartSettings.dataSource === 'queryResult' && queryResult && queryResult.length > 0
+                        ? Object.keys(queryResult[0]).map(col => (
+                            <option key={col} value={col}>{col}</option>
+                          ))
+                        : columns.map(col => (
+                            <option key={col} value={col}>{col}</option>
+                          ))
+                      }
                     </select>
                   </div>
-                )}
+                  
+                  {chartSettings.type === 'regression' && (
+                    <div>
+                      <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">回帰タイプ</div>
+                      <select
+                        value={chartSettings.options?.regressionType || 'linear'}
+                        onChange={(e) => {
+                          updateChartSettings({ 
+                            options: { 
+                              ...chartSettings.options, 
+                              regressionType: e.target.value as any 
+                            } 
+                          });
+                          // 回帰タイプが変更されたらすぐにチャートを更新
+                          setTimeout(() => updateChart(), 50);
+                        }}
+                        className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                      >
+                        <option value="linear">線形</option>
+                        <option value="exponential">指数</option>
+                        <option value="polynomial">多項式</option>
+                        <option value="power">累乗</option>
+                        <option value="logarithmic">対数</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="mt-4 flex justify-end">
+                  <button
+                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center"
+                    onClick={updateChart}
+                  >
+                    <IoBarChartOutline className="mr-2" size={16} />
+                    グラフを更新
+                  </button>
+                </div>
               </div>
-            </div>
-            <div className="flex-1 overflow-auto p-2">
-              {renderChart()}
-            </div>
+            )}
+          </div>
+        )}
+      </div>
+      
+      {/* タブコンテンツ */}
+      <div className="flex-1 overflow-hidden min-h-0">
+        {/* SQLクエリタブ */}
+        {activeTab === 'query' && (
+          <div className="h-full overflow-auto">
+            {renderQueryResult()}
+          </div>
+        )}
+        
+        {/* 統計情報タブ */}
+        {activeTab === 'stats' && (
+          <div className="h-full overflow-auto p-4">
+            {renderStatistics()}
+          </div>
+        )}
+        
+        {/* グラフ作成タブ */}
+        {activeTab === 'chart' && (
+          <div className="h-full overflow-auto" style={{ height: '400px' }}>
+            {renderChart()}
           </div>
         )}
         
         {/* 関係グラフタブ */}
         {activeTab === 'relationship' && (
-          <div className="h-full flex flex-col">
-            <div className="p-4 border-b border-gray-300 dark:border-gray-700 flex items-center">
-              <IoGitNetwork className="mr-2 text-blue-500" size={20} />
-              <span className="font-medium">JSONデータの関係グラフ</span>
-            </div>
-            <div className="flex-1 overflow-auto p-4" ref={graphContainerRef}>
-              {originalData && typeof originalData === 'object' ? (
-                <RelationshipGraph 
-                  data={originalData} 
-                  theme={currentTheme}
-                  width={graphSize.width}
-                  height={graphSize.height}
-                />
-              ) : (
-                <div className="flex items-center justify-center h-full bg-gray-50 dark:bg-gray-800 rounded">
-                  <p className="text-gray-500 dark:text-gray-400">
-                    関係グラフの表示には有効なJSONデータが必要です。
-                  </p>
-                </div>
-              )}
-            </div>
+          <div className="h-full overflow-auto p-4" ref={graphContainerRef}>
+            {originalData && typeof originalData === 'object' ? (
+              <RelationshipGraph 
+                data={originalData} 
+                theme={currentTheme}
+                width={graphSize.width}
+                height={graphSize.height}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-full bg-gray-50 dark:bg-gray-800 rounded">
+                <p className="text-gray-500 dark:text-gray-400">
+                  関係グラフの表示には有効なJSONデータが必要です。
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>
