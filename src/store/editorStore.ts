@@ -62,6 +62,15 @@ interface EditorStore {
   setSqlResult: (result: SqlResult | null) => void;
   chartSettings: ChartSettings;
   updateChartSettings: (settings: Partial<ChartSettings>) => void;
+
+  // 複数ファイル分析機能
+  selectedFiles: Set<string>;
+  setSelectedFiles: (files: Set<string>) => void;
+  addSelectedFile: (filePath: string) => void;
+  removeSelectedFile: (filePath: string) => void;
+  clearSelectedFiles: () => void;
+  multiFileAnalysisEnabled: boolean;
+  setMultiFileAnalysisEnabled: (enabled: boolean) => void;
 }
 
 export const useEditorStore = create<EditorStore>()(
@@ -222,6 +231,23 @@ export const useEditorStore = create<EditorStore>()(
       updateChartSettings: (settings) => set((state) => ({
         chartSettings: { ...state.chartSettings, ...settings }
       })),
+
+      // 複数ファイル分析機能
+      selectedFiles: new Set<string>(),
+      setSelectedFiles: (files) => set({ selectedFiles: files }),
+      addSelectedFile: (filePath) => set((state) => {
+        const newSet = new Set(state.selectedFiles);
+        newSet.add(filePath);
+        return { selectedFiles: newSet };
+      }),
+      removeSelectedFile: (filePath) => set((state) => {
+        const newSet = new Set(state.selectedFiles);
+        newSet.delete(filePath);
+        return { selectedFiles: newSet };
+      }),
+      clearSelectedFiles: () => set({ selectedFiles: new Set<string>() }),
+      multiFileAnalysisEnabled: false,
+      setMultiFileAnalysisEnabled: (enabled) => set({ multiFileAnalysisEnabled: enabled }),
       reorderTabs: (newOrder: string[]) => set((state: EditorStore) => {
         const newTabs = new Map<string, TabData>();
         newOrder.forEach((id: string) => {

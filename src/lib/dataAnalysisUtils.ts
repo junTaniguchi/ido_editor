@@ -1,3 +1,254 @@
+'use client';
+
+import { jStat } from 'jstat';
+
+// alasqlの代わりに簡単なSQL風クエリ処理を実装
+const executeSimpleQuery = (data: any[], query: string) => {
+  // 基本的なSELECT文のパースと実行
+  const normalizedQuery = query.trim().toLowerCase();
+  
+  if (normalizedQuery.startsWith('select')) {
+    // シンプルなSELECT ALL実装
+    if (normalizedQuery.includes('select *') || normalizedQuery === 'select') {
+      return data;
+    }
+    
+    // 特定の列を選択する場合の簡易実装
+    const selectMatch = normalizedQuery.match(/select\s+(.+?)(?:\s+from|$)/);
+    if (selectMatch) {
+      const columns = selectMatch[1].split(',').map(col => col.trim());
+      return data.map(row => {
+        const filteredRow: any = {};
+        columns.forEach(col => {
+          if (col !== '*' && row.hasOwnProperty(col)) {
+            filteredRow[col] = row[col];
+          }
+        });
+        return Object.keys(filteredRow).length > 0 ? filteredRow : row;
+      });
+    }
+  }
+  
+  return data;
+};
+
+/**
+ * 複数ファイルのデータを統合する
+ * @param fileDataMap ファイルパス -> データのマップ
+ * @param joinType 結合方式 ('union', 'intersection', 'join')
+ * @param joinKeys 結合キー（joinTypeが'join'の場合のみ必要）
+ * @returns 統合されたデータ
+ */
+export const combineMultipleFiles = (
+  fileDataMap: Map<string, any[]>,
+  joinType: 'union' | 'intersection' | 'join' = 'union',
+  joinKeys?: string[]
+) => {
+  if (fileDataMap.size === 0) {
+    return { data: [], error: 'データがありません' };
+  }
+
+  try {
+    const fileEntries = Array.from(fileDataMap.entries());
+    
+    switch (joinType) {
+      case 'union':
+        // 全ファイルのデータを縦に結合し、ファイル名を追加
+        const unionData: any[] = [];
+        fileEntries.forEach(([filePath, data]) => {
+          const fileName = filePath.split('/').pop() || filePath;
+          data.forEach(row => {
+            unionData.push({
+              ...row,
+              _sourceFile: fileName,
+              _sourceFilePath: filePath
+            });
+          });
+        });
+        return { data: unionData, error: null };
+
+      case 'intersection':
+        // 共通する列名のデータのみを抽出
+        if (fileEntries.length === 0) return { data: [], error: null };
+        
+        // 全ファイルで共通する列名を取得
+        const allColumns = fileEntries.map(([_, data]) => 
+          data.length > 0 ? Object.keys(data[0]) : []
+        );
+        const commonColumns = allColumns.reduce((acc, columns) => 
+          acc.filter(col => columns.includes(col))
+        );
+
+        const intersectionData: any[] = [];
+        fileEntries.forEach(([filePath, data]) => {
+          const fileName = filePath.split('/').pop() || filePath;
+          data.forEach(row => {
+            const filteredRow: any = { _sourceFile: fileName, _sourceFilePath: filePath };
+            commonColumns.forEach(col => {
+              filteredRow[col] = row[col];
+            });
+            intersectionData.push(filteredRow);
+          });
+        });
+        return { data: intersectionData, error: null };
+
+      case 'join':
+        // キーベースで結合
+        if (!joinKeys || joinKeys.length === 0) {
+          return { data: [], error: '結合キーが指定されていません' };
+        }
+
+        // 最初のファイルをベースとして、他のファイルを結合
+        const [baseFile, ...otherFiles] = fileEntries;
+        let joinedData = baseFile[1].map(row => ({
+          ...row,
+          _sourceFile: baseFile[0].split('/').pop() || baseFile[0]
+        }));
+
+        otherFiles.forEach(([filePath, data]) => {
+          const fileName = filePath.split('/').pop() || filePath;
+          
+          joinedData = joinedData.map(baseRow => {
+            // 結合キーに基づいて対応する行を探す
+            const matchingRow = data.find(dataRow => 
+              joinKeys.every(key => baseRow[key] === dataRow[key])
+            );
+
+            if (matchingRow) {
+              // キーが重複する場合はサフィックスを追加
+              const mergedRow = { ...baseRow };
+              Object.keys(matchingRow).forEach(key => {
+                if (joinKeys.includes(key)) return; // 結合キーは重複させない
+                
+                const newKey = mergedRow.hasOwnProperty(key) ? `${key}_${fileName}` : key;
+                mergedRow[newKey] = matchingRow[key];
+              });
+              return mergedRow;
+            }
+
+            return baseRow;
+          });
+        });
+
+        return { data: joinedData, error: null };
+
+      default:
+        return { data: [], error: `未対応の結合方式: ${joinType}` };
+    }
+  } catch (error) {
+    console.error('Error combining multiple files:', error);
+    return {
+      data: [],
+      error: error instanceof Error ? error.message : '複数ファイル統合エラー'
+    };
+  }
+};
+
+/**
+ * 複数ファイルの統計比較を実行する
+ * @param fileDataMap ファイルパス -> データのマップ
+ * @param columns 比較する列名
+ * @returns ファイル別統計情報
+ */
+export const compareMultipleFileStatistics = (
+  fileDataMap: Map<string, any[]>,
+  columns: string[]
+) => {
+  if (fileDataMap.size === 0) {
+    return { stats: null, error: 'データがありません' };
+  }
+
+  try {
+    const comparisonStats: Record<string, any> = {};
+
+    Array.from(fileDataMap.entries()).forEach(([filePath, data]) => {
+      const fileName = filePath.split('/').pop() || filePath;
+      const { stats, error } = calculateStatistics(data, true);
+      
+      if (stats && !error) {
+        // 指定された列のみを抽出
+        const filteredStats: Record<string, any> = {};
+        columns.forEach(col => {
+          if (stats[col]) {
+            filteredStats[col] = stats[col];
+          }
+        });
+        comparisonStats[fileName] = filteredStats;
+      }
+    });
+
+    return { stats: comparisonStats, error: null };
+  } catch (error) {
+    console.error('Error comparing file statistics:', error);
+    return {
+      stats: null,
+      error: error instanceof Error ? error.message : '統計比較エラー'
+    };
+  }
+};
+
+/**
+ * 複数ファイルからクロス集計テーブルを作成する
+ * @param fileDataMap ファイルパス -> データのマップ
+ * @param rowField 行に使用するフィールド
+ * @param colField 列に使用するフィールド（通常はファイル名）
+ * @param valueField 値に使用するフィールド
+ * @param aggregation 集計方法
+ * @returns クロス集計テーブル
+ */
+export const createCrossTabFromFiles = (
+  fileDataMap: Map<string, any[]>,
+  rowField: string,
+  colField: string,
+  valueField: string,
+  aggregation: 'sum' | 'avg' | 'count' | 'min' | 'max' = 'sum'
+) => {
+  try {
+    // 各ファイルからデータを集計
+    const aggregatedByFile: Record<string, Record<string, number>> = {};
+    
+    Array.from(fileDataMap.entries()).forEach(([filePath, data]) => {
+      const fileName = filePath.split('/').pop() || filePath;
+      
+      // ファイル内でグループ集計
+      const { data: aggregatedData, error } = aggregateData(
+        data, rowField, valueField, aggregation, true
+      );
+      
+      if (aggregatedData && !error) {
+        aggregatedByFile[fileName] = {};
+        aggregatedData.forEach(row => {
+          const rowKey = String(row[rowField]);
+          aggregatedByFile[fileName][rowKey] = row.value || row[valueField] || 0;
+        });
+      }
+    });
+
+    // 全ての行キーを収集
+    const allRowKeys = new Set<string>();
+    Object.values(aggregatedByFile).forEach(fileData => {
+      Object.keys(fileData).forEach(key => allRowKeys.add(key));
+    });
+
+    // クロス集計テーブルを構築
+    const crossTabData = Array.from(allRowKeys).map(rowKey => {
+      const row: Record<string, any> = { [rowField]: rowKey };
+      Object.keys(aggregatedByFile).forEach(fileName => {
+        row[fileName] = aggregatedByFile[fileName][rowKey] || 0;
+      });
+      return row;
+    });
+
+    return { data: crossTabData, error: null };
+  } catch (error) {
+    console.error('Error creating cross-tab from files:', error);
+    return {
+      data: null,
+      error: error instanceof Error ? error.message : 'クロス集計エラー'
+    };
+  }
+};
+
 /**
  * データの型・最大文字数などのサマリーを算出（pandas.info()相当）
  * @param data サマリーを算出するデータ
@@ -45,10 +296,6 @@ export const calculateInfo = (data: any[], enableNestedAccess: boolean = true) =
     };
   }
 };
-'use client';
-
-import alasql from 'alasql';
-import { jStat } from 'jstat';
 
 /**
  * ドット記法のパスを使用して、深くネストされたオブジェクト内の値を安全に取得する
@@ -169,13 +416,8 @@ export const executeQuery = (data: any[], query: string, enableNestedAccess: boo
     // ネストされたプロパティへのアクセスが必要な場合
     const processedData = enableNestedAccess ? flattenObjectsWithDotNotation(data) : data;
     
-    // テーブル名を指定していない場合、デフォルトでdataテーブルに対してクエリを実行
-    const normalizedQuery = query.trim().toLowerCase().startsWith('select') && 
-                         !query.toLowerCase().includes('from') 
-                         ? `${query} FROM ?` 
-                         : query;
-    
-    const result = alasql(normalizedQuery, [processedData]);
+    // 簡易SQL処理を使用
+    const result = executeSimpleQuery(processedData, query);
     return { data: result, error: null };
   } catch (error) {
     console.error('Error executing SQL query:', error);

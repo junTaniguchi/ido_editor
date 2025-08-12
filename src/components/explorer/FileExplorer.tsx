@@ -45,7 +45,11 @@ const FileExplorer = () => {
     setActiveTabId,
     tabs,
     setContextMenuTarget,
-    contextMenuTarget
+    contextMenuTarget,
+    multiFileAnalysisEnabled,
+    selectedFiles,
+    addSelectedFile,
+    removeSelectedFile
   } = useEditorStore();
   
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
@@ -133,9 +137,26 @@ const FileExplorer = () => {
   };
   
   // ファイルをクリックしたときの処理
-  const handleFileClick = async (item: FileTreeItem) => {
+  const handleFileClick = async (item: FileTreeItem, event?: React.MouseEvent) => {
     if (!item.fileHandle) return;
     
+    // 複数ファイル分析モードが有効な場合
+    if (multiFileAnalysisEnabled) {
+      // データファイルのみ選択可能
+      const dataFileTypes = ['csv', 'tsv', 'json', 'yaml', 'yml'];
+      const extension = item.name.split('.').pop()?.toLowerCase();
+      
+      if (extension && dataFileTypes.includes(extension)) {
+        if (selectedFiles.has(item.path)) {
+          removeSelectedFile(item.path);
+        } else {
+          addSelectedFile(item.path);
+        }
+      }
+      return;
+    }
+    
+    // 通常モード：タブとして開く
     // 既に開いているタブがあるか確認
     let existingTabId: string | undefined;
     
@@ -385,16 +406,51 @@ const FileExplorer = () => {
         </div>
       );
     } else {
+      // ファイルの拡張子をチェック
+      const extension = item.name.split('.').pop()?.toLowerCase();
+      const isDataFile = extension && ['csv', 'tsv', 'json', 'yaml', 'yml'].includes(extension);
+      const isSelected = selectedFiles.has(item.path);
+      
+      // 複数ファイル分析モードの場合のスタイル
+      let fileClassName = "flex items-center py-1 cursor-pointer";
+      
+      if (multiFileAnalysisEnabled) {
+        if (isDataFile) {
+          if (isSelected) {
+            fileClassName += " bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200";
+          } else {
+            fileClassName += " hover:bg-blue-50 dark:hover:bg-blue-900/30";
+          }
+        } else {
+          fileClassName += " opacity-50 cursor-not-allowed";
+        }
+      } else {
+        fileClassName += " hover:bg-gray-200 dark:hover:bg-gray-700";
+      }
+
       return (
         <div 
           key={item.path}
-          className="flex items-center py-1 hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer"
+          className={fileClassName}
           style={{ paddingLeft }}
           onClick={() => handleFileClick(item)}
           onContextMenu={(e) => handleContextMenu(e, item)}
+          title={multiFileAnalysisEnabled && !isDataFile ? 'データファイルではないため選択できません' : undefined}
         >
-          <IoDocumentOutline className="mr-1 text-blue-500" size={16} />
+          <IoDocumentOutline 
+            className={`mr-1 ${
+              multiFileAnalysisEnabled && isSelected 
+                ? 'text-blue-600' 
+                : isDataFile 
+                  ? 'text-blue-500' 
+                  : 'text-gray-400'
+            }`} 
+            size={16} 
+          />
           <span className="truncate">{item.name}</span>
+          {multiFileAnalysisEnabled && isSelected && (
+            <span className="ml-auto mr-2 text-blue-600">✓</span>
+          )}
         </div>
       );
     }
@@ -404,7 +460,14 @@ const FileExplorer = () => {
     <div className="h-full flex flex-col bg-gray-100 dark:bg-gray-800 border-r border-gray-300 dark:border-gray-700">
       {/* ヘッダー */}
       <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-700 flex justify-between items-center">
-        <h2 className="font-medium text-sm">ファイルエクスプローラ</h2>
+        <div className="flex items-center">
+          <h2 className="font-medium text-sm">エクスプローラ</h2>
+          {multiFileAnalysisEnabled && (
+            <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">
+              分析モード
+            </span>
+          )}
+        </div>
         <div className="flex space-x-1">
           <button 
             className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"

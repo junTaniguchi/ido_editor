@@ -19,9 +19,10 @@ import MarkdownPreview, { MarkdownPreviewProps } from '@/components/preview/Mark
 import MermaidPreview from '@/components/preview/MermaidPreview';
 import DataPreview from '@/components/preview/DataPreview';
 import DataAnalysis from '@/components/analysis/DataAnalysis';
+import MultiFileAnalysis from '@/components/analysis/MultiFileAnalysis';
 import SearchPanel from '@/components/search/SearchPanel';
 import InputDialog from '@/components/modals/InputDialog';
-import { IoMenu, IoSunny, IoMoon, IoSearch, IoAnalytics, IoAddOutline } from 'react-icons/io5';
+import { IoMenu, IoSunny, IoMoon, IoSearch, IoAnalytics, IoAddOutline, IoGitMergeOutline } from 'react-icons/io5';
 import { createNewFile } from '@/lib/fileSystemUtils';
 import { getFileType } from '@/lib/editorUtils';
 
@@ -42,7 +43,10 @@ const MainLayout = () => {
     updateEditorSettings,
     rootDirHandle,
     addTab,
-    addTempTab
+    addTempTab,
+    multiFileAnalysisEnabled,
+    setMultiFileAnalysisEnabled,
+    selectedFiles
   } = useEditorStore();
   
   // 新規ファイル作成ダイアログの状態
@@ -148,6 +152,19 @@ const MainLayout = () => {
         >
           <IoSearch size={20} />
         </button>
+        <button 
+          className={`p-1 rounded ml-2 relative ${multiFileAnalysisEnabled ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-200'}`}
+          onClick={() => setMultiFileAnalysisEnabled(!multiFileAnalysisEnabled)}
+          aria-label="Toggle Multi-File Analysis"
+          title={`複数ファイル分析モード ${multiFileAnalysisEnabled ? 'ON' : 'OFF'}`}
+        >
+          <IoGitMergeOutline size={20} />
+          {selectedFiles.size > 0 && (
+            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+              {selectedFiles.size}
+            </span>
+          )}
+        </button>
       </header>
       
       {/* タブバー */}
@@ -209,7 +226,12 @@ const MainLayout = () => {
             </div>
           )}
           
-          {activeTabId ? (
+          {/* 複数ファイル分析モードが有効な場合 */}
+          {multiFileAnalysisEnabled ? (
+            <div className="w-full h-full overflow-hidden">
+              <MultiFileAnalysis onClose={() => setMultiFileAnalysisEnabled(false)} />
+            </div>
+          ) : activeTabId ? (
             <>
               {/* 分析パネルが表示されている場合はそれだけを表示 */}
               {isDataAnalyzable && paneState.isAnalysisVisible ? (

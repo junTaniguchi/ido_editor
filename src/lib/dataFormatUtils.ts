@@ -1,3 +1,8 @@
+'use client';
+
+import { stringify as csvStringify } from 'csv-stringify/browser/esm/sync';
+import yaml from 'js-yaml';
+
 // 配列データをマークダウン表に変換
 export function arrayToMarkdownTable(data: any[][]): string {
   if (!data || !data.length) return '';
@@ -59,10 +64,6 @@ export function yamlToMarkdownTable(yamlStr: string): string {
 //   const dataRows = rows.map(obj => columns.map(col => obj[col] ?? ''));
 //   return arrayToMarkdownTable([columns, ...dataRows]);
 // }
-'use client';
-
-import { stringify as csvStringify } from 'csv-stringify/browser/esm/sync';
-import yaml from 'js-yaml';
 
 /**
  * JSONデータを文字列に変換する

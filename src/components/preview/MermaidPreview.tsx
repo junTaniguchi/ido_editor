@@ -16,34 +16,39 @@ import { IoDownload, IoCopy, IoAdd, IoRemove, IoExpand } from 'react-icons/io5';
 if (typeof window !== 'undefined' && !window.__mermaidInitialized) {
   window.__mermaidInitialized = true;
   mermaid.initialize({
-    startOnLoad: false,
+    startOnLoad: false, // 自動描画を無効化
     theme: 'default',
     securityLevel: 'loose',
     fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-    logLevel: 'error', // エラーのみ表示するよう変更
+    logLevel: 'error',
     flowchart: { 
       useMaxWidth: true, 
       htmlLabels: true 
     },
-    // エラー抑制設定を追加
     er: { 
       useMaxWidth: true 
     },
-    // 状態図の設定を改善（TypeScriptエラー回避のためas anyを使用）
+    // 状態図の設定を改善
     ...(({
       stateDiagram: {
-        diagramPadding: 40, // パディングを増やす
+        diagramPadding: 40,
         useMaxWidth: true,
         htmlLabels: true,
-        curve: 'linear', // 曲線をlinearに変更してエッジ計算を簡略化
-        // エッジラベルの位置計算問題を軽減するための設定
-        edgeLengthFactor: 2, // エッジの長さファクターを増やす
-        rankSpacing: 50, // ランク間隔を増やす
-        nodespacing: 50 // ノード間隔を増やす
+        curve: 'linear',
+        edgeLengthFactor: 2,
+        rankSpacing: 50,
+        nodespacing: 50
       }
     }) as any),
-    // レンダリングエラーを無視するオプション
     suppressErrors: true
+  });
+  
+  // DOM内の既存のmermaid要素をクリア
+  const existingMermaidElements = document.querySelectorAll('.mermaid');
+  existingMermaidElements.forEach(element => {
+    if (element.parentNode) {
+      element.parentNode.removeChild(element);
+    }
   });
 }
 
@@ -316,6 +321,17 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({ content, fileName }) =>
 
     // レンダリング実行
     renderDiagram();
+    
+    // クリーンアップ関数
+    return () => {
+      // DOM内の不要なmermaid要素をクリア
+      const orphanedElements = document.querySelectorAll('.mermaid:not([data-keep])');
+      orphanedElements.forEach(element => {
+        if (element.parentNode && !element.closest('[data-mermaid-component]')) {
+          element.parentNode.removeChild(element);
+        }
+      });
+    };
   }, [content]);
 
   // SVGがレンダリングされた後に初期ズームレベルを計算する
@@ -796,7 +812,7 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({ content, fileName }) =>
   };
 
   return (
-    <div className="mermaid-preview w-full h-full flex flex-col">
+    <div className="mermaid-preview w-full h-full flex flex-col" data-mermaid-component="true">
       <div className="bg-gray-100 dark:bg-gray-800 p-2 border-b border-gray-300 dark:border-gray-700 flex items-center justify-between">
         <div className="flex items-center space-x-2">
           <span className="font-medium text-sm">{fileName}</span>
@@ -865,7 +881,7 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({ content, fileName }) =>
         </div>
       </div>
       
-      <div className="flex-1 overflow-auto bg-white dark:bg-gray-900 flex items-center justify-center p-4" ref={containerRef}>
+      <div className="flex-1 overflow-auto bg-white dark:bg-gray-900 flex items-center justify-center p-4" ref={containerRef} data-keep="true">
         {error ? (
           <div className="text-red-500 p-4 bg-red-50 dark:bg-red-900/20 rounded">
             <h3 className="font-bold">エラー</h3>
