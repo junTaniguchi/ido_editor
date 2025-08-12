@@ -3170,7 +3170,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
         >
           <div className="flex items-center">
             <IoGitNetwork className="mr-1" size={18} />
-            関係グラフ
+            関係性
           </div>
         </button>
         <div className="flex-1"></div>

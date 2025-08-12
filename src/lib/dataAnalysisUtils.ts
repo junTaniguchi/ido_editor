@@ -2,34 +2,468 @@
 
 import { jStat } from 'jstat';
 
-// alasqlの代わりに簡単なSQL風クエリ処理を実装
-const executeSimpleQuery = (data: any[], query: string) => {
-  // 基本的なSELECT文のパースと実行
+// 複数ファイル対応のSQL風クエリ処理を実装
+const executeMultiFileQuery = (fileDataMap: Map<string, any[]>, combinedData: any[], query: string) => {
   const normalizedQuery = query.trim().toLowerCase();
   
-  if (normalizedQuery.startsWith('select')) {
-    // シンプルなSELECT ALL実装
-    if (normalizedQuery.includes('select *') || normalizedQuery === 'select') {
-      return data;
-    }
+  // JOIN構文の検出
+  const joinMatch = normalizedQuery.match(/from\s+(\w+)\s+((?:inner\s+|left\s+|right\s+)?join\s+\w+\s+on\s+[^where]+)/i);
+  
+  if (joinMatch) {
+    return executeJoinQuery(fileDataMap, query, normalizedQuery);
+  }
+  
+  // 通常のFROM句の処理
+  const fromMatch = normalizedQuery.match(/from\s+([^\s\(\)]+)/i);
+  
+  if (fromMatch) {
+    const tableName = fromMatch[1].trim();
     
-    // 特定の列を選択する場合の簡易実装
-    const selectMatch = normalizedQuery.match(/select\s+(.+?)(?:\s+from|$)/);
-    if (selectMatch) {
-      const columns = selectMatch[1].split(',').map(col => col.trim());
-      return data.map(row => {
-        const filteredRow: any = {};
-        columns.forEach(col => {
-          if (col !== '*' && row.hasOwnProperty(col)) {
-            filteredRow[col] = row[col];
-          }
-        });
-        return Object.keys(filteredRow).length > 0 ? filteredRow : row;
-      });
+    // 特定のファイル名が指定されている場合
+    if (tableName !== 'data' && tableName !== 'combined') {
+      const targetData = findFileData(fileDataMap, tableName);
+      if (targetData.length === 0) {
+        throw new Error(`指定されたファイル "${tableName}" が見つかりません`);
+      }
+      return executeSimpleSelectQuery(targetData, query);
     }
   }
   
+  // デフォルトは統合データを使用
+  return executeSimpleSelectQuery(combinedData, query);
+};
+
+// ファイルデータを名前で検索
+const findFileData = (fileDataMap: Map<string, any[]>, fileName: string): any[] => {
+  for (const [filePath, data] of fileDataMap.entries()) {
+    const currentFileName = filePath.split('/').pop() || filePath;
+    const baseFileName = currentFileName.replace(/\.[^/.]+$/, ''); // 拡張子を除去
+    
+    if (baseFileName.toLowerCase() === fileName.toLowerCase() ||
+        currentFileName.toLowerCase() === fileName.toLowerCase()) {
+      return data;
+    }
+  }
+  return [];
+};
+
+// JOIN クエリの実行
+const executeJoinQuery = (fileDataMap: Map<string, any[]>, originalQuery: string, normalizedQuery: string) => {
+  // JOIN構文の解析
+  const joinParsed = parseJoinQuery(normalizedQuery);
+  if (!joinParsed) {
+    throw new Error('JOIN構文の解析に失敗しました');
+  }
+
+  // 左側テーブル（FROM句）のデータを取得
+  const leftData = findFileData(fileDataMap, joinParsed.leftTable);
+  if (leftData.length === 0) {
+    throw new Error(`左側テーブル "${joinParsed.leftTable}" が見つかりません`);
+  }
+
+  // 右側テーブル（JOIN句）のデータを取得
+  const rightData = findFileData(fileDataMap, joinParsed.rightTable);
+  if (rightData.length === 0) {
+    throw new Error(`右側テーブル "${joinParsed.rightTable}" が見つかりません`);
+  }
+
+  // JOIN実行
+  const joinedData = performJoin(
+    leftData, 
+    rightData, 
+    joinParsed.leftColumn, 
+    joinParsed.rightColumn, 
+    joinParsed.joinType,
+    joinParsed.leftTable,
+    joinParsed.rightTable
+  );
+
+  // SELECT、WHERE句などの処理
+  return executeSimpleSelectQuery(joinedData, originalQuery);
+};
+
+// JOIN構文の解析
+const parseJoinQuery = (normalizedQuery: string) => {
+  // FROM table1 [INNER|LEFT|RIGHT] JOIN table2 ON table1.col = table2.col
+  const joinRegex = /from\s+(\w+)\s+(inner\s+join|left\s+join|right\s+join|join)\s+(\w+)\s+on\s+(\w+)\.(\w+)\s*=\s*(\w+)\.(\w+)/i;
+  const match = normalizedQuery.match(joinRegex);
+  
+  if (!match) {
+    // シンプルなJOIN構文もサポート: FROM table1 JOIN table2 ON col1 = col2
+    const simpleJoinRegex = /from\s+(\w+)\s+(inner\s+join|left\s+join|right\s+join|join)\s+(\w+)\s+on\s+(\w+)\s*=\s*(\w+)/i;
+    const simpleMatch = normalizedQuery.match(simpleJoinRegex);
+    
+    if (simpleMatch) {
+      return {
+        leftTable: simpleMatch[1],
+        joinType: simpleMatch[2].replace(/\s+/g, '_').toLowerCase() as 'join' | 'inner_join' | 'left_join' | 'right_join',
+        rightTable: simpleMatch[3],
+        leftColumn: simpleMatch[4],
+        rightColumn: simpleMatch[5]
+      };
+    }
+    return null;
+  }
+
+  return {
+    leftTable: match[1],
+    joinType: match[2].replace(/\s+/g, '_').toLowerCase() as 'join' | 'inner_join' | 'left_join' | 'right_join',
+    rightTable: match[3],
+    leftTable2: match[4], // テーブル名付きの場合
+    leftColumn: match[5],
+    rightTable2: match[6], // テーブル名付きの場合
+    rightColumn: match[7]
+  };
+};
+
+// 実際のJOIN処理
+const performJoin = (
+  leftData: any[], 
+  rightData: any[], 
+  leftColumn: string, 
+  rightColumn: string, 
+  joinType: string,
+  leftTableName: string,
+  rightTableName: string
+): any[] => {
+  const result: any[] = [];
+
+  switch (joinType) {
+    case 'join':
+    case 'inner_join':
+      // INNER JOIN
+      leftData.forEach(leftRow => {
+        rightData.forEach(rightRow => {
+          if (leftRow[leftColumn] === rightRow[rightColumn]) {
+            // 列名の競合を避けるため、テーブル名をプレフィックスとして追加
+            const joinedRow: any = {};
+            
+            // 左テーブルの列
+            Object.keys(leftRow).forEach(key => {
+              joinedRow[`${leftTableName}_${key}`] = leftRow[key];
+              // エイリアスなしでも参照可能（左優先）
+              if (!joinedRow.hasOwnProperty(key)) {
+                joinedRow[key] = leftRow[key];
+              }
+            });
+            
+            // 右テーブルの列
+            Object.keys(rightRow).forEach(key => {
+              joinedRow[`${rightTableName}_${key}`] = rightRow[key];
+              // エイリアスなしでも参照可能（左優先）
+              if (!joinedRow.hasOwnProperty(key)) {
+                joinedRow[key] = rightRow[key];
+              }
+            });
+            
+            result.push(joinedRow);
+          }
+        });
+      });
+      break;
+
+    case 'left_join':
+      // LEFT JOIN
+      leftData.forEach(leftRow => {
+        let hasMatch = false;
+        rightData.forEach(rightRow => {
+          if (leftRow[leftColumn] === rightRow[rightColumn]) {
+            hasMatch = true;
+            const joinedRow: any = {};
+            
+            // 左テーブルの列
+            Object.keys(leftRow).forEach(key => {
+              joinedRow[`${leftTableName}_${key}`] = leftRow[key];
+              if (!joinedRow.hasOwnProperty(key)) {
+                joinedRow[key] = leftRow[key];
+              }
+            });
+            
+            // 右テーブルの列
+            Object.keys(rightRow).forEach(key => {
+              joinedRow[`${rightTableName}_${key}`] = rightRow[key];
+              if (!joinedRow.hasOwnProperty(key)) {
+                joinedRow[key] = rightRow[key];
+              }
+            });
+            
+            result.push(joinedRow);
+          }
+        });
+        
+        // マッチしない場合はNULLで埋める
+        if (!hasMatch) {
+          const joinedRow: any = {};
+          
+          // 左テーブルの列
+          Object.keys(leftRow).forEach(key => {
+            joinedRow[`${leftTableName}_${key}`] = leftRow[key];
+            if (!joinedRow.hasOwnProperty(key)) {
+              joinedRow[key] = leftRow[key];
+            }
+          });
+          
+          // 右テーブルの列（NULL埋め）
+          if (rightData.length > 0) {
+            Object.keys(rightData[0]).forEach(key => {
+              joinedRow[`${rightTableName}_${key}`] = null;
+              if (!joinedRow.hasOwnProperty(key)) {
+                joinedRow[key] = null;
+              }
+            });
+          }
+          
+          result.push(joinedRow);
+        }
+      });
+      break;
+
+    case 'right_join':
+      // RIGHT JOIN (LEFT JOINの逆)
+      rightData.forEach(rightRow => {
+        let hasMatch = false;
+        leftData.forEach(leftRow => {
+          if (leftRow[leftColumn] === rightRow[rightColumn]) {
+            hasMatch = true;
+            const joinedRow: any = {};
+            
+            // 左テーブルの列
+            Object.keys(leftRow).forEach(key => {
+              joinedRow[`${leftTableName}_${key}`] = leftRow[key];
+              if (!joinedRow.hasOwnProperty(key)) {
+                joinedRow[key] = leftRow[key];
+              }
+            });
+            
+            // 右テーブルの列
+            Object.keys(rightRow).forEach(key => {
+              joinedRow[`${rightTableName}_${key}`] = rightRow[key];
+              if (!joinedRow.hasOwnProperty(key)) {
+                joinedRow[key] = rightRow[key];
+              }
+            });
+            
+            result.push(joinedRow);
+          }
+        });
+        
+        // マッチしない場合はNULLで埋める
+        if (!hasMatch) {
+          const joinedRow: any = {};
+          
+          // 左テーブルの列（NULL埋め）
+          if (leftData.length > 0) {
+            Object.keys(leftData[0]).forEach(key => {
+              joinedRow[`${leftTableName}_${key}`] = null;
+              if (!joinedRow.hasOwnProperty(key)) {
+                joinedRow[key] = null;
+              }
+            });
+          }
+          
+          // 右テーブルの列
+          Object.keys(rightRow).forEach(key => {
+            joinedRow[`${rightTableName}_${key}`] = rightRow[key];
+            if (!joinedRow.hasOwnProperty(key)) {
+              joinedRow[key] = rightRow[key];
+            }
+          });
+          
+          result.push(joinedRow);
+        }
+      });
+      break;
+  }
+
+  return result;
+};
+
+// 基本的なSELECT文のパース処理
+const executeSimpleSelectQuery = (data: any[], query: string) => {
+  const normalizedQuery = query.trim().toLowerCase();
+  
+  if (normalizedQuery.startsWith('select')) {
+    // WHERE句の処理
+    const whereMatch = normalizedQuery.match(/where\s+(.+?)(?:\s+group\s+by|\s+order\s+by|$)/);
+    let filteredData = data;
+    
+    if (whereMatch) {
+      const whereClause = whereMatch[1];
+      filteredData = data.filter(row => {
+        try {
+          return evaluateWhereClause(row, whereClause);
+        } catch (e) {
+          return true;
+        }
+      });
+    }
+    
+    // GROUP BY句の処理
+    const groupByMatch = normalizedQuery.match(/group\s+by\s+([^order]+?)(?:\s+order\s+by|$)/);
+    if (groupByMatch) {
+      const groupByColumns = groupByMatch[1].split(',').map(col => col.trim());
+      const groupedData = groupDataByColumns(filteredData, groupByColumns, query);
+      return groupedData;
+    }
+    
+    // SELECT句の処理
+    const selectMatch = normalizedQuery.match(/select\s+(.+?)(?:\s+from|$)/);
+    if (selectMatch) {
+      const selectClause = selectMatch[1].trim();
+      
+      // SELECT *の場合
+      if (selectClause === '*') {
+        return filteredData;
+      }
+      
+      // 特定の列を選択
+      const columns = selectClause.split(',').map(col => col.trim());
+      return filteredData.map(row => {
+        const filteredRow: any = {};
+        columns.forEach(col => {
+          if (row.hasOwnProperty(col)) {
+            filteredRow[col] = row[col];
+          }
+        });
+        return filteredRow;
+      });
+    }
+    
+    return filteredData;
+  }
+  
   return data;
+};
+
+// GROUP BY処理
+const groupDataByColumns = (data: any[], groupByColumns: string[], originalQuery: string) => {
+  const grouped = new Map<string, any[]>();
+  
+  // データをグループ化
+  data.forEach(row => {
+    const key = groupByColumns.map(col => String(row[col] || '')).join('|');
+    if (!grouped.has(key)) {
+      grouped.set(key, []);
+    }
+    grouped.get(key)?.push(row);
+  });
+  
+  // SELECT句から集計関数を抽出
+  const selectMatch = originalQuery.toLowerCase().match(/select\s+(.+?)(?:\s+from|$)/);
+  if (!selectMatch) return [];
+  
+  const selectClause = selectMatch[1];
+  const aggregations = extractAggregations(selectClause);
+  
+  // グループごとに集計を実行
+  const result: any[] = [];
+  grouped.forEach((groupRows, key) => {
+    const keyValues = key.split('|');
+    const resultRow: any = {};
+    
+    // GROUP BYの列を設定
+    groupByColumns.forEach((col, index) => {
+      resultRow[col] = groupRows[0][col];
+    });
+    
+    // 集計関数を計算
+    aggregations.forEach(agg => {
+      switch (agg.func.toLowerCase()) {
+        case 'count':
+          resultRow[agg.alias] = groupRows.length;
+          break;
+        case 'sum':
+          resultRow[agg.alias] = groupRows.reduce((sum, row) => {
+            return sum + (parseFloat(row[agg.column]) || 0);
+          }, 0);
+          break;
+        case 'avg':
+          const sum = groupRows.reduce((s, row) => s + (parseFloat(row[agg.column]) || 0), 0);
+          resultRow[agg.alias] = sum / groupRows.length;
+          break;
+        case 'max':
+          resultRow[agg.alias] = Math.max(...groupRows.map(row => parseFloat(row[agg.column]) || 0));
+          break;
+        case 'min':
+          resultRow[agg.alias] = Math.min(...groupRows.map(row => parseFloat(row[agg.column]) || 0));
+          break;
+      }
+    });
+    
+    result.push(resultRow);
+  });
+  
+  return result;
+};
+
+// 集計関数の抽出
+const extractAggregations = (selectClause: string) => {
+  const aggregations: Array<{func: string, column: string, alias: string}> = [];
+  
+  // COUNT(*)の処理
+  const countStarMatch = selectClause.match(/count\(\s*\*\s*\)(?:\s+as\s+(\w+))?/i);
+  if (countStarMatch) {
+    aggregations.push({
+      func: 'COUNT',
+      column: '*',
+      alias: countStarMatch[1] || 'count'
+    });
+  }
+  
+  // その他の集計関数の処理
+  const aggRegex = /(count|sum|avg|max|min)\(\s*(\w+)\s*\)(?:\s+as\s+(\w+))?/gi;
+  let match;
+  while ((match = aggRegex.exec(selectClause)) !== null) {
+    aggregations.push({
+      func: match[1],
+      column: match[2],
+      alias: match[3] || `${match[1]}_${match[2]}`
+    });
+  }
+  
+  return aggregations;
+};
+
+// 簡易WHERE句評価
+const evaluateWhereClause = (row: any, whereClause: string): boolean => {
+  // 基本的な比較演算子をサポート
+  const operators = ['>=', '<=', '!=', '=', '>', '<'];
+  
+  for (const op of operators) {
+    if (whereClause.includes(op)) {
+      const parts = whereClause.split(op).map(p => p.trim());
+      if (parts.length === 2) {
+        const column = parts[0];
+        let value = parts[1];
+        
+        // 文字列リテラルの処理
+        if (value.startsWith("'") && value.endsWith("'")) {
+          value = value.slice(1, -1);
+        } else if (!isNaN(Number(value))) {
+          value = Number(value);
+        }
+        
+        const rowValue = row[column];
+        
+        switch (op) {
+          case '=':
+            return rowValue == value;
+          case '!=':
+            return rowValue != value;
+          case '>':
+            return Number(rowValue) > Number(value);
+          case '<':
+            return Number(rowValue) < Number(value);
+          case '>=':
+            return Number(rowValue) >= Number(value);
+          case '<=':
+            return Number(rowValue) <= Number(value);
+        }
+      }
+    }
+  }
+  
+  return true;
 };
 
 /**
@@ -417,13 +851,45 @@ export const executeQuery = (data: any[], query: string, enableNestedAccess: boo
     const processedData = enableNestedAccess ? flattenObjectsWithDotNotation(data) : data;
     
     // 簡易SQL処理を使用
-    const result = executeSimpleQuery(processedData, query);
+    const result = executeSimpleSelectQuery(processedData, query);
     return { data: result, error: null };
   } catch (error) {
     console.error('Error executing SQL query:', error);
     return { 
       data: null, 
       error: error instanceof Error ? error.message : 'クエリ実行エラー'
+    };
+  }
+};
+
+// 複数ファイル対応のクエリ実行関数
+export const executeMultiFileQueryAnalysis = (
+  fileDataMap: Map<string, any[]>, 
+  combinedData: any[], 
+  query: string, 
+  enableNestedAccess: boolean = true
+) => {
+  try {
+    // ネストされたプロパティへのアクセスが必要な場合
+    const processedCombinedData = enableNestedAccess ? flattenObjectsWithDotNotation(combinedData) : combinedData;
+    let processedFileDataMap = new Map<string, any[]>();
+    
+    if (enableNestedAccess) {
+      fileDataMap.forEach((data, filePath) => {
+        processedFileDataMap.set(filePath, flattenObjectsWithDotNotation(data));
+      });
+    } else {
+      processedFileDataMap = fileDataMap;
+    }
+    
+    // 複数ファイル対応のSQL処理を使用
+    const result = executeMultiFileQuery(processedFileDataMap, processedCombinedData, query);
+    return { data: result, error: null };
+  } catch (error) {
+    console.error('Error executing multi-file SQL query:', error);
+    return { 
+      data: null, 
+      error: error instanceof Error ? error.message : '複数ファイルクエリ実行エラー'
     };
   }
 };
