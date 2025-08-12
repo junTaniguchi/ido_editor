@@ -3469,8 +3469,22 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
       <div className="flex-1 overflow-hidden min-h-0">
         {/* SQLクエリタブ */}
         {activeTab === 'query' && (
-          <div className="h-full overflow-auto">
-            {renderQueryResult()}
+          <div className="h-full flex flex-col">
+            <div className="flex justify-end p-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+              <button
+                className="px-3 py-1 flex items-center text-sm text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
+                onClick={toggleDisplayMode}
+                title={editorSettings.dataDisplayMode === 'flat' ? "階層表示に切替" : "フラット表示に切替"}
+              >
+                <IoLayersOutline className="mr-1" size={16} />
+                <span className="text-sm">
+                  {editorSettings.dataDisplayMode === 'flat' ? '階層表示' : 'フラット表示'}
+                </span>
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto">
+              {renderQueryResult()}
+            </div>
           </div>
         )}
         

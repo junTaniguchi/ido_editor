@@ -72,7 +72,9 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
   const { 
     selectedFiles,
     clearSelectedFiles,
-    rootDirHandle
+    rootDirHandle,
+    editorSettings,
+    updateEditorSettings
   } = useEditorStore();
 
   // 状態管理
@@ -84,6 +86,12 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
   const [activeTab, setActiveTab] = useState<'combine' | 'query' | 'stats' | 'chart' | 'relationship'>('combine');
   const [isSettingsCollapsed, setIsSettingsCollapsed] = useState(false);
   const [isQueryCollapsed, setIsQueryCollapsed] = useState(false);
+  
+  // 表示モード切り替え関数
+  const toggleDisplayMode = () => {
+    const newMode = editorSettings.dataDisplayMode === 'flat' ? 'nested' : 'flat';
+    updateEditorSettings({ dataDisplayMode: newMode });
+  };
   
   // データ統合関連
   const [joinType, setJoinType] = useState<'union' | 'intersection' | 'join'>('union');
@@ -1064,10 +1072,22 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         {/* クエリタブ */}
         {activeTab === 'query' && queryResult && queryResult.length > 0 && (
           <div className="p-4">
-            <h3 className="text-lg font-semibold mb-2 flex items-center">
-              <IoCodeSlash size={20} className="mr-2" />
-              クエリ結果 ({queryResult.length}件)
-            </h3>
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-lg font-semibold flex items-center">
+                <IoCodeSlash size={20} className="mr-2" />
+                クエリ結果 ({queryResult.length}件)
+              </h3>
+              <button
+                className="px-3 py-1 flex items-center text-sm text-gray-600 hover:text-blue-600"
+                onClick={toggleDisplayMode}
+                title={editorSettings.dataDisplayMode === 'flat' ? "階層表示に切替" : "フラット表示に切替"}
+              >
+                <IoLayersOutline className="mr-1" size={16} />
+                <span className="text-sm">
+                  {editorSettings.dataDisplayMode === 'flat' ? '階層表示' : 'フラット表示'}
+                </span>
+              </button>
+            </div>
             <div className="border border-gray-200 rounded">
               {isQueryEditing ? (
                 <EditableQueryResultTable 
