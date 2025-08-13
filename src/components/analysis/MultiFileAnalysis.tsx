@@ -389,13 +389,23 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
 
       let processedData = dataSource;
 
+      console.log('データ処理分岐判定:', {
+        チャートタイプ: chartSettings.type,
+        集計方法: chartSettings.aggregation,
+        カテゴリフィールド: chartSettings.categoryField,
+        グループ分けあり: !!(chartSettings.categoryField && chartSettings.categoryField.trim() !== '')
+      });
+
       // ヒストグラムと散布図以外で集計処理を行う
+      // ただし、カウント集計やグループ分け（カテゴリフィールド）が指定されている場合は集計をスキップ
       if (chartSettings.type !== 'histogram' && 
           chartSettings.type !== 'scatter' && 
           chartSettings.aggregation && 
-          chartSettings.aggregation !== 'none') {
+          chartSettings.aggregation !== 'none' &&
+          chartSettings.aggregation !== 'count' &&
+          !(chartSettings.categoryField && chartSettings.categoryField.trim() !== '')) {
         
-        console.log('集計処理開始:', {
+        console.log('通常集計処理開始:', {
           集計方法: chartSettings.aggregation,
           X軸: chartSettings.xAxis,
           Y軸: chartSettings.yAxis
@@ -416,25 +426,37 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         }
 
         processedData = aggregatedData || [];
-        console.log('集計後のデータ:', processedData);
+        console.log('通常集計後のデータ:', processedData);
       } else if (chartSettings.aggregation === 'count' && chartSettings.type !== 'histogram') {
         // カウント集計の場合の特別処理
-        console.log('カウント集計処理開始');
-        const { data: aggregatedData, error } = aggregateData(
-          dataSource,
-          chartSettings.xAxis,
-          chartSettings.yAxis || '',
-          'count',
-          true
-        );
+        console.log('カウント集計処理開始 - 分岐に入りました');
+        
+        // グループ分け（カテゴリフィールド）が指定されている場合は、
+        // prepareChartData内でカウント処理を行うため、ここでは集計しない
+        if (chartSettings.categoryField && chartSettings.categoryField.trim() !== '') {
+          console.log('グループ分けあり - prepareChartData内でカウント処理を実行（元データをそのまま使用）');
+          processedData = dataSource; // 元データをそのまま渡す
+        } else {
+          console.log('グループ分けなし - aggregateDataでカウント集計実行');
+          // グループ分けなしの場合は従来通り集計
+          const { data: aggregatedData, error } = aggregateData(
+            dataSource,
+            chartSettings.xAxis,
+            chartSettings.yAxis || '',
+            'count',
+            true
+          );
 
-        if (error) {
-          setError(error);
-          setLoading(false);
-          return;
+          if (error) {
+            setError(error);
+            setLoading(false);
+            return;
+          }
+
+          processedData = aggregatedData || [];
         }
-
-        processedData = aggregatedData || [];
+      } else {
+        console.log('集計をスキップ - 元データをそのまま使用');
       }
 
       console.log('チャートデータ準備開始:', {
@@ -882,19 +904,6 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
               )}
             </div>
             
-            <button
-              className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
-              onClick={generateChartData}
-            >
-              グラフを更新
-            </button>
-            
-            {loading && activeTab === 'chart' && (
-              <div className="inline-flex items-center text-sm text-blue-600 ml-4">
-                <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full mr-2"></div>
-                更新中...
-              </div>
-            )}
             
             <div className="flex flex-wrap gap-2 mt-4 mb-2">
               <div className="w-48">
@@ -1023,7 +1032,7 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
 
             {/* 共通ボタン */}
             {activeTab !== 'stats' && activeTab !== 'relationship' && (
-              <div className="flex justify-end mt-4 pt-4 border-t border-gray-200">
+              <div className="flex justify-end mt-4 pt-4 border-t border-gray-200 gap-2">
                 <button
                   onClick={() => {
                     clearSelectedFiles();
@@ -1033,6 +1042,22 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
                 >
                   選択をクリア
                 </button>
+                {activeTab === 'chart' && (
+                  <>
+                    <button
+                      className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                      onClick={generateChartData}
+                    >
+                      グラフを更新
+                    </button>
+                    {loading && (
+                      <div className="inline-flex items-center text-sm text-blue-600">
+                        <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full mr-2"></div>
+                        更新中...
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             )}
           </div>

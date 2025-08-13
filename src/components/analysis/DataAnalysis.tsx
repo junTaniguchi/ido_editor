@@ -3450,7 +3450,13 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                   )}
                 </div>
                 
-                <div className="mt-4 flex justify-end">
+                <div className="mt-4 flex justify-end gap-2">
+                  <button
+                    className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+                    onClick={toggleAnalysisMode}
+                  >
+                    選択をクリア
+                  </button>
                   <button
                     className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center"
                     onClick={updateChart}

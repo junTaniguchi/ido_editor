@@ -1319,19 +1319,38 @@ export const prepareChartData = (
     ? categoryField 
     : undefined;
   
+  // valueFieldが空文字列またはundefinedの場合、頻度分析用に'value'フィールドを使用
+  const actualValueField = (!valueField || valueField.trim() === '') ? 'value' : valueField;
+  
   // データの初期確認（デバッグ用）
   console.log('チャートデータ準備 - 入力データ確認:', {
     データ型: chartType,
     レコード数: data.length,
     X軸フィールド: labelField,
     Y軸フィールド: valueField,
+    実際のY軸フィールド: actualValueField,
     カテゴリフィールド: normalizedCategoryField,
-    サンプルデータ: data.slice(0, 3).map(item => ({
-      [labelField]: item[labelField],
-      [valueField]: item[valueField],
-      [normalizedCategoryField || 'カテゴリなし']: normalizedCategoryField ? item[normalizedCategoryField] : 'なし'
-    }))
+    サンプルデータ: data.slice(0, 3).map(item => {
+      try {
+        return {
+          [labelField]: item[labelField],
+          [valueField]: item[valueField],
+          [actualValueField]: item[actualValueField],
+          [normalizedCategoryField || 'カテゴリなし']: normalizedCategoryField ? item[normalizedCategoryField] : 'なし'
+        };
+      } catch (e) {
+        return { error: 'データアクセスエラー' };
+      }
+    })
   });
+
+  // データの妥当性チェック
+  if (!labelField) {
+    console.error('X軸フィールドが指定されていません');
+    return null;
+  }
+
+  try {
   
   // 基本的な色パレット
   const colorPalette = [
@@ -1353,28 +1372,54 @@ export const prepareChartData = (
   switch (chartType) {
     case 'stacked-bar': {
       const labels = data.map(item => item[labelField]);
-      const values = data.map(item => item[valueField]);
+      const values = data.map(item => item[actualValueField]);
       
       // カテゴリフィールドが指定されている場合、カテゴリごとに色分け
       if (normalizedCategoryField) {
-        const categories = [...new Set(data.map(item => item[normalizedCategoryField]))];
+        // undefinedやnullを除外して、有効なカテゴリ値のみを取得
+        const categories = [...new Set(
+          data
+            .map(item => item[normalizedCategoryField])
+            .filter(cat => cat !== undefined && cat !== null && cat !== '')
+            .map(cat => String(cat))
+        )];
         
         console.log('積み上げ棒グラフのカテゴリ:', {
+          カテゴリフィールド: normalizedCategoryField,
           カテゴリ一覧: categories,
-          カテゴリ数: categories.length
+          カテゴリ数: categories.length,
+          サンプルデータのカテゴリ値: data.slice(0, 5).map(item => item[normalizedCategoryField])
         });
         
         // カテゴリごとのデータセットを作成
         const datasets = categories.map((category, index) => {
-          const categoryData = data.filter(item => item[normalizedCategoryField] === category);
-          const categoryLabels = categoryData.map(item => item[labelField]);
-          const categoryValues = categoryData.map(item => item[valueField]);
+          const categoryData = data.filter(item => 
+            item[normalizedCategoryField] !== undefined && 
+            item[normalizedCategoryField] !== null &&
+            String(item[normalizedCategoryField]) === category
+          );
           
-          // カテゴリごとにデータポイントをマッピング
-          const dataPoints = labels.map(label => {
-            const idx = categoryLabels.indexOf(label);
-            return idx !== -1 ? categoryValues[idx] : 0; // nullではなく0を使用（積み上げのため）
-          });
+          // 頻度分析の場合（valueFieldが空またはvalueフィールドが存在しない場合）
+          const isFrequencyAnalysis = (!valueField || valueField.trim() === '') || 
+                                     !categoryData.some(item => item.hasOwnProperty(actualValueField));
+          
+          let dataPoints;
+          if (isFrequencyAnalysis) {
+            // 頻度分析：X軸の各ラベルについて、このカテゴリの出現回数をカウント
+            dataPoints = labels.map(label => {
+              return categoryData.filter(item => String(item[labelField]) === String(label)).length;
+            });
+            console.log(`積み上げ棒グラフ - カテゴリ "${category}" の頻度分析結果:`, dataPoints);
+          } else {
+            // 通常の分析：集計済みデータを使用
+            const categoryLabels = categoryData.map(item => item[labelField]);
+            const categoryValues = categoryData.map(item => item[actualValueField]);
+            
+            dataPoints = labels.map(label => {
+              const idx = categoryLabels.indexOf(label);
+              return idx !== -1 ? categoryValues[idx] : 0; // nullではなく0を使用（積み上げのため）
+            });
+          }
           
           return {
             label: String(category),
@@ -1397,7 +1442,7 @@ export const prepareChartData = (
         labels,
         datasets: [
           {
-            label: valueField,
+            label: actualValueField,
             data: values,
             backgroundColor: colorPalette[0],
             borderColor: borderColorPalette[0],
@@ -1409,7 +1454,7 @@ export const prepareChartData = (
     
     case 'pie': {
       const labels = data.map(item => item[labelField]);
-      const values = data.map(item => item[valueField]);
+      const values = data.map(item => item[actualValueField]);
       
       // 配列が足りない場合は繰り返し使用
       let backgroundColor = [...colorPalette];
@@ -1428,7 +1473,7 @@ export const prepareChartData = (
         labels,
         datasets: [
           {
-            label: valueField,
+            label: actualValueField,
             data: values,
             backgroundColor: backgroundColor.slice(0, labels.length),
             borderColor: borderColor.slice(0, labels.length),
@@ -1439,24 +1484,137 @@ export const prepareChartData = (
     }
     
     case 'line': {
-      const labels = data.map(item => item[labelField]);
-      const values = data.map(item => item[valueField]);
+      // 数値フィールドを使った頻度分析の場合の特別処理
+      const hasNumericData = data.length > 0 && data.some(item => 
+        item[labelField] !== undefined && 
+        item[labelField] !== null && 
+        typeof item[labelField] === 'number' && 
+        !isNaN(item[labelField])
+      );
+      const isNumericFrequencyAnalysis = (!valueField || valueField.trim() === '') && hasNumericData;
+      
+      let labels, values;
+      
+      if (isNumericFrequencyAnalysis) {
+        try {
+          // 数値フィールドをビン化して頻度分析
+          const numericValues = data.map(item => item[labelField]).filter(val => typeof val === 'number' && !isNaN(val));
+          
+          if (numericValues.length === 0) {
+            console.warn('数値データが見つかりません:', labelField);
+            // 通常処理にフォールバック
+            labels = data.map(item => String(item[labelField] || ''));
+            values = data.map(item => item[actualValueField] || 0);
+          } else {
+            const min = Math.min(...numericValues);
+            const max = Math.max(...numericValues);
+            
+            // 最小値と最大値が同じ場合の処理
+            if (min === max) {
+              labels = [String(min)];
+              values = [numericValues.length];
+            } else {
+              const binCount = Math.min(10, Math.max(5, Math.floor(Math.sqrt(numericValues.length)))); // 動的ビン数
+              const binWidth = (max - min) / binCount;
+              
+              console.log('線グラフ - 数値フィールド頻度分析:', {
+                フィールド: labelField,
+                データ数: numericValues.length,
+                最小値: min,
+                最大値: max,
+                ビン数: binCount,
+                ビン幅: binWidth
+              });
+              
+              // ビンラベルを作成
+              labels = [];
+              for (let i = 0; i < binCount; i++) {
+                const binStart = min + i * binWidth;
+                const binEnd = min + (i + 1) * binWidth;
+                labels.push(`${binStart.toFixed(1)}-${binEnd.toFixed(1)}`);
+              }
+              
+              // 各ビンのカウントを計算
+              values = new Array(binCount).fill(0);
+              numericValues.forEach(val => {
+                let binIndex = Math.floor((val - min) / binWidth);
+                if (binIndex >= binCount) binIndex = binCount - 1; // 最大値の場合
+                values[binIndex]++;
+              });
+            }
+          }
+        } catch (error) {
+          console.error('線グラフ - 数値フィールド頻度分析エラー:', error);
+          // エラー時は通常処理にフォールバック
+          labels = data.map(item => String(item[labelField] || ''));
+          values = data.map(item => item[actualValueField] || 0);
+        }
+      } else {
+        // 通常の処理
+        labels = data.map(item => item[labelField]);
+        values = data.map(item => item[actualValueField]);
+      }
       
       // カテゴリフィールドが指定されている場合、カテゴリごとに色分け
       if (normalizedCategoryField) {
-        const categories = [...new Set(data.map(item => item[normalizedCategoryField]))];
+        // undefinedやnullを除外して、有効なカテゴリ値のみを取得
+        const categories = [...new Set(
+          data
+            .map(item => item[normalizedCategoryField])
+            .filter(cat => cat !== undefined && cat !== null && cat !== '')
+            .map(cat => String(cat))
+        )];
         
         // カテゴリごとのデータセットを作成
         const datasets = categories.map((category, index) => {
-          const categoryData = data.filter(item => item[normalizedCategoryField] === category);
-          const categoryLabels = categoryData.map(item => item[labelField]);
-          const categoryValues = categoryData.map(item => item[valueField]);
+          const categoryData = data.filter(item => 
+            item[normalizedCategoryField] !== undefined && 
+            item[normalizedCategoryField] !== null &&
+            String(item[normalizedCategoryField]) === category
+          );
           
-          // カテゴリごとにデータポイントをマッピング
-          const dataPoints = labels.map(label => {
-            const idx = categoryLabels.indexOf(label);
-            return idx !== -1 ? categoryValues[idx] : null;
-          });
+          let dataPoints;
+          if (isNumericFrequencyAnalysis) {
+            // 数値フィールド頻度分析：各ビンについて、このカテゴリの出現回数をカウント
+            const categoryNumericValues = categoryData
+              .map(item => item[labelField])
+              .filter(val => typeof val === 'number' && !isNaN(val));
+            
+            const min = Math.min(...data.map(item => item[labelField]).filter(val => typeof val === 'number'));
+            const max = Math.max(...data.map(item => item[labelField]).filter(val => typeof val === 'number'));
+            const binCount = labels.length;
+            const binWidth = (max - min) / binCount;
+            
+            dataPoints = new Array(binCount).fill(0);
+            categoryNumericValues.forEach(val => {
+              let binIndex = Math.floor((val - min) / binWidth);
+              if (binIndex >= binCount) binIndex = binCount - 1;
+              dataPoints[binIndex]++;
+            });
+            
+            console.log(`線グラフ - カテゴリ "${category}" の数値フィールド頻度分析結果:`, dataPoints);
+          } else {
+            // 頻度分析の場合（valueFieldが空またはvalueフィールドが存在しない場合）
+            const isFrequencyAnalysis = (!valueField || valueField.trim() === '') || 
+                                       !categoryData.some(item => item.hasOwnProperty(actualValueField));
+            
+            if (isFrequencyAnalysis) {
+              // 頻度分析：X軸の各ラベルについて、このカテゴリの出現回数をカウント
+              dataPoints = labels.map(label => {
+                return categoryData.filter(item => String(item[labelField]) === String(label)).length;
+              });
+              console.log(`線グラフ - カテゴリ "${category}" の頻度分析結果:`, dataPoints);
+            } else {
+              // 通常の分析：集計済みデータを使用
+              const categoryLabels = categoryData.map(item => item[labelField]);
+              const categoryValues = categoryData.map(item => item[actualValueField]);
+              
+              dataPoints = labels.map(label => {
+                const idx = categoryLabels.indexOf(label);
+                return idx !== -1 ? categoryValues[idx] : null;
+              });
+            }
+          }
           
           return {
             label: String(category),
@@ -1480,7 +1638,7 @@ export const prepareChartData = (
         labels,
         datasets: [
           {
-            label: valueField,
+            label: actualValueField,
             data: values,
             backgroundColor: 'rgba(54, 162, 235, 0.2)',
             borderColor: 'rgba(54, 162, 235, 1)',
@@ -1797,16 +1955,22 @@ export const prepareChartData = (
       
       // カテゴリフィールドが指定されている場合、カテゴリごとに色分け
       if (normalizedCategoryField) {
-        // categoryFieldが存在する項目のみから一意なカテゴリ値を抽出
+        // categoryFieldが存在する項目のみから一意なカテゴリ値を抽出（undefinedやnullも除外）
         const categories = [...new Set(data
-          .filter(item => item[normalizedCategoryField as string] !== undefined)
+          .filter(item => 
+            item[normalizedCategoryField as string] !== undefined && 
+            item[normalizedCategoryField as string] !== null &&
+            item[normalizedCategoryField as string] !== ''
+          )
           .map(item => String(item[normalizedCategoryField as string]))
         )];
         
         const datasets = categories.map((category, index) => {
           const categoryData = data.filter(item => 
             normalizedCategoryField !== undefined && 
-            item[normalizedCategoryField as string] === category
+            item[normalizedCategoryField as string] !== undefined &&
+            item[normalizedCategoryField as string] !== null &&
+            String(item[normalizedCategoryField as string]) === category
           );
           
           // カテゴリデータからX値とY値を抽出し、明示的に数値に変換
@@ -2267,24 +2431,146 @@ export const prepareChartData = (
     
     case 'bar':
     default: {
-      const labels = data.map(item => item[labelField]);
-      const values = data.map(item => item[valueField]);
+      // 数値フィールドを使った頻度分析の場合の特別処理
+      const hasNumericData = data.length > 0 && data.some(item => 
+        item[labelField] !== undefined && 
+        item[labelField] !== null && 
+        typeof item[labelField] === 'number' && 
+        !isNaN(item[labelField])
+      );
+      const isNumericFrequencyAnalysis = (!valueField || valueField.trim() === '') && hasNumericData;
+      
+      let labels, values;
+      
+      if (isNumericFrequencyAnalysis) {
+        try {
+          // 数値フィールドをビン化して頻度分析
+          const numericValues = data.map(item => item[labelField]).filter(val => typeof val === 'number' && !isNaN(val));
+          
+          if (numericValues.length === 0) {
+            console.warn('数値データが見つかりません:', labelField);
+            // 通常処理にフォールバック
+            labels = data.map(item => String(item[labelField] || ''));
+            values = data.map(item => item[actualValueField] || 0);
+          } else {
+            const min = Math.min(...numericValues);
+            const max = Math.max(...numericValues);
+            
+            // 最小値と最大値が同じ場合の処理
+            if (min === max) {
+              labels = [String(min)];
+              values = [numericValues.length];
+            } else {
+              const binCount = Math.min(10, Math.max(5, Math.floor(Math.sqrt(numericValues.length)))); // 動的ビン数
+              const binWidth = (max - min) / binCount;
+              
+              console.log('数値フィールド頻度分析:', {
+                フィールド: labelField,
+                データ数: numericValues.length,
+                最小値: min,
+                最大値: max,
+                ビン数: binCount,
+                ビン幅: binWidth
+              });
+              
+              // ビンラベルを作成
+              labels = [];
+              for (let i = 0; i < binCount; i++) {
+                const binStart = min + i * binWidth;
+                const binEnd = min + (i + 1) * binWidth;
+                labels.push(`${binStart.toFixed(1)}-${binEnd.toFixed(1)}`);
+              }
+              
+              // 各ビンのカウントを計算
+              values = new Array(binCount).fill(0);
+              numericValues.forEach(val => {
+                let binIndex = Math.floor((val - min) / binWidth);
+                if (binIndex >= binCount) binIndex = binCount - 1; // 最大値の場合
+                values[binIndex]++;
+              });
+            }
+          }
+        } catch (error) {
+          console.error('数値フィールド頻度分析エラー:', error);
+          // エラー時は通常処理にフォールバック
+          labels = data.map(item => String(item[labelField] || ''));
+          values = data.map(item => item[actualValueField] || 0);
+        }
+      } else {
+        // 通常の処理
+        labels = data.map(item => item[labelField]);
+        values = data.map(item => item[actualValueField]);
+      }
       
       // カテゴリフィールドが指定されている場合、カテゴリごとに色分け
       if (normalizedCategoryField) {
-        const categories = [...new Set(data.map(item => item[normalizedCategoryField]))];
+        // undefinedやnullを除外して、有効なカテゴリ値のみを取得
+        const categories = [...new Set(
+          data
+            .map(item => item[normalizedCategoryField])
+            .filter(cat => cat !== undefined && cat !== null && cat !== '')
+            .map(cat => String(cat))
+        )];
+        
+        console.log('棒グラフ - カテゴリ分析:', {
+          カテゴリフィールド: normalizedCategoryField,
+          全データ数: data.length,
+          有効カテゴリ: categories,
+          カテゴリ数: categories.length,
+          数値フィールド頻度分析: isNumericFrequencyAnalysis,
+          サンプルデータのカテゴリ値: data.slice(0, 5).map(item => item[normalizedCategoryField])
+        });
         
         // カテゴリごとのデータセットを作成
         const datasets = categories.map((category, index) => {
-          const categoryData = data.filter(item => item[normalizedCategoryField] === category);
-          const categoryLabels = categoryData.map(item => item[labelField]);
-          const categoryValues = categoryData.map(item => item[valueField]);
+          const categoryData = data.filter(item => 
+            item[normalizedCategoryField] !== undefined && 
+            item[normalizedCategoryField] !== null &&
+            String(item[normalizedCategoryField]) === category
+          );
           
-          // カテゴリごとにデータポイントをマッピング
-          const dataPoints = labels.map(label => {
-            const idx = categoryLabels.indexOf(label);
-            return idx !== -1 ? categoryValues[idx] : null;
-          });
+          let dataPoints;
+          if (isNumericFrequencyAnalysis) {
+            // 数値フィールド頻度分析：各ビンについて、このカテゴリの出現回数をカウント
+            const categoryNumericValues = categoryData
+              .map(item => item[labelField])
+              .filter(val => typeof val === 'number' && !isNaN(val));
+            
+            const min = Math.min(...data.map(item => item[labelField]).filter(val => typeof val === 'number'));
+            const max = Math.max(...data.map(item => item[labelField]).filter(val => typeof val === 'number'));
+            const binCount = labels.length;
+            const binWidth = (max - min) / binCount;
+            
+            dataPoints = new Array(binCount).fill(0);
+            categoryNumericValues.forEach(val => {
+              let binIndex = Math.floor((val - min) / binWidth);
+              if (binIndex >= binCount) binIndex = binCount - 1;
+              dataPoints[binIndex]++;
+            });
+            
+            console.log(`カテゴリ "${category}" の数値フィールド頻度分析結果:`, dataPoints);
+          } else {
+            // 頻度分析の場合（valueFieldが空またはvalueフィールドが存在しない場合）
+            const isFrequencyAnalysis = (!valueField || valueField.trim() === '') || 
+                                       !categoryData.some(item => item.hasOwnProperty(actualValueField));
+            
+            if (isFrequencyAnalysis) {
+              // 頻度分析：X軸の各ラベルについて、このカテゴリの出現回数をカウント
+              dataPoints = labels.map(label => {
+                return categoryData.filter(item => String(item[labelField]) === String(label)).length;
+              });
+              console.log(`カテゴリ "${category}" の頻度分析結果:`, dataPoints);
+            } else {
+              // 通常の分析：集計済みデータを使用
+              const categoryLabels = categoryData.map(item => item[labelField]);
+              const categoryValues = categoryData.map(item => item[actualValueField]);
+              
+              dataPoints = labels.map(label => {
+                const idx = categoryLabels.indexOf(label);
+                return idx !== -1 ? categoryValues[idx] : null;
+              });
+            }
+          }
           
           return {
             label: String(category),
@@ -2306,7 +2592,7 @@ export const prepareChartData = (
         labels,
         datasets: [
           {
-            label: valueField,
+            label: actualValueField,
             data: values,
             backgroundColor: 'rgba(54, 162, 235, 0.6)',
             borderColor: 'rgba(54, 162, 235, 1)',
@@ -2315,5 +2601,17 @@ export const prepareChartData = (
         ],
       };
     }
+  }
+  
+  } catch (error) {
+    console.error('prepareChartData エラー:', error);
+    console.error('エラー発生時のパラメータ:', {
+      データ型: chartType,
+      レコード数: data?.length || 0,
+      X軸フィールド: labelField,
+      Y軸フィールド: valueField,
+      カテゴリフィールド: normalizedCategoryField
+    });
+    return null;
   }
 };
