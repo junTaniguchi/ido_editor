@@ -26,7 +26,9 @@ import {
   IoLayersOutline,
   IoGitNetwork,
   IoChevronUpOutline,
-  IoChevronDownOutline
+  IoChevronDownOutline,
+  IoGrid,
+  IoPlay
 } from 'react-icons/io5';
 import QueryResultTable from './QueryResultTable';
 import InfoResultTable from './InfoResultTable';
@@ -74,7 +76,8 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
     clearSelectedFiles,
     rootDirHandle,
     editorSettings,
-    updateEditorSettings
+    updateEditorSettings,
+    tabs
   } = useEditorStore();
 
   // 状態管理
@@ -82,8 +85,19 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
   const [error, setError] = useState<string | null>(null);
   const [fileDataMap, setFileDataMap] = useState<Map<string, any[]>>(new Map());
   
+  // Excelファイル設定
+  const [excelSettings, setExcelSettings] = useState<Map<string, {
+    sheetName: string;
+    startRow: number;
+    startCol: number;
+    endRow?: number;
+    endCol?: number;
+    hasHeader: boolean;
+    sheets: Array<{name: string, rowCount: number, colCount: number}>;
+  }>>(new Map());
+  
   // 分析タブの管理
-  const [activeTab, setActiveTab] = useState<'combine' | 'query' | 'stats' | 'chart' | 'relationship'>('combine');
+  const [activeTab, setActiveTab] = useState<'excel-settings' | 'combine' | 'query' | 'stats' | 'chart' | 'relationship'>('excel-settings');
   const [isSettingsCollapsed, setIsSettingsCollapsed] = useState(false);
   const [isQueryCollapsed, setIsQueryCollapsed] = useState(false);
   
@@ -172,7 +186,26 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
 
   // 選択されたファイルを読み込み
   useEffect(() => {
-    loadSelectedFiles();
+    // Excelファイルが含まれている場合、最初にExcel設定タブを表示
+    const hasExcelFiles = Array.from(selectedFiles).some(filePath => {
+      const fileName = filePath.split('/').pop() || filePath;
+      return fileName.toLowerCase().endsWith('.xlsx') || fileName.toLowerCase().endsWith('.xls');
+    });
+    
+    if (hasExcelFiles && activeTab === 'excel-settings') {
+      // Excel設定があるファイルは既に読み込まれているので、設定がないExcelファイルのみ読み込み
+      const needsReload = Array.from(selectedFiles).some(filePath => {
+        const fileName = filePath.split('/').pop() || filePath;
+        const isExcel = fileName.toLowerCase().endsWith('.xlsx') || fileName.toLowerCase().endsWith('.xls');
+        return isExcel && !excelSettings.has(filePath);
+      });
+      
+      if (needsReload) {
+        loadSelectedFiles();
+      }
+    } else {
+      loadSelectedFiles();
+    }
   }, [selectedFiles]);
 
   // データが統合されたときの処理
@@ -290,15 +323,67 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
               // Excelファイルの処理
               try {
                 let buffer: ArrayBuffer;
+                
+                // 1. タブから取得を試行
                 const tab = tabs.get(filePath);
                 if (tab && tab.file && 'getFile' in tab.file) {
                   const file = await (tab.file as FileSystemFileHandle).getFile();
                   buffer = await file.arrayBuffer();
                 } else {
-                  throw new Error(`Excelファイルの読み込みに失敗: ${fileName}`);
+                  // 2. ルートディレクトリハンドルから直接取得
+                  if (!rootDirHandle) {
+                    throw new Error('ルートディレクトリハンドルが見つかりません');
+                  }
+                  
+                  try {
+                    const fileHandle = await rootDirHandle.getFileHandle(fileName);
+                    const file = await fileHandle.getFile();
+                    buffer = await file.arrayBuffer();
+                  } catch (fileError) {
+                    throw new Error(`ファイルアクセスエラー: ${fileName}`);
+                  }
                 }
                 
-                data = parseExcel(buffer);
+                // Excelファイルの設定を確認
+                const currentSettings = excelSettings.get(filePath);
+                if (!currentSettings) {
+                  // 初回読み込み: シート情報を取得してデフォルト設定を作成
+                  const { getExcelSheets } = await import('@/lib/dataPreviewUtils');
+                  const sheets = getExcelSheets(buffer);
+                  
+                  if (sheets.length === 0) {
+                    throw new Error('Excelファイルにシートが見つかりません');
+                  }
+                  
+                  // デフォルト設定を保存
+                  const defaultSettings = {
+                    sheetName: sheets[0].name,
+                    startRow: 1,
+                    startCol: 1,
+                    hasHeader: true,
+                    sheets: sheets
+                  };
+                  
+                  setExcelSettings(prev => new Map(prev.set(filePath, defaultSettings)));
+                  
+                  // デフォルト設定でパース
+                  data = parseExcel(buffer, {
+                    sheetName: defaultSettings.sheetName,
+                    startRow: defaultSettings.startRow,
+                    startCol: defaultSettings.startCol,
+                    hasHeader: defaultSettings.hasHeader
+                  });
+                } else {
+                  // 既存設定を使用してパース
+                  data = parseExcel(buffer, {
+                    sheetName: currentSettings.sheetName,
+                    startRow: currentSettings.startRow,
+                    startCol: currentSettings.startCol,
+                    endRow: currentSettings.endRow,
+                    endCol: currentSettings.endCol,
+                    hasHeader: currentSettings.hasHeader
+                  });
+                }
               } catch (excelError) {
                 console.error(`Excel parsing error for ${fileName}:`, excelError);
                 throw new Error(`Excelファイルの解析に失敗: ${fileName}`);
@@ -595,9 +680,20 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
       </div>
 
       {/* タブナビゲーション */}
-      <div className="flex border-b border-gray-200 bg-white">
+      <div className="flex border-b border-gray-200 bg-white overflow-x-auto">
         <button
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+            activeTab === 'excel-settings'
+              ? 'text-blue-600 border-blue-600'
+              : 'text-gray-600 border-transparent hover:text-gray-800 hover:border-gray-300'
+          }`}
+          onClick={() => setActiveTab('excel-settings')}
+        >
+          <IoGrid className="inline mr-1" size={16} />
+          Excel設定
+        </button>
+        <button
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
             activeTab === 'combine'
               ? 'text-blue-600 border-blue-600'
               : 'text-gray-600 border-transparent hover:text-gray-800 hover:border-gray-300'
@@ -1116,6 +1212,169 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         {error && (
           <div className="p-4 bg-red-50 border border-red-200 rounded m-4">
             <p className="text-red-700">{error}</p>
+          </div>
+        )}
+
+        {/* Excel設定タブ */}
+        {activeTab === 'excel-settings' && (
+          <div className="p-4">
+            <h3 className="text-lg font-semibold mb-4 flex items-center">
+              <IoGrid size={20} className="mr-2 text-green-600" />
+              Excelファイル設定
+            </h3>
+            
+            {/* Excelファイルごとの設定パネル */}
+            {Array.from(excelSettings.entries()).map(([filePath, settings]) => {
+              const fileName = filePath.split('/').pop() || filePath;
+              const isExcelFile = fileName.toLowerCase().endsWith('.xlsx') || fileName.toLowerCase().endsWith('.xls');
+              
+              if (!isExcelFile) return null;
+              
+              const currentSheet = settings.sheets.find(s => s.name === settings.sheetName);
+              
+              return (
+                <div key={filePath} className="mb-6 p-4 border border-gray-200 rounded bg-gray-50">
+                  <h4 className="font-medium text-gray-900 mb-3 flex items-center">
+                    <IoGrid className="mr-2 text-green-600" size={16} />
+                    {fileName}
+                    <span className="ml-2 text-sm text-gray-500">({settings.sheets.length} シート)</span>
+                  </h4>
+                  
+                  {/* シート選択と範囲設定 */}
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">シート</label>
+                      <select
+                        value={settings.sheetName}
+                        onChange={(e) => {
+                          const newSettings = { ...settings, sheetName: e.target.value };
+                          setExcelSettings(prev => new Map(prev.set(filePath, newSettings)));
+                        }}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded bg-white"
+                      >
+                        {settings.sheets.map((sheet) => (
+                          <option key={sheet.name} value={sheet.name}>
+                            {sheet.name} ({sheet.rowCount}×{sheet.colCount})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">開始行</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max={currentSheet?.rowCount || 1}
+                        value={settings.startRow}
+                        onChange={(e) => {
+                          const newSettings = { ...settings, startRow: parseInt(e.target.value) || 1 };
+                          setExcelSettings(prev => new Map(prev.set(filePath, newSettings)));
+                        }}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">開始列</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max={currentSheet?.colCount || 1}
+                        value={settings.startCol}
+                        onChange={(e) => {
+                          const newSettings = { ...settings, startCol: parseInt(e.target.value) || 1 };
+                          setExcelSettings(prev => new Map(prev.set(filePath, newSettings)));
+                        }}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">終了行</label>
+                      <input
+                        type="number"
+                        min={settings.startRow}
+                        max={currentSheet?.rowCount || 1}
+                        value={settings.endRow || ''}
+                        onChange={(e) => {
+                          const newSettings = { 
+                            ...settings, 
+                            endRow: e.target.value ? parseInt(e.target.value) : undefined 
+                          };
+                          setExcelSettings(prev => new Map(prev.set(filePath, newSettings)));
+                        }}
+                        placeholder="全て"
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">終了列</label>
+                      <input
+                        type="number"
+                        min={settings.startCol}
+                        max={currentSheet?.colCount || 1}
+                        value={settings.endCol || ''}
+                        onChange={(e) => {
+                          const newSettings = { 
+                            ...settings, 
+                            endCol: e.target.value ? parseInt(e.target.value) : undefined 
+                          };
+                          setExcelSettings(prev => new Map(prev.set(filePath, newSettings)));
+                        }}
+                        placeholder="全て"
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded"
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* ヘッダー設定と適用ボタン */}
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={settings.hasHeader}
+                        onChange={(e) => {
+                          const newSettings = { ...settings, hasHeader: e.target.checked };
+                          setExcelSettings(prev => new Map(prev.set(filePath, newSettings)));
+                        }}
+                        className="mr-2"
+                      />
+                      <span className="text-sm text-gray-700">先頭行をヘッダーとして使用</span>
+                    </label>
+                    
+                    <button
+                      onClick={loadSelectedFiles}
+                      className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center text-sm"
+                    >
+                      <IoPlay className="mr-1" size={14} />
+                      設定を適用
+                    </button>
+                  </div>
+                  
+                  {/* 現在のシート情報 */}
+                  {currentSheet && (
+                    <div className="mt-3 text-sm text-gray-600">
+                      <strong>{settings.sheetName}</strong> - 
+                      範囲: A1:{String.fromCharCode(65 + currentSheet.colCount - 1)}{currentSheet.rowCount} 
+                      ({currentSheet.rowCount}行 × {currentSheet.colCount}列)
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            
+            {Array.from(selectedFiles).filter(filePath => {
+              const fileName = filePath.split('/').pop() || filePath;
+              return fileName.toLowerCase().endsWith('.xlsx') || fileName.toLowerCase().endsWith('.xls');
+            }).length === 0 && (
+              <div className="text-center py-8 text-gray-500">
+                <IoGrid size={48} className="mx-auto mb-2 opacity-50" />
+                <p>Excelファイルが選択されていません</p>
+                <p className="text-sm">エクスプローラーでExcelファイル（.xlsx/.xls）を選択してください</p>
+              </div>
+            )}
           </div>
         )}
 
