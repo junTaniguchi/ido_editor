@@ -15,11 +15,13 @@ import CodeMirror from '@uiw/react-codemirror';
 import { useEditorStore } from '@/store/editorStore';
 import { getLanguageByFileName, getTheme, getEditorExtensions } from '@/lib/editorUtils';
 import { TabData } from '@/types';
-import { IoCodeSlash, IoEye, IoAnalytics, IoSave, IoGrid } from 'react-icons/io5';
+import { IoCodeSlash, IoEye, IoAnalytics, IoSave, IoGrid, IoDownload } from 'react-icons/io5';
 import DataPreview from '@/components/preview/DataPreview';
 import MermaidPreview from '@/components/preview/MermaidPreview';
 import MarkdownPreview from '@/components/preview/MarkdownPreview';
 import MarkdownEditorExtension from '@/components/markdown/MarkdownEditorExtension';
+import ExportModal from '@/components/preview/ExportModal';
+import { parseCSV, parseJSON, parseYAML, parseParquet } from '@/lib/dataPreviewUtils';
 
 export interface EditorProps {
   tabId: string;
@@ -50,6 +52,8 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
   const [currentTab, setCurrentTab] = useState<TabData | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [parsedDataForExport, setParsedDataForExport] = useState<any[] | null>(null);
   const editorRef = useRef(null);
   // CodeMirrorのscroller要素をrefで取得
   const codeMirrorScrollerRef = useRef<HTMLDivElement | null>(null);
@@ -138,6 +142,67 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
       return { ...prev, originalContent: prev.content, isDirty: false };
     });
   };
+
+  // エクスポート用のデータ解析処理
+  const handleExportButtonClick = async () => {
+    if (!currentTab) return;
+
+    try {
+      let parsedData: any[] = [];
+      const content = currentTab.content;
+
+      switch (currentTab.type) {
+        case 'csv':
+          const csvResult = parseCSV(content);
+          if (csvResult.error) throw new Error(csvResult.error);
+          parsedData = csvResult.data || [];
+          break;
+        case 'tsv':
+          const tsvResult = parseCSV(content, '\t');
+          if (tsvResult.error) throw new Error(tsvResult.error);
+          parsedData = tsvResult.data || [];
+          break;
+        case 'json':
+          const jsonResult = parseJSON(content);
+          if (jsonResult.error) throw new Error(jsonResult.error);
+          parsedData = Array.isArray(jsonResult.data) ? jsonResult.data : [jsonResult.data];
+          break;
+        case 'yaml':
+          const yamlResult = parseYAML(content);
+          if (yamlResult.error) throw new Error(yamlResult.error);
+          parsedData = Array.isArray(yamlResult.data) ? yamlResult.data : [yamlResult.data];
+          break;
+        case 'parquet':
+          const parquetResult = await parseParquet(content);
+          if (parquetResult.error) throw new Error(parquetResult.error);
+          
+          if (parquetResult.headers && parquetResult.rows) {
+            parsedData = parquetResult.rows.map((row: any[]) => {
+              const obj: any = {};
+              parquetResult.headers.forEach((header: string, i: number) => {
+                obj[header] = row[i] || null;
+              });
+              return obj;
+            });
+          } else {
+            parsedData = [];
+          }
+          break;
+        default:
+          throw new Error('このファイル形式はエクスポートに対応していません');
+      }
+
+      if (parsedData.length === 0) {
+        throw new Error('エクスポート可能なデータがありません');
+      }
+
+      setParsedDataForExport(parsedData);
+      setIsExportModalOpen(true);
+    } catch (error) {
+      console.error('Export data parsing error:', error);
+      alert(error instanceof Error ? error.message : 'データの解析に失敗しました');
+    }
+  };
   
   // タブデータがなければ何も表示しない
   if (!currentTab || !isInitialized) {
@@ -175,13 +240,22 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
             {(currentTab.type === 'csv' || currentTab.type === 'tsv' || 
               currentTab.type === 'json' || currentTab.type === 'yaml' || 
               currentTab.type === 'parquet') && (
-              <button
-                className={`px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 mr-2 flex items-center ${paneState.isAnalysisVisible ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
-                onClick={toggleAnalysisMode}
-                title={paneState.isAnalysisVisible ? '分析モードを閉じる' : '分析モードに切り替え'}
-              >
-                <IoAnalytics size={20} className="mr-1" /> 分析
-              </button>
+              <>
+                <button
+                  className={`px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 mr-2 flex items-center ${paneState.isAnalysisVisible ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
+                  onClick={toggleAnalysisMode}
+                  title={paneState.isAnalysisVisible ? '分析モードを閉じる' : '分析モードに切り替え'}
+                >
+                  <IoAnalytics size={20} className="mr-1" /> 分析
+                </button>
+                <button
+                  className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 mr-2 flex items-center"
+                  onClick={handleExportButtonClick}
+                  title="データエクスポート"
+                >
+                  <IoDownload className="mr-1" size={16} /> エクスポート
+                </button>
+              </>
             )}
             <button 
               className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 mr-2"
@@ -280,6 +354,16 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
           {currentTab.type.toUpperCase()}
         </div>
       </div>
+      
+      {/* エクスポートモーダル */}
+      {isExportModalOpen && parsedDataForExport && parsedDataForExport.length > 0 && (
+        <ExportModal
+          isOpen={isExportModalOpen}
+          onClose={() => setIsExportModalOpen(false)}
+          data={parsedDataForExport}
+          fileName={currentTab.name}
+        />
+      )}
     </div>
   );
 });
