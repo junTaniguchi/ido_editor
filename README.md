@@ -1,23 +1,43 @@
-# 高機能エディタ
+# IDO Editor - 高機能データ分析エディタ
 
-ReactとNext.jsを使用して構築された高機能エディタアプリケーションです。Zustandによる状態管理、CodeMirrorベースのテキスト編集、Excel/Wordエクスポート、複数データ形式のプレビュー、Markdown内Mermaid描画など多彩な機能を備えています。
+ReactとNext.jsを使用して構築された高機能エディタアプリケーションです。Zustandによる状態管理、CodeMirrorベースのテキスト編集、Excel/Wordエクスポート、複数データ形式のプレビュー、強力なデータ分析機能など多彩な機能を備えています。
 
-## 機能一覧
+## 🚀 主要機能
 
-- マルチタブエディタ
-- ファイルエクスプローラ（ファイルシステムアクセスAPI）
-- マークダウンプレビュー
-- Mermaidダイアグラムのプレビュー、ズーム、エクスポート機能
-- CSV、TSV、JSON、YAML、Parquet、Jupyter Notebook（.ipynb）、PDF（.pdf）ファイルのプレビュー
-- データ分析機能（SQL、統計情報、グラフ作成）
-- フォルダ内全検索・置換機能
-- エディタとプレビューの分割表示
-- ダークモード対応
-- 各種プログラミング言語のシンタックスハイライト
-- Excel（.xlsx）ファイルのプレビュー（複数シート切替対応）
-- Excel形式でのエクスポート（分析モード・データプレビューからダウンロード可能）
-- Word（.docx）エクスポート（Markdown→Word変換）
-- MarkdownプレビューでMermaidコードブロックも描画可能
+### エディタ機能
+- **マルチタブエディタ** - 複数ファイルの同時編集
+- **ファイルエクスプローラ** - File System Access APIによる直接ファイルアクセス
+- **シンタックスハイライト** - 50+のプログラミング言語に対応
+- **エディタとプレビューの分割表示** - リアルタイムプレビュー
+- **ダークモード対応** - 自動テーマ切り替え
+
+### マークダウン機能
+- **リアルタイムプレビュー** - 編集内容を即座に反映
+- **目次自動生成** - 階層構造の見出しナビゲーション
+- **Mermaidダイアグラム対応** - コードブロック内の図表を自動描画
+- **マークダウンツールバー** - ビジュアル編集機能
+- **Word(.docx)エクスポート** - 高品質なWord文書出力
+
+### データファイルプレビュー
+- **CSV/TSV** - 表形式データの高性能表示
+- **JSON/YAML** - 階層構造データの見やすい表示
+- **Excel(.xlsx/.xls)** - シート別プレビュー、データ範囲指定
+- **Parquet** - 列指向データフォーマット対応
+- **Jupyter Notebook(.ipynb)** - セル別コンテンツ表示
+- **PDF(.pdf)** - PDF.js統合プレビュー
+
+### データ分析機能
+- **単一ファイル分析** - ファイル単位での詳細データ分析
+- **複数ファイル分析** - ファイル横断的なデータ統合・分析
+- **SQLクエリ実行** - AlasQLによる強力なデータ操作
+- **統計情報表示** - pandas.describe()相当の統計サマリー
+- **多様なグラフ作成** - 棒、線、円、散布図、ヒストグラム、回帰分析
+- **関係性分析** - Cypherクエリによるグラフデータベース機能
+
+### 検索・置換機能
+- **フォルダ内全検索** - 正規表現対応
+- **一括置換機能** - パターンマッチング置換
+- **ファイルパターンフィルタ** - 対象ファイルの絞り込み
 
 ## セットアップ方法
 
@@ -89,23 +109,51 @@ npm run dev
 - `Ctrl+F`または`Cmd+F`：検索パネルを開く
 - `Esc`：検索パネルを閉じる
 
-## ソースコード構成
+## 📁 ソースコード構成
 
 アプリケーションのコードは次のように構成されています：
 
-### コンポーネント
+### エディタ・レイアウト
 
-- **`/src/components/editor/Editor.tsx`**: CodeMirrorを使用したメインエディタコンポーネント
-- **`/src/components/explorer/FileExplorer.tsx`**: ファイルシステムを表示・操作するエクスプローラコンポーネント
-- **`/src/components/preview/MarkdownPreview.tsx`**: マークダウンのリアルタイムプレビューコンポーネント
-- **`/src/components/preview/MermaidPreview.tsx`**: Mermaidダイアグラムのプレビュー、ズーム、SVG/PNG保存機能を提供するコンポーネント
-- **`/src/components/preview/DataPreview.tsx`**: データファイル（CSV/TSV/JSON/YAML/Parquet）のプレビューコンポーネント
-- **`/src/components/preview/DataTable.tsx`**: 表形式データの表示コンポーネント
-- **`/src/components/preview/ObjectViewer.tsx`**: 階層構造データの表示コンポーネント
-- **`/src/components/analysis/DataAnalysis.tsx`**: データ分析機能（SQL、統計情報、グラフ）を提供するコンポーネント
-- **`/src/components/search/SearchPanel.tsx`**: 検索・置換機能を提供するパネルコンポーネント
-- **`/src/components/tabs/TabBar.tsx`**: 複数ファイルを管理するタブバーコンポーネント
-- **`/src/components/layout/MainLayout.tsx`**: アプリ全体のレイアウトを管理するコンポーネント
+- **`/src/components/editor/Editor.tsx`** - CodeMirrorベースメインエディタ
+- **`/src/components/layout/MainLayout.tsx`** - アプリケーション全体レイアウト
+- **`/src/components/tabs/TabBar.tsx`** - マルチタブ管理
+- **`/src/components/explorer/FileExplorer.tsx`** - ファイルシステムエクスプローラ
+
+### プレビュー機能
+
+- **`/src/components/preview/MarkdownPreview.tsx`** - マークダウンリアルタイムプレビュー
+- **`/src/components/preview/MermaidPreview.tsx`** - Mermaid図表プレビュー（ズーム・エクスポート対応）
+- **`/src/components/preview/DataPreview.tsx`** - データファイル統合プレビュー
+- **`/src/components/preview/DataTable.tsx`** - 高機能データテーブル
+- **`/src/components/preview/EditableDataTable.tsx`** - 編集可能データテーブル
+- **`/src/components/preview/ObjectViewer.tsx`** - 階層構造データビューア
+- **`/src/components/preview/ExcelPreview.tsx`** - Excelシート別プレビュー
+- **`/src/components/preview/IpynbPreview.tsx`** - Jupyter Notebookプレビュー
+- **`/src/components/preview/PdfPreview.tsx`** - PDFプレビュー
+
+### データ分析機能（リファクタリング済み）
+
+- **`/src/components/analysis/DataAnalysis.tsx`** - 単一ファイル分析メインコンポーネント（643行に最適化）
+- **`/src/components/analysis/AnalysisTabNavigation.tsx`** - 分析タブナビゲーション（115行）
+- **`/src/components/analysis/AnalysisSettingsPanel.tsx`** - 設定パネル（317行）
+- **`/src/components/analysis/AnalysisChartRenderer.tsx`** - チャート描画コンポーネント（561行）
+- **`/src/components/analysis/MultiFileAnalysis.tsx`** - 複数ファイル分析機能
+- **`/src/components/analysis/QueryResultTable.tsx`** - SQLクエリ結果表示
+- **`/src/components/analysis/InfoResultTable.tsx`** - 統計情報表示
+- **`/src/components/analysis/RelationshipGraph.tsx`** - 関係性グラフ表示
+
+### マークダウン編集支援
+
+- **`/src/components/markdown/MarkdownToolbar.tsx`** - マークダウン編集ツールバー
+- **`/src/components/markdown/MarkdownEditorExtension.tsx`** - エディタ拡張機能
+- **`/src/components/markdown/MarkdownHelpDialog.tsx`** - ヘルプダイアログ
+- **`/src/components/markdown/TableWizard.tsx`** - テーブル作成ウィザード
+
+### その他
+
+- **`/src/components/search/SearchPanel.tsx`** - 検索・置換パネル
+- **`/src/components/modals/`** - 各種ダイアログコンポーネント
 
 ### ユーティリティ
 
@@ -219,106 +267,161 @@ VSCodeライクな全文検索・置換機能を実装しています：
 - 検索結果からファイルへの直接ジャンプ
 - エラーハンドリングの強化
 
-## データ分析機能
+## 📊 データ分析機能
 
-CSV、TSV、JSON、YAML、Parquetファイルに対して以下の分析機能を提供しています：
+CSV、TSV、JSON、YAML、Excel、Parquetファイルに対して包括的な分析機能を提供しています：
 
-### SQLクエリ機能
-- **AlasQL**を使用したSQL風クエリの実行
-- データに対してSELECT文を実行可能
-- クエリ結果のテーブル表示
-- クエスチョンマーク（?）を使用した簡易クエリ構文
+### 🔍 単一ファイル分析モード
 
-### 統計情報表示
-- pandasのdescribe()関数に相当する統計情報の表示
-- 数値カラムに対する基本統計量（平均、標準偏差、最小値、最大値、四分位数など）
-- 非数値カラムに対するユニーク値のカウント
-- 各カラムに対する欠損値のカウント
+#### SQLクエリ機能
+- **AlasQL**エンジンによる高性能SQL実行
+- SELECT、WHERE、GROUP BY、ORDER BY構文サポート
+- クエスチョンマーク（?）による簡易テーブル参照
+- クエリ結果の即座テーブル表示
+- 階層データの平坦化表示/ネスト表示切り替え
 
-### グラフ作成機能
-- 以下のグラフタイプをサポート
-  - 棒グラフ（Bar Chart）
-  - 折れ線グラフ（Line Chart）
-  - 円グラフ（Pie Chart）
-  - 散布図（Scatter Plot）
-- 集計方法の選択
-  - 合計（sum）
-  - 平均（avg）
-  - カウント（count）
-  - 最小値（min）
-  - 最大値（max）
-- X軸・Y軸の選択機能
-- グラフのリアルタイム更新
+#### 統計情報表示
+- **pandas.describe()相当**の詳細統計サマリー
+- データ型別統計情報（数値・文字列・null値の分析）
+- 各カラムの基本情報（型、非null件数、最大文字数、サンプル値）
+- 欠損値の可視化と分析
 
-主な特徴：
-- AlasQLによる強力なSQLクエリ機能
-- jStatを使用した正確な統計計算
-- Plotlyによるインタラクティブな可視化
-- タブ切り替えによる機能分離
-- ダークモード対応
-- 直感的なUI
+#### 高度なグラフ作成機能
+**対応グラフタイプ（7種類）:**
+- **棒グラフ** - カテゴリ別集計値の比較
+- **折れ線グラフ** - 時系列データやトレンド分析
+- **円グラフ** - 構成比の可視化
+- **散布図** - 2変数間の相関関係
+- **積立棒グラフ** - カテゴリ別の多次元データ比較
+- **線形回帰グラフ** - 回帰分析と予測線表示
+- **ヒストグラム** - データ分布の可視化
+
+**集計・分析機能:**
+- **集計方法**: 合計・平均・カウント・最小値・最大値
+- **グループ分け**: カテゴリフィールドによる多次元分析
+- **データソース選択**: 元データ・クエリ結果からの柔軟な分析
+- **リアルタイム更新**: 設定変更時の即座グラフ反映
+
+#### 関係性分析
+- **Cypherクエリ**による関係データの探索
+- **Force Graphレイアウト**による関係性の可視化
+- ノード・エッジの動的操作とズーム機能
+
+### 🔗 複数ファイル分析モード
+
+#### ファイル統合機能
+- **UNION結合** - 同じスキーマファイルの縦結合
+- **INTERSECTION結合** - 共通データの抽出
+- **JOIN結合** - キー項目による横結合
+
+#### FROM句指定機能
+- 特定ファイルを指定したSQLクエリ実行
+- `FROM filename` 構文による柔軟なデータ操作
+- 複数ファイル間の横断的分析
+
+#### クロス集計機能
+- ファイル間でのピボットテーブル作成
+- 多次元データの統計的比較
+
+### 🛠️ 技術仕様
+
+**使用技術:**
+- **AlasQL** - ブラウザ内高速SQL処理
+- **jStat** - 統計計算ライブラリ
+- **Plotly.js** - インタラクティブ可視化
+- **React Chart.js** - グラフレンダリング
+- **React Force Graph** - ネットワーク図表示
+
+**最適化:**
+- **コンポーネント分離設計** - メンテナブルなアーキテクチャ
+- **レスポンシブUI** - モバイル・デスクトップ対応
+- **ダークモード** - 全機能完全対応
+- **エラーハンドリング** - 堅牢なエラー処理
 
 
-## 技術スタック
+## 🔧 技術スタック
 
-- [Next.js](https://nextjs.org) - Reactフレームワーク
-- [React](https://reactjs.org) - UIライブラリ
-- [TypeScript](https://www.typescriptlang.org) - 型付きJavaScript
-- [Zustand](https://github.com/pmndrs/zustand) - 状態管理
-- [CodeMirror](https://codemirror.net) - テキストエディタ
-- [Tailwind CSS](https://tailwindcss.com) - スタイリング
-- [React Markdown](https://github.com/remarkjs/react-markdown) - マークダウンレンダリング
-- [Mermaid](https://mermaid.js.org/) - ダイアグラム描画
-- [PapaParse](https://www.papaparse.com/) - CSV/TSVデータのパース
-- [js-yaml](https://github.com/nodeca/js-yaml) - YAMLデータのパース
-- [apache-arrow](https://arrow.apache.org/docs/js/) - Parquetデータの処理
-- [@tanstack/react-table](https://tanstack.com/table/latest) - データテーブル表示
-- [AlasQL](https://github.com/AlaSQL/alasql) - ブラウザ内SQL処理
-- [Plotly](https://plotly.com/javascript/) - グラフ描画
-- [jStat](https://github.com/jstat/jstat) - 統計計算
-- [React Icons](https://react-icons.github.io/react-icons/) - アイコンライブラリ
-- [React Force Graph](https://github.com/vasturiano/react-force-graph) - グラフ・ネットワーク可視化
+### コアフレームワーク
+- **[Next.js 15.4.5](https://nextjs.org)** - React Serverフレームワーク
+- **[React 19](https://reactjs.org)** - UIライブラリ
+- **[TypeScript 5.0+](https://www.typescriptlang.org)** - 型安全JavaScript
 
-## 実装済み機能
+### 状態管理・UI
+- **[Zustand](https://github.com/pmndrs/zustand)** - 軽量状態管理
+- **[CodeMirror 6](https://codemirror.net)** - 高性能テキストエディタ
+- **[Tailwind CSS](https://tailwindcss.com)** - ユーティリティファーストCSS
+- **[React Icons](https://react-icons.github.io/react-icons/)** - アイコンライブラリ
 
-- ファイル作成/削除機能
-- コンテキストメニュー（右クリックメニュー）
-  - 新規ファイル作成
-  - 新規フォルダ作成
-  - ファイル/フォルダ名の変更
-  - ファイル/フォルダの削除
-  - フォルダの更新（リフレッシュ）
-- マークダウン目次機能
-  - プレビュー時の自動目次表示
-  - 見出しへのジャンプ機能
-  - 階層表示と折りたたみ/展開
-- マークダウンエディタツール
-  - 見出し（H1〜H6）
-  - テキストスタイル（太字、斜体、取り消し線）
-  - リスト（番号付き、箇条書き、タスクリスト）
-  - リンクと画像の挿入
-  - コードブロック（言語指定可能）
-  - 引用ブロック（ネスト対応）
-  - テーブル作成ウィザード
-  - 選択範囲の一括処理（リスト変換、インデント、コメントなど）
-  - 行折り返しのON/OFF切り替え
-  - 矩形選択（カラム選択）機能
-  - ショートカットキー（Ctrl+B, Ctrl+I, Ctrl+K, Ctrl+1-3 など）
-  - ツールバーによる簡単な書式設定
-  - マークダウンヘルプ表示
-- JSON関係グラフ機能
-  - React Force Graphを使用した関係可視化
-  - ズーム/パン操作
-  - SVG形式でのエクスポート
-  - 対話的なノードハイライト
-- Markdown→Wordエクスポート機能（.docx形式でダウンロード可能）
-- データプレビュー/分析モードからExcelエクスポート（.xlsx形式でダウンロード可能）
+### データ処理・表示
+- **[@tanstack/react-table](https://tanstack.com/table/latest)** - 高性能データテーブル
+- **[PapaParse](https://www.papaparse.com/)** - CSV/TSVパーサー
+- **[js-yaml](https://github.com/nodeca/js-yaml)** - YAMLパーサー
+- **[XLSX](https://sheetjs.com/)** - Excel形式サポート
+- **[apache-arrow](https://arrow.apache.org/docs/js/)** - Parquetデータ処理
 
-## 今後の拡張予定
+### マークダウン・ドキュメント
+- **[React Markdown](https://github.com/remarkjs/react-markdown)** - マークダウンレンダリング
+- **[Mermaid](https://mermaid.js.org/)** - 図表・ダイアグラム描画
+- **[PDF.js](https://mozilla.github.io/pdf.js/)** - PDFレンダリング
 
-- データ分析機能の拡張（機械学習モデルの組み込みなど）
-- Parquetファイルの完全なバイナリパースサポート
-- Mermaidダイアグラムの自動レイアウト最適化
-- サイドバイサイドの差分比較ビュー
-- Excel/Wordファイルのプレビュー・編集機能の拡張
-- サンプルデータ（test_data/）に各種形式のテストファイルを同梱
+### データ分析・可視化
+- **[AlasSQL](https://github.com/AlaSQL/alasql)** - ブラウザ内SQL実行エンジン
+- **[jStat](https://github.com/jstat/jstat)** - 統計計算ライブラリ
+- **[Plotly.js](https://plotly.com/javascript/)** - インタラクティブグラフライブラリ
+- **[Chart.js](https://www.chartjs.org/)** + **[react-chartjs-2](https://react-chartjs-2.js.org/)** - チャート描画
+- **[React Force Graph](https://github.com/vasturiano/react-force-graph)** - ネットワーク図可視化
+
+## ✨ 最新実装機能（2024年12月更新）
+
+### リファクタリング完了
+- **DataAnalysis.tsx最適化** - 3,529行→643行（82%削減）
+- **コンポーネント分離** - 保守性向上（4つの独立コンポーネントに分割）
+- **型安全性強化** - TypeScriptエラーゼロ達成
+- **パフォーマンス最適化** - ビルド時間短縮、メモリ効率向上
+
+### 強化されたデータ分析機能
+- **7種類のグラフタイプ** - 棒、線、円、散布図、積立棒、回帰、ヒストグラム
+- **高度な集計処理** - sum/avg/count/min/max による多次元分析
+- **Cypherクエリサポート** - グラフデータベース機能
+- **リアルタイムプレビュー** - 設定変更の即座反映
+
+### Excel機能拡充
+- **シート別読み込み** - 任意シートの選択的読み込み
+- **データ範囲指定** - 開始行・列の柔軟な指定
+- **プレビュー最適化** - 大容量ファイルの高速表示
+
+### UI/UX改善
+- **設定パネル折りたたみ** - スクリーン領域の効率活用
+- **階層・フラット表示切替** - データ表示形式の柔軟性
+- **タブアイコン統一** - 直感的なナビゲーション
+- **ダークモード完全対応** - 全機能でのテーマ一貫性
+
+### エラー処理・安定性
+- **堅牢なエラーハンドリング** - undefined/null値の安全な処理
+- **メモリリーク対策** - 適切なクリーンアップ処理
+- **型チェック強化** - ランタイムエラーの事前防止
+
+## 🚀 今後の拡張予定
+
+### 分析機能拡張
+- **機械学習モデル統合** - scikit-learn.js等のML機能
+- **時系列分析** - ARIMA、季節調整等の高度分析
+- **Jupyter Notebookエディタ** - セル実行・出力表示機能
+
+### ファイル形式拡張
+- **Parquet完全サポート** - バイナリパース最適化
+- **Database接続** - PostgreSQL、MySQL等への直接接続
+- **API統合** - REST/GraphQL APIからのデータ取得
+
+### コラボレーション機能
+- **リアルタイム共同編集** - WebSocketベース協調編集
+- **バージョン管理統合** - Git操作のGUI化
+- **コメント・レビュー** - ファイル単位の協調作業
+
+## 📚 サンプルデータ
+
+`/test_data/` ディレクトリに各種形式のテストファイルを同梱：
+- **CSV/TSV**: iris.csv, sales_data.csv, weather_data.tsv
+- **JSON/YAML**: iris.json, products.yaml, employees.json  
+- **Mermaid**: flowchart.mmd, sequence.mmd, class.mmd等
+- **Markdown**: mermaid_sample.md（図表含む総合サンプル）
