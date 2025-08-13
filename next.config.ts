@@ -12,6 +12,25 @@ const nextConfig: NextConfig = {
       stream: false,
     };
     
+    // Mermaidの最適化設定
+    if (!isServer) {
+      config.optimization = {
+        ...config.optimization,
+        splitChunks: {
+          ...config.optimization.splitChunks,
+          cacheGroups: {
+            ...config.optimization.splitChunks?.cacheGroups,
+            mermaid: {
+              test: /[\\/]node_modules[\\/]mermaid[\\/]/,
+              name: 'mermaid',
+              chunks: 'all',
+              priority: 10,
+            },
+          },
+        },
+      };
+    }
+    
     return config;
   },
   // TypeScriptの設定

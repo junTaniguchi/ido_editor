@@ -1,17 +1,21 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
-import mermaid from 'mermaid';
 import { IoDownload, IoCopy, IoAdd, IoRemove, IoExpand } from 'react-icons/io5';
 
 // mermaidの設定を一度だけ初期化
 let mermaidInitialized = false;
+let mermaidInstance: any = null;
 
-const initializeMermaid = () => {
+const initializeMermaid = async (retryCount = 0): Promise<any> => {
   if (typeof window !== 'undefined' && !mermaidInitialized) {
     mermaidInitialized = true;
     
     try {
+      // 動的にmermaidをインポート（リトライ機能付き）
+      const { default: mermaid } = await import('mermaid');
+      mermaidInstance = mermaid;
+      
       mermaid.initialize({
         startOnLoad: false,
         theme: 'default',
@@ -19,23 +23,111 @@ const initializeMermaid = () => {
         fontFamily: 'ui-sans-serif, system-ui, sans-serif',
         logLevel: 'error',
         flowchart: { 
-          useMaxWidth: true, 
-          htmlLabels: true 
+          useMaxWidth: false, 
+          htmlLabels: true,
+          curve: 'basis'
         },
         sequence: {
-          useMaxWidth: true
+          useMaxWidth: false,
+          diagramMarginX: 50,
+          diagramMarginY: 30,
+          actorMargin: 50,
+          width: 150,
+          height: 65,
+          boxMargin: 10,
+          boxTextMargin: 5,
+          noteMargin: 10,
+          messageMargin: 35
         },
         gantt: {
-          useMaxWidth: true
+          useMaxWidth: false
         },
         er: {
-          useMaxWidth: true
+          useMaxWidth: false
+        },
+        class: {
+          useMaxWidth: false
+        },
+        state: {
+          useMaxWidth: false
+        },
+        pie: {
+          useMaxWidth: false
         },
         suppressErrorRendering: true
       });
+      
+      return mermaid;
     } catch (error) {
       console.error('Mermaid initialization failed:', error);
+      
+      // 最大3回までリトライ
+      if (retryCount < 3) {
+        console.log(`Retrying mermaid import... (${retryCount + 1}/3)`);
+        // リトライ時は初期化フラグをリセット
+        mermaidInitialized = false;
+        await new Promise(resolve => setTimeout(resolve, 1000)); // 1秒待機
+        return initializeMermaid(retryCount + 1);
+      }
+      
+      throw error;
     }
+  }
+  
+  return mermaidInstance;
+};
+
+// SVGにパディングを追加して描画範囲を広げる関数
+const addPaddingToSvg = (svgString: string): string => {
+  try {
+    const parser = new DOMParser();
+    const svgDoc = parser.parseFromString(svgString, 'image/svg+xml');
+    const svgElement = svgDoc.querySelector('svg');
+    
+    if (!svgElement) {
+      return svgString;
+    }
+    
+    // 現在のviewBoxを取得
+    const viewBox = svgElement.getAttribute('viewBox');
+    if (viewBox) {
+      const [x, y, width, height] = viewBox.split(' ').map(Number);
+      
+      // パディングを追加（左右に50px、上下に30px）
+      const padding = { x: 50, y: 30 };
+      const newX = x - padding.x;
+      const newY = y - padding.y;
+      const newWidth = width + (padding.x * 2);
+      const newHeight = height + (padding.y * 2);
+      
+      svgElement.setAttribute('viewBox', `${newX} ${newY} ${newWidth} ${newHeight}`);
+    } else {
+      // viewBoxがない場合はwidthとheightを取得してパディングを追加
+      const width = svgElement.getAttribute('width');
+      const height = svgElement.getAttribute('height');
+      
+      if (width && height) {
+        const w = parseFloat(width.replace('px', ''));
+        const h = parseFloat(height.replace('px', ''));
+        
+        const padding = { x: 50, y: 30 };
+        const newWidth = w + (padding.x * 2);
+        const newHeight = h + (padding.y * 2);
+        
+        svgElement.setAttribute('width', `${newWidth}px`);
+        svgElement.setAttribute('height', `${newHeight}px`);
+        svgElement.setAttribute('viewBox', `${-padding.x} ${-padding.y} ${newWidth} ${newHeight}`);
+        
+        // 既存のコンテンツをグループ化してパディング分移動
+        const content = svgElement.innerHTML;
+        svgElement.innerHTML = `<g transform="translate(${padding.x}, ${padding.y})">${content}</g>`;
+      }
+    }
+    
+    return svgElement.outerHTML;
+  } catch (error) {
+    console.error('SVG padding addition failed:', error);
+    return svgString;
   }
 };
 
@@ -51,6 +143,7 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({ content, fileName }) =>
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [showToast, setShowToast] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string>('');
+  const [isLoadingMermaid, setIsLoadingMermaid] = useState<boolean>(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const renderCounter = useRef<number>(0);
 
@@ -69,8 +162,14 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({ content, fileName }) =>
     setSvg('');
 
     try {
-      // mermaidを初期化
-      initializeMermaid();
+      // mermaidを初期化（動的インポート）
+      setIsLoadingMermaid(true);
+      const mermaid = await initializeMermaid();
+      setIsLoadingMermaid(false);
+      
+      if (!mermaid) {
+        throw new Error('Mermaidライブラリの読み込みに失敗しました');
+      }
 
       // ユニークIDを生成
       renderCounter.current += 1;
@@ -96,8 +195,9 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({ content, fileName }) =>
         const { svg: renderedSvg } = await mermaid.render(id + '_svg', content.trim());
         
         if (renderedSvg) {
-          // SVGを取得して設定
-          setSvg(renderedSvg);
+          // SVGにパディングを追加して描画範囲を広げる
+          const enhancedSvg = addPaddingToSvg(renderedSvg);
+          setSvg(enhancedSvg);
           setError(null);
         } else {
           throw new Error('SVGの生成に失敗しました');
@@ -116,6 +216,7 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({ content, fileName }) =>
       setError(`エラーが発生しました: ${generalError.message || 'Unknown error'}`);
     } finally {
       setIsRendering(false);
+      setIsLoadingMermaid(false);
     }
   };
 
@@ -178,10 +279,12 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({ content, fileName }) =>
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mr-4">
             {fileName}
           </h2>
-          {isRendering && (
+          {(isRendering || isLoadingMermaid) && (
             <div className="flex items-center text-blue-600 dark:text-blue-400">
               <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full mr-2"></div>
-              <span className="text-sm">レンダリング中...</span>
+              <span className="text-sm">
+                {isLoadingMermaid ? 'Mermaidライブラリを読み込み中...' : 'レンダリング中...'}
+              </span>
             </div>
           )}
         </div>
@@ -236,7 +339,7 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({ content, fileName }) =>
       </div>
 
       {/* コンテンツ */}
-      <div className="flex-1 overflow-auto" ref={containerRef}>
+      <div className="flex-1 overflow-auto relative" ref={containerRef} style={{ minHeight: 0 }}>
         {error && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
@@ -258,21 +361,45 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({ content, fileName }) =>
 
         {!error && svg && (
           <div 
-            className="flex items-center justify-center min-h-full p-4"
-            style={{ transform: `scale(${zoomLevel})`, transformOrigin: 'center center' }}
+            className="p-4 overflow-auto"
+            style={{ 
+              minWidth: 'max-content',
+              minHeight: 'max-content'
+            }}
           >
             <div
-              dangerouslySetInnerHTML={{ __html: svg }}
               className="mermaid-output"
+              style={{ 
+                transform: `scale(${zoomLevel})`, 
+                transformOrigin: 'top left',
+                display: 'inline-block',
+                minWidth: 'max-content',
+                minHeight: 'max-content'
+              }}
+              dangerouslySetInnerHTML={{ __html: svg }}
             />
           </div>
         )}
 
-        {!error && !svg && !isRendering && (
+        {!error && !svg && !isRendering && !isLoadingMermaid && (
           <div className="flex items-center justify-center h-full">
             <p className="text-gray-500 dark:text-gray-400">
               図式を読み込んでいます...
             </p>
+          </div>
+        )}
+        
+        {isLoadingMermaid && !error && (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <div className="animate-spin h-8 w-8 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
+              <p className="text-gray-500 dark:text-gray-400">
+                Mermaidライブラリを読み込んでいます...
+              </p>
+              <p className="text-sm text-gray-400 dark:text-gray-500 mt-2">
+                初回読み込みには時間がかかる場合があります
+              </p>
+            </div>
           </div>
         )}
       </div>
