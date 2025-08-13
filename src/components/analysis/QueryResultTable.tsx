@@ -22,7 +22,7 @@ import {
   IoEllipsisVertical 
 } from 'react-icons/io5';
 import ObjectViewer from '@/components/preview/ObjectViewer';
-import { convertDataToFormat, downloadData } from '@/lib/dataAnalysisUtils';
+import ExportModal from '@/components/preview/ExportModal';
 
 interface QueryResultTableProps {
   data: any[];
@@ -38,41 +38,14 @@ const QueryResultTable: React.FC<QueryResultTableProps> = ({ data }) => {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [pageSize, setPageSize] = useState(25);
   const [pageIndex, setPageIndex] = useState(0);
-  const [showDownloadMenu, setShowDownloadMenu] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   
-  // ダウンロード処理
-  const handleDownload = (format: 'json' | 'csv' | 'tsv' | 'yaml') => {
-    try {
-      // データを指定のフォーマットに変換
-      const convertedData = convertDataToFormat(data, format);
-      
-      // ファイル名と MIME タイプを設定
-      let filename = `query_result.${format}`;
-      let mimeType = 'text/plain';
-      
-      switch (format) {
-        case 'json':
-          mimeType = 'application/json';
-          break;
-        case 'csv':
-          mimeType = 'text/csv';
-          break;
-        case 'tsv':
-          mimeType = 'text/tab-separated-values';
-          break;
-        case 'yaml':
-          mimeType = 'application/x-yaml';
-          break;
-      }
-      
-      // ダウンロード実行
-      downloadData(convertedData, filename, mimeType);
-      
-      // メニューを閉じる
-      setShowDownloadMenu(false);
-    } catch (error) {
-      console.error('ダウンロードエラー:', error);
-      alert(`ダウンロード中にエラーが発生しました: ${error instanceof Error ? error.message : '不明なエラー'}`);
+  // エクスポートモーダルを開く処理
+  const handleExportClick = () => {
+    if (data && data.length > 0) {
+      setIsExportModalOpen(true);
+    } else {
+      alert('エクスポート可能なデータがありません');
     }
   };
   
@@ -80,19 +53,11 @@ const QueryResultTable: React.FC<QueryResultTableProps> = ({ data }) => {
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const tableRef = useRef<HTMLTableElement>(null);
   const resizingColumnRef = useRef<{ id: string, startX: number, startWidth: number } | null>(null);
-  const downloadMenuRef = useRef<HTMLDivElement>(null);
   const columnSelectorRef = useRef<HTMLDivElement>(null);
   
   // グローバルクリックイベントのハンドラを設定（メニューを閉じる）
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      // ダウンロードメニュー外のクリックを検知
-      if (showDownloadMenu && 
-          downloadMenuRef.current && 
-          !downloadMenuRef.current.contains(event.target as Node)) {
-        setShowDownloadMenu(false);
-      }
-      
       // 列選択メニュー外のクリックを検知
       if (showColumnSelector && 
           columnSelectorRef.current && 
@@ -108,7 +73,7 @@ const QueryResultTable: React.FC<QueryResultTableProps> = ({ data }) => {
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [showDownloadMenu, showColumnSelector]);
+  }, [showColumnSelector]);
 
   // 列の定義
   const columnHelper = createColumnHelper<any>();
@@ -207,47 +172,6 @@ const QueryResultTable: React.FC<QueryResultTableProps> = ({ data }) => {
     document.removeEventListener('mouseup', handleResizeEnd);
   };
 
-  // ダウンロードメニューの表示
-  const renderDownloadMenu = () => {
-    if (!showDownloadMenu) return null;
-    
-    return (
-      <div 
-        ref={downloadMenuRef}
-        className="absolute top-10 right-0 mt-2 w-48 rounded-md shadow-lg bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5 z-10"
-      >
-        <div className="py-1 px-2 text-sm text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">
-          ダウンロード形式を選択
-        </div>
-        <div className="py-1">
-          <button 
-            className="px-4 py-2 w-full text-left hover:bg-gray-100 dark:hover:bg-gray-700"
-            onClick={() => handleDownload('json')}
-          >
-            JSON形式
-          </button>
-          <button 
-            className="px-4 py-2 w-full text-left hover:bg-gray-100 dark:hover:bg-gray-700"
-            onClick={() => handleDownload('csv')}
-          >
-            CSV形式
-          </button>
-          <button 
-            className="px-4 py-2 w-full text-left hover:bg-gray-100 dark:hover:bg-gray-700"
-            onClick={() => handleDownload('tsv')}
-          >
-            TSV形式
-          </button>
-          <button 
-            className="px-4 py-2 w-full text-left hover:bg-gray-100 dark:hover:bg-gray-700"
-            onClick={() => handleDownload('yaml')}
-          >
-            YAML形式
-          </button>
-        </div>
-      </div>
-    );
-  };
 
   // 列の表示・非表示を切り替えるドロップダウンメニュー
   const renderColumnSelector = () => {
@@ -306,24 +230,17 @@ const QueryResultTable: React.FC<QueryResultTableProps> = ({ data }) => {
         </div>
         <div className="flex space-x-2 relative">
           <button
-            className="px-2 py-1 flex items-center text-sm bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
-            onClick={() => {
-              setShowDownloadMenu(!showDownloadMenu);
-              // 他のメニューを閉じる
-              setShowColumnSelector(false);
-            }}
+            className="px-2 py-1 flex items-center text-sm bg-blue-600 text-white hover:bg-blue-700 rounded"
+            onClick={handleExportClick}
           >
             <IoDownloadOutline className="mr-1" />
-            ダウンロード
+            エクスポート
           </button>
-          {renderDownloadMenu()}
           
           <button
             className="px-2 py-1 flex items-center text-sm bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
             onClick={() => {
               setShowColumnSelector(!showColumnSelector);
-              // 他のメニューを閉じる
-              setShowDownloadMenu(false);
             }}
           >
             <IoOptionsOutline className="mr-1" />
@@ -449,6 +366,16 @@ const QueryResultTable: React.FC<QueryResultTableProps> = ({ data }) => {
           </button>
         </div>
       </div>
+      
+      {/* エクスポートモーダル */}
+      {isExportModalOpen && data && data.length > 0 && (
+        <ExportModal
+          isOpen={isExportModalOpen}
+          onClose={() => setIsExportModalOpen(false)}
+          data={data}
+          fileName="query_result"
+        />
+      )}
     </div>
   );
 };
