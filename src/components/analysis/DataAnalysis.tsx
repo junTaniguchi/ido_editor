@@ -830,28 +830,34 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
         );
         setChartData(preparedData);
         setError(null);
-      }
-      // ガントチャートの場合（コメントアウト）
-      /* else if (chartSettings.type === 'gantt') {
-        if (!chartSettings.options?.startDateField || !chartSettings.options?.endDateField) {
-          setError('ガントチャートには開始日と終了日のフィールドが必要です');
+      } else if (chartSettings.type === 'gantt') {
+        const taskNameField = chartSettings.options?.taskNameField;
+        const startDateField = chartSettings.options?.startDateField;
+        const endDateField = chartSettings.options?.endDateField;
+
+        if (!taskNameField || !startDateField || !endDateField) {
+          setError('ガントチャートにはタスク名、開始日、終了日のフィールドが必要です');
           setChartData(null);
-        } else {
-          const preparedData = prepareChartData(
-            sourceData, 
-            chartSettings.xAxis, 
-            chartSettings.yAxis, 
-            'gantt',
-            chartSettings.categoryField,
-            { 
-              startDateField: chartSettings.options.startDateField,
-              endDateField: chartSettings.options.endDateField
-            }
-          );
-          setChartData(preparedData);
-          setError(null);
+          setLoading(false);
+          return;
         }
-      } */
+
+        const preparedData = prepareChartData(
+          sourceData, 
+          taskNameField, // labelField
+          '', // valueField (not used for gantt)
+          'gantt',
+          chartSettings.categoryField,
+          { 
+            taskNameField,
+            startDateField,
+            endDateField 
+          }
+        );
+        
+        setChartData(preparedData);
+        setError(null);
+      }
       // その他のチャートタイプは通常の集計を使用
       else {
         // 集計なしの場合は直接データを使用
@@ -3301,12 +3307,12 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                         updateChartSettings({ 
                           type: newType,
                           // 散布図かヒストグラムの場合は集計なしに設定
-                          aggregation: (newType === 'scatter' || newType === 'histogram') 
+                          aggregation: (newType === 'scatter' || newType === 'histogram' || newType === 'gantt') 
                             ? undefined 
                             : chartSettings.aggregation
                         });
                         // グラフタイプが変更されたらすぐにチャートを更新
-                        setTimeout(() => updateChart(), 50);
+                        setTimeout(() => { updateChart(); }, 50);
                       }}
                       className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                     >
@@ -3317,10 +3323,11 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                       <option value="stacked-bar">積立棒グラフ</option>
                       <option value="regression">線形回帰グラフ</option>
                       <option value="histogram">ヒストグラム</option>
+                      <option value="gantt">ガントチャート</option>
                     </select>
                   </div>
                   
-                  {chartSettings.type !== 'histogram' && chartSettings.type !== 'regression' && (
+                  {chartSettings.type !== 'histogram' && chartSettings.type !== 'regression' && chartSettings.type !== 'gantt' && (
                     <div>
                       <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">
                         集計方法 <span title="単一項目の出現頻度分析: X軸に分析したい項目、集計方法に「カウント」を選択、Y軸は空でOK&#10;各区分ごとの合計値: 例）部門別売上合計&#10;各区分ごとの平均値: 例）地域別平均気温&#10;各区分ごとの最大値: 例）月別最高気温&#10;各区分ごとの最小値: 例）製品別最低価格" className="text-red-500 cursor-help">*</span>
@@ -3330,7 +3337,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                         onChange={(e) => {
                           updateChartSettings({ aggregation: e.target.value === 'none' ? undefined : e.target.value as any });
                           // 集計方法が変更されたらすぐにチャートを更新
-                          setTimeout(() => updateChart(), 50);
+                          setTimeout(() => { updateChart(); }, 50);
                         }}
                         className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                       >
@@ -3363,20 +3370,100 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                         type="number"
                         min="1"
                         max="100"
-                        value={chartSettings.options?.binCount || 10}
+                        value={chartSettings.options?.bins || 10}
                         onChange={(e) => {
                           updateChartSettings({ 
                             options: { 
                               ...chartSettings.options, 
-                              binCount: parseInt(e.target.value) || 10 
+                              bins: parseInt(e.target.value) || 10 
                             } 
                           });
                           // ビン数が変更されたらすぐにチャートを更新
-                          setTimeout(() => updateChart(), 50);
+                          setTimeout(() => { updateChart(); }, 50);
                         }}
                         className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                       />
                     </div>
+                  )}
+                  
+                  {chartSettings.type === 'gantt' && (
+                    <>
+                      <div>
+                        <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">タスク名フィールド</div>
+                        <select
+                          value={chartSettings.options?.taskNameField || ''}
+                          onChange={(e) => {
+                            updateChartSettings({ 
+                              options: { 
+                                ...chartSettings.options, 
+                                taskNameField: e.target.value 
+                              } 
+                            });
+                            setTimeout(() => { updateChart(); }, 50);
+                          }}
+                          className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                        >
+                          <option value="">タスク名フィールドを選択</option>
+                          {chartSettings.dataSource === 'queryResult' && queryResult && queryResult.length > 0
+                            ? Object.keys(queryResult[0]).map(col => (
+                                <option key={col} value={col}>{col}</option>
+                              ))
+                            : columns.map(col => (
+                                <option key={col} value={col}>{col}</option>
+                              ))}
+                        </select>
+                      </div>
+                      <div>
+                        <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">開始日フィールド</div>
+                        <select
+                          value={chartSettings.options?.startDateField || ''}
+                          onChange={(e) => {
+                            updateChartSettings({ 
+                              options: { 
+                                ...chartSettings.options, 
+                                startDateField: e.target.value 
+                              } 
+                            });
+                            setTimeout(() => { updateChart(); }, 50);
+                          }}
+                          className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                        >
+                          <option value="">開始日フィールドを選択</option>
+                          {chartSettings.dataSource === 'queryResult' && queryResult && queryResult.length > 0
+                            ? Object.keys(queryResult[0]).map(col => (
+                                <option key={col} value={col}>{col}</option>
+                              ))
+                            : columns.map(col => (
+                                <option key={col} value={col}>{col}</option>
+                              ))}
+                        </select>
+                      </div>
+                      <div>
+                        <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">終了日フィールド</div>
+                        <select
+                          value={chartSettings.options?.endDateField || ''}
+                          onChange={(e) => {
+                            updateChartSettings({ 
+                              options: { 
+                                ...chartSettings.options, 
+                                endDateField: e.target.value 
+                              } 
+                            });
+                            setTimeout(() => { updateChart(); }, 50);
+                          }}
+                          className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                        >
+                          <option value="">終了日フィールドを選択</option>
+                          {chartSettings.dataSource === 'queryResult' && queryResult && queryResult.length > 0
+                            ? Object.keys(queryResult[0]).map(col => (
+                                <option key={col} value={col}>{col}</option>
+                              ))
+                            : columns.map(col => (
+                                <option key={col} value={col}>{col}</option>
+                              ))}
+                        </select>
+                      </div>
+                    </>
                   )}
                   
                   <div>
@@ -3386,7 +3473,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                       onChange={(e) => {
                         updateChartSettings({ xAxis: e.target.value || undefined });
                         // X軸が変更されたらすぐにチャートを更新
-                        setTimeout(() => updateChart(), 50);
+                        setTimeout(() => { updateChart(); }, 50);
                       }}
                       className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                     >
@@ -3410,7 +3497,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                         onChange={(e) => {
                           updateChartSettings({ yAxis: e.target.value || undefined });
                           // Y軸が変更されたらすぐにチャートを更新
-                          setTimeout(() => updateChart(), 50);
+                          setTimeout(() => { updateChart(); }, 50);
                         }}
                         className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                       >
@@ -3436,7 +3523,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                       onChange={(e) => {
                         updateChartSettings({ categoryField: e.target.value || undefined });
                         // カテゴリフィールドが変更されたらすぐにチャートを更新
-                        setTimeout(() => updateChart(), 50);
+                        setTimeout(() => { updateChart(); }, 50);
                       }}
                       className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                     >
@@ -3465,7 +3552,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                             } 
                           });
                           // 回帰タイプが変更されたらすぐにチャートを更新
-                          setTimeout(() => updateChart(), 50);
+                          setTimeout(() => { updateChart(); }, 50);
                         }}
                         className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                       >

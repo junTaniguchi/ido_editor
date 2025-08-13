@@ -100,5 +100,6 @@ export interface ChartSettings {
     regressionOrder?: number;
     startDateField?: string;
     endDateField?: string;
+    taskNameField?: string;
   }
 }

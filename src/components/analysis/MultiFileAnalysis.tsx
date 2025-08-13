@@ -503,8 +503,21 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         return;
       }
 
+      // ガントチャートの場合、必要なフィールドの設定確認
+      if (chartSettings.type === 'gantt') {
+        const taskNameField = chartSettings.options?.taskNameField;
+        const startDateField = chartSettings.options?.startDateField;
+        const endDateField = chartSettings.options?.endDateField;
+
+        if (!taskNameField || !startDateField || !endDateField) {
+          setError('ガントチャートにはタスク名、開始日、終了日のフィールドが必要です');
+          setLoading(false);
+          return;
+        }
+      }
+
       // 基本的なチャートの場合、X軸は必須
-      if (!chartSettings.xAxis && chartSettings.type !== 'pie') {
+      if (!chartSettings.xAxis && chartSettings.type !== 'pie' && chartSettings.type !== 'gantt') {
         setError('X軸の設定が必要です');
         setLoading(false);
         return;
@@ -598,9 +611,14 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
           : undefined
       });
 
+      // ガントチャートの場合のlabelField調整
+      const labelField = chartSettings.type === 'gantt' 
+        ? chartSettings.options?.taskNameField 
+        : chartSettings.xAxis;
+
       const chartDataResult = prepareChartData(
         processedData,
-        chartSettings.xAxis,
+        labelField,
         chartSettings.yAxis,
         chartSettings.type as any,
         chartSettings.categoryField && chartSettings.categoryField.trim() !== '' 
@@ -958,8 +976,8 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
                     const newType = e.target.value as any;
                     updateChartSettings({ 
                       type: newType,
-                      // 散布図かヒストグラムの場合は集計なしに設定
-                      aggregation: (newType === 'scatter' || newType === 'histogram') 
+                      // 散布図かヒストグラムかガントチャートの場合は集計なしに設定
+                      aggregation: (newType === 'scatter' || newType === 'histogram' || newType === 'gantt') 
                         ? undefined 
                         : chartSettings.aggregation
                     });
@@ -975,10 +993,11 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
                   <option value="stacked-bar">積立棒グラフ</option>
                   <option value="regression">線形回帰グラフ</option>
                   <option value="histogram">ヒストグラム</option>
+                  <option value="gantt">ガントチャート</option>
                 </select>
               </div>
               
-              {chartSettings.type !== 'histogram' && chartSettings.type !== 'regression' && (
+              {chartSettings.type !== 'histogram' && chartSettings.type !== 'regression' && chartSettings.type !== 'gantt' && (
                 <div className="w-36">
                   <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">
                     集計方法 <span title="単一項目の出現頻度分析: X軸に分析したい項目、集計方法に「カウント」を選択、Y軸は空でOK&#10;各区分ごとの合計値: 例）部門別売上合計&#10;各区分ごとの平均値: 例）地域別平均気温&#10;各区分ごとの最大値: 例）月別最高気温&#10;各区分ごとの最小値: 例）製品別最低価格" className="text-red-500 cursor-help">*</span>
@@ -1035,6 +1054,74 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
                     className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                   />
                 </div>
+              )}
+              
+              {chartSettings.type === 'gantt' && (
+                <>
+                  <div className="w-48">
+                    <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">タスク名フィールド</div>
+                    <select
+                      value={chartSettings.options?.taskNameField || ''}
+                      onChange={(e) => {
+                        updateChartSettings({ 
+                          options: { 
+                            ...chartSettings.options, 
+                            taskNameField: e.target.value 
+                          } 
+                        });
+                        setTimeout(() => { generateChartData(); }, 50);
+                      }}
+                      className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                    >
+                      <option value="">タスク名フィールドを選択</option>
+                      {availableColumns.map(col => (
+                        <option key={col} value={col}>{col}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="w-48">
+                    <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">開始日フィールド</div>
+                    <select
+                      value={chartSettings.options?.startDateField || ''}
+                      onChange={(e) => {
+                        updateChartSettings({ 
+                          options: { 
+                            ...chartSettings.options, 
+                            startDateField: e.target.value 
+                          } 
+                        });
+                        setTimeout(() => { generateChartData(); }, 50);
+                      }}
+                      className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                    >
+                      <option value="">開始日フィールドを選択</option>
+                      {availableColumns.map(col => (
+                        <option key={col} value={col}>{col}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="w-48">
+                    <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">終了日フィールド</div>
+                    <select
+                      value={chartSettings.options?.endDateField || ''}
+                      onChange={(e) => {
+                        updateChartSettings({ 
+                          options: { 
+                            ...chartSettings.options, 
+                            endDateField: e.target.value 
+                          } 
+                        });
+                        setTimeout(() => { generateChartData(); }, 50);
+                      }}
+                      className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                    >
+                      <option value="">終了日フィールドを選択</option>
+                      {availableColumns.map(col => (
+                        <option key={col} value={col}>{col}</option>
+                      ))}
+                    </select>
+                  </div>
+                </>
               )}
             </div>
             

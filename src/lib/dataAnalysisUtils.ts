@@ -1306,8 +1306,9 @@ export const prepareChartData = (
     bins?: number;  // ヒストグラム用のビン数
     regressionType?: 'linear' | 'exponential' | 'polynomial' | 'power' | 'logarithmic'; // 回帰分析のタイプ
     regressionOrder?: number; // 多項式回帰の次数
-    startDateField?: string; // ガントチャートの開始日フィールド
-    endDateField?: string;   // ガントチャートの終了日フィールド
+    startDateField?: string;  // ガントチャート用の開始日フィールド
+    endDateField?: string;    // ガントチャート用の終了日フィールド
+    taskNameField?: string;   // ガントチャート用のタスク名フィールド
   }
 ) => {
   if (!data || data.length === 0) {

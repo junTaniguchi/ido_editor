@@ -225,7 +225,8 @@ export const useEditorStore = create<EditorStore>()(
           regressionType: 'linear',
           regressionOrder: 2,
           startDateField: '',
-          endDateField: ''
+          endDateField: '',
+          taskNameField: ''
         }
       },
       updateChartSettings: (settings) => set((state) => ({
