@@ -2069,6 +2069,9 @@ export const prepareChartData = (
       const regressionType = options?.regressionType || 'linear';
       const regressionOrder = options?.regressionOrder || 2; // 多項式回帰用
       
+      // 回帰線の計算
+      const regressionData = calculateRegressionLine(scatterData, regressionType, regressionOrder);
+      
       return {
         datasets: [
           {
@@ -2083,18 +2086,14 @@ export const prepareChartData = (
           },
           {
             type: 'line',
-            label: '回帰線',
-            data: scatterData,
+            label: `回帰線 (${getRegressionTypeLabel(regressionType)})`,
+            data: regressionData,
             backgroundColor: 'rgba(255, 99, 132, 0.2)',
             borderColor: 'rgba(255, 99, 132, 1)',
             borderWidth: 2,
             pointRadius: 0,
-            tension: 0.1,
-            fill: false,
-            // Chart.js-regression プラグイン用の設定
-            regression: true,
-            regressionType,
-            regressionOrder,
+            tension: regressionType === 'linear' ? 0 : 0.1,
+            fill: false
           }
         ],
       };
@@ -2613,5 +2612,301 @@ export const prepareChartData = (
       カテゴリフィールド: normalizedCategoryField
     });
     return null;
+  }
+};
+
+/**
+ * 回帰線を計算する
+ * @param data 散布図データ [{x: number, y: number}]
+ * @param regressionType 回帰タイプ
+ * @param order 多項式の次数（polynomialの場合）
+ * @returns 回帰線の座標データ
+ */
+const calculateRegressionLine = (
+  data: { x: number; y: number }[], 
+  regressionType: string, 
+  order: number = 2
+): { x: number; y: number }[] => {
+  if (data.length < 2) return [];
+  
+  // X値でソート
+  const sortedData = [...data].sort((a, b) => a.x - b.x);
+  const xValues = sortedData.map(d => d.x);
+  const yValues = sortedData.map(d => d.y);
+  
+  const minX = Math.min(...xValues);
+  const maxX = Math.max(...xValues);
+  const step = (maxX - minX) / 100; // 100点で描画
+  
+  let regressionPoints: { x: number; y: number }[] = [];
+  
+  try {
+    switch (regressionType) {
+      case 'linear':
+        // 線形回帰: y = ax + b
+        const linearCoeffs = calculateLinearRegression(xValues, yValues);
+        if (linearCoeffs) {
+          for (let x = minX; x <= maxX; x += step) {
+            const y = linearCoeffs.a * x + linearCoeffs.b;
+            regressionPoints.push({ x, y });
+          }
+        }
+        break;
+        
+      case 'polynomial':
+        // 多項式回帰
+        const polyCoeffs = calculatePolynomialRegression(xValues, yValues, order);
+        if (polyCoeffs && polyCoeffs.length > 0) {
+          for (let x = minX; x <= maxX; x += step) {
+            let y = 0;
+            for (let i = 0; i < polyCoeffs.length; i++) {
+              y += polyCoeffs[i] * Math.pow(x, i);
+            }
+            regressionPoints.push({ x, y });
+          }
+        }
+        break;
+        
+      case 'exponential':
+        // 指数回帰: y = ae^(bx)
+        const expCoeffs = calculateExponentialRegression(xValues, yValues);
+        if (expCoeffs) {
+          for (let x = minX; x <= maxX; x += step) {
+            const y = expCoeffs.a * Math.exp(expCoeffs.b * x);
+            if (isFinite(y)) {
+              regressionPoints.push({ x, y });
+            }
+          }
+        }
+        break;
+        
+      case 'power':
+        // 累乗回帰: y = ax^b
+        const powerCoeffs = calculatePowerRegression(xValues, yValues);
+        if (powerCoeffs) {
+          for (let x = minX; x <= maxX; x += step) {
+            if (x > 0) { // 累乗回帰は正の値のみ
+              const y = powerCoeffs.a * Math.pow(x, powerCoeffs.b);
+              if (isFinite(y)) {
+                regressionPoints.push({ x, y });
+              }
+            }
+          }
+        }
+        break;
+        
+      case 'logarithmic':
+        // 対数回帰: y = a * ln(x) + b
+        const logCoeffs = calculateLogarithmicRegression(xValues, yValues);
+        if (logCoeffs) {
+          for (let x = minX; x <= maxX; x += step) {
+            if (x > 0) { // 対数は正の値のみ
+              const y = logCoeffs.a * Math.log(x) + logCoeffs.b;
+              if (isFinite(y)) {
+                regressionPoints.push({ x, y });
+              }
+            }
+          }
+        }
+        break;
+        
+      default:
+        // フォールバック: 線形回帰
+        const fallbackCoeffs = calculateLinearRegression(xValues, yValues);
+        if (fallbackCoeffs) {
+          for (let x = minX; x <= maxX; x += step) {
+            const y = fallbackCoeffs.a * x + fallbackCoeffs.b;
+            regressionPoints.push({ x, y });
+          }
+        }
+        break;
+    }
+  } catch (error) {
+    console.error(`回帰計算エラー (${regressionType}):`, error);
+    // エラーの場合は線形回帰にフォールバック
+    const fallbackCoeffs = calculateLinearRegression(xValues, yValues);
+    if (fallbackCoeffs) {
+      for (let x = minX; x <= maxX; x += step) {
+        const y = fallbackCoeffs.a * x + fallbackCoeffs.b;
+        regressionPoints.push({ x, y });
+      }
+    }
+  }
+  
+  return regressionPoints;
+};
+
+/**
+ * 線形回帰係数を計算する
+ */
+const calculateLinearRegression = (xValues: number[], yValues: number[]) => {
+  if (xValues.length !== yValues.length || xValues.length < 2) return null;
+  
+  const n = xValues.length;
+  const sumX = xValues.reduce((sum, x) => sum + x, 0);
+  const sumY = yValues.reduce((sum, y) => sum + y, 0);
+  const sumXY = xValues.reduce((sum, x, i) => sum + x * yValues[i], 0);
+  const sumXX = xValues.reduce((sum, x) => sum + x * x, 0);
+  
+  const denominator = n * sumXX - sumX * sumX;
+  if (Math.abs(denominator) < 1e-10) return null;
+  
+  const a = (n * sumXY - sumX * sumY) / denominator;
+  const b = (sumY - a * sumX) / n;
+  
+  return { a, b };
+};
+
+/**
+ * 多項式回帰係数を計算する
+ */
+const calculatePolynomialRegression = (xValues: number[], yValues: number[], order: number) => {
+  if (xValues.length !== yValues.length || xValues.length < order + 1) return null;
+  
+  const n = xValues.length;
+  const matrix: number[][] = [];
+  const result: number[] = [];
+  
+  // 行列を構築
+  for (let i = 0; i <= order; i++) {
+    matrix[i] = [];
+    let sum = 0;
+    
+    for (let j = 0; j <= order; j++) {
+      let matrixSum = 0;
+      for (let k = 0; k < n; k++) {
+        matrixSum += Math.pow(xValues[k], i + j);
+      }
+      matrix[i][j] = matrixSum;
+    }
+    
+    for (let k = 0; k < n; k++) {
+      sum += Math.pow(xValues[k], i) * yValues[k];
+    }
+    result[i] = sum;
+  }
+  
+  // ガウス消去法で解く
+  return solveLinearSystem(matrix, result);
+};
+
+/**
+ * 指数回帰係数を計算する
+ */
+const calculateExponentialRegression = (xValues: number[], yValues: number[]) => {
+  // y = ae^(bx) → ln(y) = ln(a) + bx
+  const positiveYValues = yValues.filter(y => y > 0);
+  const correspondingXValues = xValues.filter((x, i) => yValues[i] > 0);
+  
+  if (positiveYValues.length < 2) return null;
+  
+  const lnYValues = positiveYValues.map(y => Math.log(y));
+  const linearCoeffs = calculateLinearRegression(correspondingXValues, lnYValues);
+  
+  if (!linearCoeffs) return null;
+  
+  return {
+    a: Math.exp(linearCoeffs.b),
+    b: linearCoeffs.a
+  };
+};
+
+/**
+ * 累乗回帰係数を計算する
+ */
+const calculatePowerRegression = (xValues: number[], yValues: number[]) => {
+  // y = ax^b → ln(y) = ln(a) + b*ln(x)
+  const validIndices = xValues
+    .map((x, i) => ({ x, y: yValues[i], i }))
+    .filter(item => item.x > 0 && item.y > 0);
+  
+  if (validIndices.length < 2) return null;
+  
+  const lnXValues = validIndices.map(item => Math.log(item.x));
+  const lnYValues = validIndices.map(item => Math.log(item.y));
+  
+  const linearCoeffs = calculateLinearRegression(lnXValues, lnYValues);
+  
+  if (!linearCoeffs) return null;
+  
+  return {
+    a: Math.exp(linearCoeffs.b),
+    b: linearCoeffs.a
+  };
+};
+
+/**
+ * 対数回帰係数を計算する
+ */
+const calculateLogarithmicRegression = (xValues: number[], yValues: number[]) => {
+  // y = a * ln(x) + b
+  const positiveXValues = xValues.filter(x => x > 0);
+  const correspondingYValues = yValues.filter((y, i) => xValues[i] > 0);
+  
+  if (positiveXValues.length < 2) return null;
+  
+  const lnXValues = positiveXValues.map(x => Math.log(x));
+  return calculateLinearRegression(lnXValues, correspondingYValues);
+};
+
+/**
+ * 連立方程式を解く（ガウス消去法）
+ */
+const solveLinearSystem = (matrix: number[][], result: number[]): number[] | null => {
+  const n = matrix.length;
+  const augmented = matrix.map((row, i) => [...row, result[i]]);
+  
+  // 前進消去
+  for (let i = 0; i < n; i++) {
+    // ピボット選択
+    let maxRow = i;
+    for (let j = i + 1; j < n; j++) {
+      if (Math.abs(augmented[j][i]) > Math.abs(augmented[maxRow][i])) {
+        maxRow = j;
+      }
+    }
+    
+    if (Math.abs(augmented[maxRow][i]) < 1e-10) {
+      return null; // 特異行列
+    }
+    
+    // 行を交換
+    if (maxRow !== i) {
+      [augmented[i], augmented[maxRow]] = [augmented[maxRow], augmented[i]];
+    }
+    
+    // 消去
+    for (let j = i + 1; j < n; j++) {
+      const factor = augmented[j][i] / augmented[i][i];
+      for (let k = i; k <= n; k++) {
+        augmented[j][k] -= factor * augmented[i][k];
+      }
+    }
+  }
+  
+  // 後退代入
+  const solution = new Array(n);
+  for (let i = n - 1; i >= 0; i--) {
+    solution[i] = augmented[i][n];
+    for (let j = i + 1; j < n; j++) {
+      solution[i] -= augmented[i][j] * solution[j];
+    }
+    solution[i] /= augmented[i][i];
+  }
+  
+  return solution;
+};
+
+/**
+ * 回帰タイプのラベルを取得する
+ */
+const getRegressionTypeLabel = (regressionType: string): string => {
+  switch (regressionType) {
+    case 'linear': return '線形';
+    case 'polynomial': return '多項式';
+    case 'exponential': return '指数';
+    case 'power': return '累乗';
+    case 'logarithmic': return '対数';
+    default: return '線形';
   }
 };
