@@ -680,17 +680,30 @@ export const parseExcel = (buffer: ArrayBuffer, options: ExcelParseOptions = {})
     
     // 調整した範囲でデータを取得
     const adjustedRef = XLSX.utils.encode_range(range);
-    const data = XLSX.utils.sheet_to_json(worksheet, {
-      range: adjustedRef,
-      header: options.hasHeader !== false ? 1 : undefined, // デフォルトでヘッダー行ありとする
-      defval: null // 空のセルはnullに
-    });
+    
+    // ヘッダー設定に応じてデータを取得
+    let data;
+    if (options.hasHeader !== false) {
+      // ヘッダーありの場合：最初の行をヘッダーとして使用
+      data = XLSX.utils.sheet_to_json(worksheet, {
+        range: adjustedRef,
+        defval: null // 空のセルはnullに
+      });
+    } else {
+      // ヘッダーなしの場合：数値インデックスを使用
+      data = XLSX.utils.sheet_to_json(worksheet, {
+        range: adjustedRef,
+        header: 1,
+        defval: null // 空のセルはnullに
+      });
+    }
     
     console.log('Excel解析完了:', {
       シート名: sheetName,
       データ範囲: adjustedRef,
       行数: data.length,
-      ヘッダー有無: options.hasHeader !== false
+      ヘッダー有無: options.hasHeader !== false,
+      サンプルデータ: data.slice(0, 2)
     });
     
     return data;
