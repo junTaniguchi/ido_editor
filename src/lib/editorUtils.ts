@@ -155,7 +155,7 @@ export const getFileType = (fileName: string): 'text' | 'markdown' | 'html' | 'j
     return 'csv';
   } else if (lowerFileName.endsWith('.tsv') || lowerFileName.endsWith('.tab')) {
     return 'tsv';
-  } else if (lowerFileName.endsWith('.parquet')) {
+  } else if (lowerFileName.endsWith('.parquet') || lowerFileName.endsWith('.parq')) {
     return 'parquet';
   } else if (lowerFileName.endsWith('.mmd')) {
     return 'mermaid';

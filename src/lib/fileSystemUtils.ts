@@ -82,7 +82,7 @@ export const readFileContent = async (fileHandle: FileSystemFileHandle): Promise
     const fileName = fileHandle.name.toLowerCase();
     
     // バイナリファイルの場合
-    if (fileName.endsWith('.parquet')) {
+    if (fileName.endsWith('.parquet') || fileName.endsWith('.parq')) {
       // 本来はParquetファイルのバイナリ処理が必要だが、
       // ブラウザでの制限があるため、テキストとして読み込む
       return await file.text();

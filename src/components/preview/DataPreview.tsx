@@ -33,6 +33,7 @@ import MermaidPreview from './MermaidPreview';
 import IpynbPreview from './IpynbPreview';
 import PdfPreview from './PdfPreview';
 import ExcelPreview from './ExcelPreview';
+import ExportModal from './ExportModal';
 import { IoAlertCircleOutline, IoCodeSlash, IoEye, IoAnalytics, IoLayers, IoGrid, IoSave, IoClose, IoDownload } from 'react-icons/io5';
 import * as XLSX from 'xlsx';
 import { Document, Packer, Paragraph } from 'docx';
@@ -107,6 +108,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [isTableEditing, setIsTableEditing] = useState(false);
   const [editedData, setEditedData] = useState<any>(null);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   
   const viewMode = getViewMode(tabId);
   const dataDisplayMode = editorSettings.dataDisplayMode || 'flat';
@@ -774,14 +776,23 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
                 <IoDownload className="inline mr-1" /> Word出力
               </button>
             )}
-            {['csv', 'tsv', 'json', 'yaml'].includes(type || '') && (
-              <button
-                className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 mr-2 flex items-center"
-                onClick={handleExport}
-                title="Excel形式でエクスポート"
-              >
-                <IoDownload className="inline mr-1" /> Excel出力
-              </button>
+            {['csv', 'tsv', 'json', 'yaml', 'parquet'].includes(type || '') && Array.isArray(parsedData) && parsedData.length > 0 && (
+              <>
+                <button
+                  className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 mr-2 flex items-center"
+                  onClick={() => setIsExportModalOpen(true)}
+                  title="データエクスポート"
+                >
+                  <IoDownload className="inline mr-1" /> エクスポート
+                </button>
+                <button
+                  className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 mr-2 flex items-center"
+                  onClick={handleExport}
+                  title="Excel形式でエクスポート"
+                >
+                  <IoDownload className="inline mr-1" /> Excel出力
+                </button>
+              </>
             )}
             {/* 分析モード切替アイコン（データ系ファイルで常に表示） */}
             {(type === 'csv' || type === 'tsv' || type === 'json' || type === 'yaml' || type === 'parquet' || type === 'excel') && (
@@ -869,6 +880,16 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   return (
     <div className="h-full overflow-hidden bg-white">
       {renderPreviewWithEditOption()}
+      
+      {/* エクスポートモーダル */}
+      {isExportModalOpen && Array.isArray(parsedData) && parsedData.length > 0 && (
+        <ExportModal
+          isOpen={isExportModalOpen}
+          onClose={() => setIsExportModalOpen(false)}
+          data={parsedData}
+          fileName={tabs.get(tabId)?.name || 'data'}
+        />
+      )}
     </div>
   );
 };

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useEditorStore } from '@/store/editorStore';
-import { parseCSV, parseJSON, parseYAML } from '@/lib/dataPreviewUtils';
+import { parseCSV, parseJSON, parseYAML, parseParquet } from '@/lib/dataPreviewUtils';
 import { 
   combineMultipleFiles, 
   compareMultipleFileStatistics, 
@@ -266,6 +266,23 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
               const yamlResult = parseYAML(content);
               if (yamlResult.error) throw new Error(yamlResult.error);
               data = Array.isArray(yamlResult.data) ? yamlResult.data : [yamlResult.data];
+              break;
+            case 'parquet':
+            case 'parq':
+              const parquetResult = await parseParquet(content);
+              if (parquetResult.error) throw new Error(parquetResult.error);
+              
+              if (parquetResult.headers && parquetResult.rows) {
+                data = parquetResult.rows.map((row: any[]) => {
+                  const obj: any = {};
+                  parquetResult.headers.forEach((header: string, i: number) => {
+                    obj[header] = row[i] || null;
+                  });
+                  return obj;
+                });
+              } else {
+                data = [];
+              }
               break;
             default:
               console.warn(`Unsupported file format: ${extension}`);

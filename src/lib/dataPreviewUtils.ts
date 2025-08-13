@@ -211,7 +211,7 @@ export const parseYAML = (content: string) => {
 };
 
 /**
- * Parquetデータをパースする (ブラウザではサポート制限あり)
+ * Parquetデータをパースする
  * @param content Parquetの文字列データ（実際はバイナリデータ）
  */
 export const parseParquet = async (content: string): Promise<{
@@ -221,59 +221,94 @@ export const parseParquet = async (content: string): Promise<{
   error: string | null;
 }> => {
   try {
-    // ブラウザでのParquet解析は複雑なため、簡易的な対応として
-    // CSVのようにテキストベースで処理する
-    // 注: 実際のParquetファイルはバイナリなので、本来はapache-arrowを使用してバイナリ解析が必要
+    // バイナリデータかテキストデータかを判定
+    const isBinary = content.includes('\0') || content.includes('PAR1');
     
-    // 行に分割し、先頭行をヘッダーとして扱う（簡易的処理）
-    const lines = content.split('\n').filter(line => line.trim().length > 0);
-    
-    if (lines.length === 0) {
-      return {
-        table: null,
-        headers: [],
-        rows: [],
-        error: 'データが空です'
-      };
-    }
-    
-    // 1行目をヘッダーとして扱う
-    const headers = lines[0].split(/[,\t]/).map(h => h.trim());
-    
-    // 2行目以降をデータとして扱う
-    const rows = lines.slice(1).map(line => {
-      const values = line.split(/[,\t]/);
-      // ヘッダー数に合わせて配列の長さを調整
-      while (values.length < headers.length) {
-        values.push('');
+    if (isBinary) {
+      // 実際のParquetバイナリファイルの場合
+      try {
+        // バイナリデータをUint8Arrayに変換
+        const encoder = new TextEncoder();
+        const uint8Array = encoder.encode(content);
+        
+        // Apache Arrowでの解析を試行
+        // 注: 完全なParquet対応にはparquetjs等の専用ライブラリが必要
+        // 現時点では基本的なサポートのみ
+        
+        return {
+          table: null,
+          headers: [],
+          rows: [],
+          error: 'バイナリParquetファイルの完全サポートには専用ライブラリが必要です。CSVまたはJSONでエクスポートしてください。'
+        };
+      } catch (binaryError) {
+        console.error('Binary Parquet parsing error:', binaryError);
+        return {
+          table: null,
+          headers: [],
+          rows: [],
+          error: 'バイナリParquetファイルの解析に失敗しました'
+        };
       }
-      return values.slice(0, headers.length);
-    });
-    
-    // Apache Arrowのテーブルに変換
-    try {
-      const table = tableFromArrays({
-        columns: headers.map((h, i) => {
-          const columnData = rows.map(r => r[i] || '');
-          return { name: h, data: columnData };
-        })
+    } else {
+      // テキストベースのParquet風データ（CSV形式など）の場合
+      const lines = content.split('\n').filter(line => line.trim().length > 0);
+      
+      if (lines.length === 0) {
+        return {
+          table: null,
+          headers: [],
+          rows: [],
+          error: 'データが空です'
+        };
+      }
+      
+      // 1行目をヘッダーとして扱う
+      const headers = lines[0].split(/[,\t]/).map(h => h.trim());
+      
+      // 2行目以降をデータとして扱う
+      const rows = lines.slice(1).map(line => {
+        const values = line.split(/[,\t]/);
+        // ヘッダー数に合わせて配列の長さを調整
+        while (values.length < headers.length) {
+          values.push('');
+        }
+        return values.slice(0, headers.length).map(val => {
+          // 数値変換を試行
+          const trimmed = val.trim();
+          if (/^-?\d*\.?\d+$/.test(trimmed)) {
+            const num = parseFloat(trimmed);
+            if (!isNaN(num)) return num;
+          }
+          return trimmed;
+        });
       });
       
-      return {
-        table,
-        headers,
-        rows,
-        error: null
-      };
-    } catch (arrowError) {
-      console.error('Arrow table creation error:', arrowError);
-      // テーブル作成に失敗してもヘッダーとデータは返す
-      return {
-        table: null,
-        headers,
-        rows,
-        error: null
-      };
+      // Apache Arrowのテーブルに変換
+      try {
+        const table = tableFromArrays({
+          columns: headers.map((h, i) => {
+            const columnData = rows.map(r => r[i] || '');
+            return { name: h, data: columnData };
+          })
+        });
+        
+        return {
+          table,
+          headers,
+          rows,
+          error: null
+        };
+      } catch (arrowError) {
+        console.error('Arrow table creation error:', arrowError);
+        // テーブル作成に失敗してもヘッダーとデータは返す
+        return {
+          table: null,
+          headers,
+          rows,
+          error: null
+        };
+      }
     }
   } catch (error) {
     console.error('Error parsing Parquet:', error);
