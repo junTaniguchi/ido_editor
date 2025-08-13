@@ -8,16 +8,19 @@ import {
   JSONExportOptions,
   YAMLExportOptions,
   ParquetExportOptions,
+  ExcelExportOptions,
   defaultCSVOptions,
   defaultTSVOptions,
   defaultJSONOptions,
   defaultYAMLOptions,
   defaultParquetOptions,
+  defaultExcelOptions,
   exportToCSV,
   exportToTSV,
   exportToJSON,
   exportToYAML,
   exportToParquet,
+  exportToExcel,
   createEncodedBlob,
   downloadFile
 } from '@/lib/dataFormatUtils';
@@ -29,7 +32,7 @@ interface ExportModalProps {
   fileName: string;
 }
 
-type ExportFormat = 'csv' | 'tsv' | 'json' | 'yaml' | 'parquet';
+type ExportFormat = 'csv' | 'tsv' | 'json' | 'yaml' | 'parquet' | 'excel';
 
 const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, data, fileName }) => {
   const [format, setFormat] = useState<ExportFormat>('csv');
@@ -38,6 +41,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, data, fileNa
   const [jsonOptions, setJsonOptions] = useState<JSONExportOptions>(defaultJSONOptions);
   const [yamlOptions, setYamlOptions] = useState<YAMLExportOptions>(defaultYAMLOptions);
   const [parquetOptions, setParquetOptions] = useState<ParquetExportOptions>(defaultParquetOptions);
+  const [excelOptions, setExcelOptions] = useState<ExcelExportOptions>(defaultExcelOptions);
 
   if (!isOpen) return null;
 
@@ -82,6 +86,11 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, data, fileNa
         extension = 'parquet';
         encoding = parquetOptions.encoding;
         break;
+      case 'excel':
+        const excelBlob = exportToExcel(data, excelOptions);
+        downloadFile(excelBlob, `${baseFileName}.xlsx`);
+        onClose();
+        return;
     }
 
     const blob = createEncodedBlob(content, encoding, mimeType);
@@ -113,8 +122,8 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, data, fileNa
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               エクスポート形式
             </label>
-            <div className="grid grid-cols-5 gap-2">
-              {(['csv', 'tsv', 'json', 'yaml', 'parquet'] as ExportFormat[]).map((fmt) => (
+            <div className="grid grid-cols-6 gap-2">
+              {(['csv', 'tsv', 'json', 'yaml', 'parquet', 'excel'] as ExportFormat[]).map((fmt) => (
                 <button
                   key={fmt}
                   onClick={() => setFormat(fmt)}
@@ -451,6 +460,59 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, data, fileNa
                   <option value="snappy">Snappy</option>
                   <option value="gzip">GZIP</option>
                 </select>
+              </div>
+            </div>
+          )}
+
+          {/* Excel設定 */}
+          {format === 'excel' && (
+            <div className="space-y-4">
+              <h3 className="text-md font-medium text-gray-900 dark:text-gray-100 flex items-center">
+                <IoSettingsOutline className="mr-2" />
+                Excel設定
+              </h3>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    シート名
+                  </label>
+                  <input
+                    type="text"
+                    value={excelOptions.sheetName}
+                    onChange={(e) => setExcelOptions({...excelOptions, sheetName: e.target.value})}
+                    className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                    placeholder="Sheet1"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="excel-headers"
+                    checked={excelOptions.includeHeaders}
+                    onChange={(e) => setExcelOptions({...excelOptions, includeHeaders: e.target.checked})}
+                    className="mr-2"
+                  />
+                  <label htmlFor="excel-headers" className="text-sm text-gray-700 dark:text-gray-300">
+                    ヘッダー行を含める
+                  </label>
+                </div>
+                
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="excel-autowidth"
+                    checked={excelOptions.autoWidth}
+                    onChange={(e) => setExcelOptions({...excelOptions, autoWidth: e.target.checked})}
+                    className="mr-2"
+                  />
+                  <label htmlFor="excel-autowidth" className="text-sm text-gray-700 dark:text-gray-300">
+                    列幅の自動調整
+                  </label>
+                </div>
               </div>
             </div>
           )}

@@ -777,22 +777,13 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
               </button>
             )}
             {['csv', 'tsv', 'json', 'yaml', 'parquet'].includes(type || '') && Array.isArray(parsedData) && parsedData.length > 0 && (
-              <>
-                <button
-                  className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 mr-2 flex items-center"
-                  onClick={() => setIsExportModalOpen(true)}
-                  title="データエクスポート"
-                >
-                  <IoDownload className="inline mr-1" /> エクスポート
-                </button>
-                <button
-                  className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 mr-2 flex items-center"
-                  onClick={handleExport}
-                  title="Excel形式でエクスポート"
-                >
-                  <IoDownload className="inline mr-1" /> Excel出力
-                </button>
-              </>
+              <button
+                className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 mr-2 flex items-center"
+                onClick={() => setIsExportModalOpen(true)}
+                title="データエクスポート"
+              >
+                <IoDownload className="inline mr-1" /> エクスポート
+              </button>
             )}
             {/* 分析モード切替アイコン（データ系ファイルで常に表示） */}
             {(type === 'csv' || type === 'tsv' || type === 'json' || type === 'yaml' || type === 'parquet' || type === 'excel') && (

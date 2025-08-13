@@ -2,6 +2,7 @@
 
 import { stringify as csvStringify } from 'csv-stringify/browser/esm/sync';
 import yaml from 'js-yaml';
+import * as XLSX from 'xlsx';
 
 // 配列データをマークダウン表に変換
 export function arrayToMarkdownTable(data: any[][]): string {
@@ -172,6 +173,27 @@ export const defaultParquetOptions: ParquetExportOptions = {
 };
 
 /**
+ * Excelエクスポート設定
+ */
+export interface ExcelExportOptions {
+  /** シート名 */
+  sheetName: string;
+  /** ヘッダー行を含めるかどうか */
+  includeHeaders: boolean;
+  /** セルの自動幅調整 */
+  autoWidth: boolean;
+}
+
+/**
+ * デフォルトExcelエクスポート設定
+ */
+export const defaultExcelOptions: ExcelExportOptions = {
+  sheetName: 'Sheet1',
+  includeHeaders: true,
+  autoWidth: true
+};
+
+/**
  * 値がクォートが必要かどうかを判定
  */
 function needsQuote(value: string, delimiter: string, quote: string, quoteRule: string): boolean {
@@ -336,6 +358,49 @@ export function createEncodedBlob(content: string, encoding: 'utf-8' | 'shift-ji
     // UTF-8エンコーディング
     return new Blob([content], { type: mimeType + ';charset=utf-8' });
   }
+}
+
+/**
+ * Excelフォーマットでデータを出力
+ */
+export function exportToExcel(data: any[], options: ExcelExportOptions = defaultExcelOptions): Blob {
+  if (!data || data.length === 0) {
+    throw new Error('エクスポート可能なデータがありません');
+  }
+
+  // データをExcel用に準備
+  let excelData = data;
+  if (!Array.isArray(excelData)) {
+    excelData = [excelData];
+  }
+
+  // ワークシートを作成
+  const ws = XLSX.utils.json_to_sheet(excelData, {
+    header: options.includeHeaders ? undefined : [],
+    skipHeader: !options.includeHeaders
+  });
+
+  // 列幅の自動調整
+  if (options.autoWidth && excelData.length > 0) {
+    const headers = Object.keys(excelData[0]);
+    const columnWidths = headers.map(header => {
+      const maxLength = Math.max(
+        header.length,
+        ...excelData.map(row => String(row[header] || '').length)
+      );
+      return { wch: Math.min(maxLength + 2, 50) }; // 最大50文字まで
+    });
+    ws['!cols'] = columnWidths;
+  }
+
+  // ワークブックを作成
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, options.sheetName);
+
+  // バイナリデータを生成
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  
+  return new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
 /**
