@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useEditorStore } from '@/store/editorStore';
-import { parseCSV, parseJSON, parseYAML, parseParquet, flattenNestedObjects } from '@/lib/dataPreviewUtils';
+import { parseCSV, parseJSON, parseYAML, parseParquet, parseExcel, flattenNestedObjects } from '@/lib/dataPreviewUtils';
 import { executeQuery, calculateStatistics, aggregateData, prepareChartData, calculateInfo } from '@/lib/dataAnalysisUtils';
 import { IoAlertCircleOutline, IoAnalyticsOutline, IoBarChartOutline, IoStatsChartOutline, IoCodeSlash, IoEye, IoLayersOutline, IoCreate, IoSave, IoGitNetwork, IoChevronUpOutline, IoChevronDownOutline } from 'react-icons/io5';
 import QueryResultTable from './QueryResultTable';
@@ -471,6 +471,35 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
               return obj;
             });
             cols = parquetResult.headers;
+          }
+          break;
+          
+        case 'excel':
+          // Excelファイルの場合、contentはArrayBufferの可能性がある
+          try {
+            let buffer: ArrayBuffer;
+            if (typeof content === 'string') {
+              // プレースホルダーの場合、タブからファイルハンドルを取得
+              const tab = tabs.get(tabId);
+              if (tab && tab.file && 'getFile' in tab.file) {
+                const file = await (tab.file as FileSystemFileHandle).getFile();
+                buffer = await file.arrayBuffer();
+              } else {
+                throw new Error('Excelファイルの読み込みに失敗しました');
+              }
+            } else {
+              buffer = content as ArrayBuffer;
+            }
+            
+            const excelData = parseExcel(buffer);
+            data = excelData;
+            if (data.length > 0) {
+              cols = Object.keys(data[0]);
+            }
+          } catch (err) {
+            setError(`Excelファイルの処理に失敗しました: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            setLoading(false);
+            return;
           }
           break;
           

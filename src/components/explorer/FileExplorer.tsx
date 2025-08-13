@@ -143,7 +143,7 @@ const FileExplorer = () => {
     // 複数ファイル分析モードが有効な場合
     if (multiFileAnalysisEnabled) {
       // データファイルのみ選択可能
-      const dataFileTypes = ['csv', 'tsv', 'json', 'yaml', 'yml'];
+      const dataFileTypes = ['csv', 'tsv', 'json', 'yaml', 'yml', 'xlsx', 'xls'];
       const extension = item.name.split('.').pop()?.toLowerCase();
       
       if (extension && dataFileTypes.includes(extension)) {
@@ -173,7 +173,20 @@ const FileExplorer = () => {
     } else {
       // 新しいタブを作成
       try {
-        const content = await readFileContent(item.fileHandle);
+        const fileType = getFileType(item.name);
+        console.log('ファイルクリック:', { fileName: item.name, fileType, path: item.path });
+        
+        let content: string | ArrayBuffer = '';
+        
+        // Excelファイルの場合は特別な処理
+        if (fileType === 'excel') {
+          console.log('Excelファイルとして処理中');
+          // Excelファイルの場合はcontentは空文字列でOK（後でArrayBufferを読み込む）
+          content = '';
+        } else {
+          content = await readFileContent(item.fileHandle);
+          console.log('ファイル読み込み完了:', { contentType: typeof content, contentLength: content?.length });
+        }
         
         const newTab: TabData = {
           id: item.path,
@@ -181,11 +194,15 @@ const FileExplorer = () => {
           content,
           originalContent: content,
           isDirty: false,
-          type: getFileType(item.name),
+          type: fileType,
           isReadOnly: false,
+          file: item.fileHandle,
         };
         
+        console.log('新しいタブ作成:', { ...newTab, file: !!newTab.file });
         addTab(newTab);
+        setActiveTabId(newTab.id);
+        console.log('アクティブタブ設定:', newTab.id);
       } catch (error) {
         console.error('Failed to read file:', error);
       }
@@ -408,7 +425,7 @@ const FileExplorer = () => {
     } else {
       // ファイルの拡張子をチェック
       const extension = item.name.split('.').pop()?.toLowerCase();
-      const isDataFile = extension && ['csv', 'tsv', 'json', 'yaml', 'yml'].includes(extension);
+      const isDataFile = extension && ['csv', 'tsv', 'json', 'yaml', 'yml', 'xlsx', 'xls'].includes(extension);
       const isSelected = selectedFiles.has(item.path);
       
       // 複数ファイル分析モードの場合のスタイル

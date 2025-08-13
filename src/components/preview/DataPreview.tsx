@@ -114,11 +114,14 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   const dataDisplayMode = editorSettings.dataDisplayMode || 'flat';
   
   useEffect(() => {
+    console.log('DataPreview useEffect呼び出し:', { tabId, hasTab: !!tabs.get(tabId) });
     let isMounted = true; // コンポーネントがマウントされているかを追跡
     
     const loadData = async () => {
       const tab = tabs.get(tabId);
+      console.log('DataPreview loadData:', { tabId, tab: tab ? { name: tab.name, type: tab.type, hasFile: !!tab.file } : null });
       if (!tab) {
+        console.log('タブが見つかりません:', tabId);
         if (isMounted) {
           setError('タブが見つかりません');
           setParsedData(null);
@@ -129,14 +132,21 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
       }
       
       if (isMounted) {
-        setContent(tab.content);
-        setEditableContent(tab.content);
         // 型変換: md→markdown, mmd→mermaid
         let mappedType = tab.type;
         if (tab.type === 'md') mappedType = 'markdown';
         if (tab.type === 'mmd') mappedType = 'mermaid';
         setType(mappedType as typeof type);
-        await parseContent(tab.content, tab.type);
+        
+        // Excelファイルの場合は特別な処理
+        if (tab.type === 'excel') {
+          console.log('Excel タブの読み込み開始:', { tabId, tabName: tab.name, hasFile: !!tab.file });
+          await parseContent(tab.content, tab.type);
+        } else {
+          setContent(tab.content);
+          setEditableContent(tab.content);
+          await parseContent(tab.content, tab.type);
+        }
       }
     };
     
@@ -211,14 +221,19 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   }, [dataDisplayMode, originalData]);
   
   const parseContent = async (content: string, type: string) => {
+    console.log('parseContent開始:', { type, contentType: typeof content, contentLength: content?.length });
     setLoading(true);
     setError(null);
     setParsedData(null);
     setOriginalData(null);
     setColumns([]);
     
-    // コンテンツが空の場合
-    if (!content || content.trim() === '') {
+    const tab = tabs.get(tabId);
+    console.log('タブ情報:', { tabId, tabType: tab?.type, fileName: tab?.name, hasFile: !!tab?.file });
+    
+    // コンテンツが空の場合（Excelファイルは除く）
+    if ((!content || content.trim() === '') && type !== 'excel') {
+      console.log('コンテンツが空です');
       setLoading(false);
       setParsedData(null);
       return;
@@ -421,10 +436,44 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
         case 'excel':
           // Excelファイルの処理
           try {
-            // FileのArrayBufferを取得
-            const buffer = await tab.file.arrayBuffer();
+            console.log('Excel処理開始:', { 
+              hasTab: !!tab, 
+              tabName: tab?.name, 
+              hasFile: !!tab?.file, 
+              fileType: typeof tab?.file,
+              contentLength: content?.length 
+            });
+            
+            if (!tab?.file) {
+              console.error('Excelファイルハンドルが存在しません');
+              throw new Error('ファイルハンドルが見つかりません');
+            }
+            
+            let buffer: ArrayBuffer;
+            
+            // FileSystemFileHandleの場合
+            if (tab.file && 'getFile' in tab.file) {
+              console.log('FileSystemFileHandleとして処理中...');
+              const file = await (tab.file as FileSystemFileHandle).getFile();
+              console.log('File取得成功:', { name: file.name, size: file.size, type: file.type });
+              buffer = await file.arrayBuffer();
+              console.log('ArrayBuffer取得成功:', buffer.byteLength, 'bytes');
+            } 
+            // File型の場合
+            else if (tab.file instanceof File) {
+              console.log('File型として処理中...');
+              buffer = await tab.file.arrayBuffer();
+              console.log('ArrayBuffer取得成功:', buffer.byteLength, 'bytes');
+            } 
+            else {
+              console.error('不明なファイル形式:', { file: tab.file, hasGetFile: 'getFile' in (tab.file || {}) });
+              throw new Error('対応していないファイル形式です');
+            }
+            
             setContent(buffer as any); // ArrayBufferをcontentに設定（ExcelPreviewで使用）
+            console.log('Excel content設定完了、レンダリング開始');
           } catch (err) {
+            console.error('Excel処理エラー:', err);
             setError(`Excelファイルの読み込みに失敗しました: ${err instanceof Error ? err.message : 'Unknown error'}`);
           }
           break;
@@ -625,6 +674,8 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   };
   
   const renderPreviewWithEditOption = () => {
+    console.log('renderPreviewWithEditOption実行:', { type, isEditing, isTableEditing, hasContent: !!content, hasError: !!error });
+    
     if (isEditing) {
       // テーブル形式に変換可能かどうかをチェック
       const canSwitchToTable = (type === 'csv' || type === 'tsv' || type === 'json' || type === 'yaml') &&
@@ -741,7 +792,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
       );
     }
     
-    if (!parsedData) {
+    if (!parsedData && type !== 'excel') {
       return (
         <div className="flex flex-col items-center justify-center h-full p-8 text-gray-500">
           <p>プレビューするデータがありません</p>
@@ -832,11 +883,25 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
             </div>
           )}
           {/* Excelプレビュー */}
-          {type === 'excel' && content && (
+          {type === 'excel' && (() => {
+            console.log('Excel条件チェック:', {
+              typeIsExcel: type === 'excel',
+              hasContent: !!content,
+              isArrayBuffer: content instanceof ArrayBuffer,
+              contentType: typeof content
+            });
+            return content && content instanceof ArrayBuffer;
+          })() && (
             <ExcelPreview 
               content={content as ArrayBuffer} 
               fileName={tabs.get(tabId)?.name || 'excel-file'} 
             />
+          )}
+          {/* Excel エラー表示 */}
+          {type === 'excel' && !content && (
+            <div className="p-4 text-center">
+              <p className="text-red-500">Excelファイルの読み込みに失敗しました</p>
+            </div>
           )}
           {/* CSV、TSV、JSONとYAMLの配列形式のデータはテーブルで表示 */}
           {((type === 'csv' || type === 'tsv' || type === 'parquet' || 

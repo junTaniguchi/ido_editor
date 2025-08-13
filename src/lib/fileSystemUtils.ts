@@ -81,6 +81,12 @@ export const readFileContent = async (fileHandle: FileSystemFileHandle): Promise
     // ファイルの種類に応じた処理
     const fileName = fileHandle.name.toLowerCase();
     
+    // Excelファイルの場合はArrayBufferとして読み込み、プレースホルダーを返す
+    if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+      // Excelファイルは別途処理されるため、プレースホルダーを返す
+      return `# Excel File: ${fileHandle.name}\n\nThis is an Excel file. Please use the data preview mode to view its contents.`;
+    }
+    
     // バイナリファイルの場合
     if (fileName.endsWith('.parquet') || fileName.endsWith('.parq')) {
       // 本来はParquetファイルのバイナリ処理が必要だが、
@@ -93,6 +99,19 @@ export const readFileContent = async (fileHandle: FileSystemFileHandle): Promise
   } catch (error) {
     console.error('Error reading file:', error);
     throw new Error('ファイルの読み込みに失敗しました');
+  }
+};
+
+/**
+ * Excelファイルの内容をArrayBufferとして読み込む
+ */
+export const readExcelFileContent = async (fileHandle: FileSystemFileHandle): Promise<ArrayBuffer> => {
+  try {
+    const file = await fileHandle.getFile();
+    return await file.arrayBuffer();
+  } catch (error) {
+    console.error('Error reading Excel file:', error);
+    throw new Error('Excelファイルの読み込みに失敗しました');
   }
 };
 

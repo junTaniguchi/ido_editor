@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useEditorStore } from '@/store/editorStore';
-import { parseCSV, parseJSON, parseYAML, parseParquet } from '@/lib/dataPreviewUtils';
+import { parseCSV, parseJSON, parseYAML, parseParquet, parseExcel } from '@/lib/dataPreviewUtils';
 import { 
   combineMultipleFiles, 
   compareMultipleFileStatistics, 
@@ -284,6 +284,27 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
                 data = [];
               }
               break;
+            
+            case 'xlsx':
+            case 'xls':
+              // Excelファイルの処理
+              try {
+                let buffer: ArrayBuffer;
+                const tab = tabs.get(filePath);
+                if (tab && tab.file && 'getFile' in tab.file) {
+                  const file = await (tab.file as FileSystemFileHandle).getFile();
+                  buffer = await file.arrayBuffer();
+                } else {
+                  throw new Error(`Excelファイルの読み込みに失敗: ${fileName}`);
+                }
+                
+                data = parseExcel(buffer);
+              } catch (excelError) {
+                console.error(`Excel parsing error for ${fileName}:`, excelError);
+                throw new Error(`Excelファイルの解析に失敗: ${fileName}`);
+              }
+              break;
+              
             default:
               console.warn(`Unsupported file format: ${extension}`);
               continue;

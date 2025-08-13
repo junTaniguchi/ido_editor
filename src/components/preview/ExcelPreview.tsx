@@ -32,15 +32,37 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({ content, fileName }) => {
 
   // 初期化：シート情報を取得
   useEffect(() => {
+    console.log('ExcelPreview useEffect開始:', { 
+      hasContent: !!content,
+      isArrayBuffer: content instanceof ArrayBuffer, 
+      byteLength: content?.byteLength,
+      contentType: typeof content
+    });
+    
+    if (!content) {
+      console.log('ExcelPreview: contentが空です');
+      return;
+    }
+    
+    if (!(content instanceof ArrayBuffer)) {
+      console.error('ExcelPreview: contentがArrayBufferではありません:', typeof content);
+      setError('Excelファイルの形式が正しくありません');
+      return;
+    }
+    
     try {
+      console.log('Excel シート一覧取得開始...');
       const sheetList = getExcelSheets(content);
+      console.log('Excel シート一覧取得成功:', sheetList);
       setSheets(sheetList);
       if (sheetList.length > 0) {
         setSelectedSheet(sheetList[0].name);
+        console.log('初期プレビュー読み込み開始:', sheetList[0].name);
         // 初期プレビューを読み込み
         loadSheetData(sheetList[0].name, parseOptions);
       }
     } catch (err) {
+      console.error('Excel シート取得エラー:', err);
       setError(`Excelファイルの読み取りに失敗しました: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   }, [content]);

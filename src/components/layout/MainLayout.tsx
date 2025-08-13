@@ -69,10 +69,10 @@ const MainLayout = () => {
   const isPreviewableSpecialType = isMarkdown || isMermaid;
   const isDataPreviewable = activeTab?.type === 'csv' || activeTab?.type === 'tsv' || 
                           activeTab?.type === 'json' || activeTab?.type === 'yaml' || 
-                          activeTab?.type === 'parquet';
+                          activeTab?.type === 'parquet' || activeTab?.type === 'excel';
   const isDataAnalyzable = activeTab?.type === 'csv' || activeTab?.type === 'tsv' || 
                           activeTab?.type === 'json' || activeTab?.type === 'yaml' || 
-                          activeTab?.type === 'parquet'; // mermaidは分析対象外
+                          activeTab?.type === 'parquet' || activeTab?.type === 'excel';
   // スクロール同期用
   const editorRef = React.useRef<HTMLDivElement>(null);
   const previewRef = React.useRef<HTMLDivElement>(null);
