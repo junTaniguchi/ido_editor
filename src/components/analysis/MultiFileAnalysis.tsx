@@ -562,18 +562,14 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         }
 
         processedData = aggregatedData || [];
-        console.log('通常集計後のデータ:', processedData);
       } else if (chartSettings.aggregation === 'count' && chartSettings.type !== 'histogram') {
         // カウント集計の場合の特別処理
-        console.log('カウント集計処理開始 - 分岐に入りました');
         
         // グループ分け（カテゴリフィールド）が指定されている場合は、
         // prepareChartData内でカウント処理を行うため、ここでは集計しない
         if (chartSettings.categoryField && chartSettings.categoryField.trim() !== '') {
-          console.log('グループ分けあり - prepareChartData内でカウント処理を実行（元データをそのまま使用）');
           processedData = dataSource; // 元データをそのまま渡す
         } else {
-          console.log('グループ分けなし - aggregateDataでカウント集計実行');
           // グループ分けなしの場合は従来通り集計
           const { data: aggregatedData, error } = aggregateData(
             dataSource,
@@ -592,7 +588,6 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
           processedData = aggregatedData || [];
         }
       } else {
-        console.log('集計をスキップ - 元データをそのまま使用');
       }
 
       console.log('チャートデータ準備開始:', {
@@ -628,7 +623,6 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
       );
 
       if (chartDataResult) {
-        console.log('チャートデータ生成成功:', chartDataResult);
         setChartData(chartDataResult);
         setError(null);
       } else {

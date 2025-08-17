@@ -40,7 +40,6 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({ content, fileName }) => {
     });
     
     if (!content) {
-      console.log('ExcelPreview: contentが空です');
       return;
     }
     
@@ -51,13 +50,10 @@ const ExcelPreview: React.FC<ExcelPreviewProps> = ({ content, fileName }) => {
     }
     
     try {
-      console.log('Excel シート一覧取得開始...');
       const sheetList = getExcelSheets(content);
-      console.log('Excel シート一覧取得成功:', sheetList);
       setSheets(sheetList);
       if (sheetList.length > 0) {
         setSelectedSheet(sheetList[0].name);
-        console.log('初期プレビュー読み込み開始:', sheetList[0].name);
         // 初期プレビューを読み込み
         loadSheetData(sheetList[0].name, parseOptions);
       }

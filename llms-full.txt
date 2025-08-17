@@ -1,0 +1,699 @@
+# IDO Editor - 完全技術仕様書
+
+## プロジェクト概要
+
+IDO Editor は ReactとNext.jsを使用して構築された高機能エディタアプリケーションです。Zustandによる状態管理、CodeMirrorベースのテキスト編集、Excel/Wordエクスポート、複数データ形式のプレビュー、強力なデータ分析機能など多彩な機能を備えています。
+
+### 主要技術スタック
+
+- **Next.js 15.4.5** - React Serverフレームワーク
+- **React 19** - UIライブラリ
+- **TypeScript 5.0+** - 型安全JavaScript
+- **Zustand** - 軽量状態管理
+- **CodeMirror 6** - 高性能テキストエディタ
+- **Tailwind CSS** - ユーティリティファーストCSS
+- **AlasSQL** - ブラウザ内SQL実行エンジン
+- **Plotly.js** - インタラクティブグラフライブラリ
+
+## アーキテクチャ設計
+
+### 全体アーキテクチャ
+
+IDO Editor は Next.js + React をベースとした現代的なWebアプリケーションアーキテクチャを採用しています。
+
+#### 設計原則
+
+1. **コンポーネント志向** - 機能ごとの独立コンポーネント設計
+2. **型安全性** - TypeScript による厳密な型チェック
+3. **状態管理の最適化** - Zustand による軽量状態管理
+4. **パフォーマンス重視** - 動的インポートと最適化
+5. **拡張性** - プラガブルな機能追加アーキテクチャ
+
+#### レイヤー構造
+
+```
+┌─────────────────────────────────────┐
+│             Presentation            │
+│         (React Components)          │
+├─────────────────────────────────────┤
+│              Business               │
+│           (Custom Hooks)            │
+├─────────────────────────────────────┤
+│              Service                │
+│          (Utility Functions)        │
+├─────────────────────────────────────┤
+│               Data                  │
+│        (Zustand Store + APIs)       │
+└─────────────────────────────────────┘
+```
+
+#### データフロー
+
+```mermaid
+graph TD
+    A[User Interaction] --> B[React Component]
+    B --> C[Custom Hook]
+    C --> D[Zustand Store]
+    C --> E[Utility Function]
+    E --> F[File System API]
+    F --> E
+    E --> C
+    D --> C
+    C --> B
+    B --> G[UI Update]
+```
+
+### ディレクトリ構造設計
+
+#### コンポーネント組織
+```
+src/components/
+├── analysis/          # データ分析機能
+├── editor/           # テキストエディタ
+├── explorer/         # ファイルエクスプローラ
+├── layout/           # レイアウト管理
+├── markdown/         # マークダウン機能
+├── modals/           # モーダルダイアログ
+├── preview/          # ファイルプレビュー
+├── search/           # 検索・置換
+└── tabs/             # タブ管理
+```
+
+#### ライブラリ組織
+```
+src/lib/
+├── dataAnalysisUtils.ts    # データ分析処理
+├── dataPreviewUtils.ts     # プレビュー処理
+├── editorUtils.ts          # エディタ処理
+├── fileSystemUtils.ts      # ファイルシステム
+└── tocUtils.ts             # 目次生成
+```
+
+## 主要機能詳細
+
+### エディタ機能
+
+#### マルチタブエディタ
+- **複数ファイルの同時編集** - 効率的なタブ管理システム
+- **ファイルエクスプローラ** - File System Access APIによる直接ファイルアクセス
+- **シンタックスハイライト** - 50+のプログラミング言語に対応
+- **エディタとプレビューの分割表示** - リアルタイムプレビュー
+- **ダークモード対応** - 自動テーマ切り替え
+
+#### 実装詳細
+
+**TabBar.tsx**
+```typescript
+interface Tab {
+  id: string;
+  title: string;
+  content: string;
+  language: string;
+  isDirty: boolean;
+  filePath?: string;
+}
+```
+
+**Editor.tsx**
+```typescript
+interface EditorProps {
+  value: string;
+  language: string;
+  theme: 'light' | 'dark';
+  onChange: (value: string) => void;
+}
+```
+
+### マークダウン機能
+
+#### リアルタイムプレビュー
+- **編集内容を即座に反映** - react-markdown統合
+- **目次自動生成** - 階層構造の見出しナビゲーション
+- **Mermaidダイアグラム対応** - コードブロック内の図表を自動描画
+- **マークダウンツールバー** - ビジュアル編集機能
+- **Word(.docx)エクスポート** - 高品質なWord文書出力
+
+#### 実装詳細
+
+**MarkdownPreview.tsx**
+```typescript
+interface MarkdownPreviewProps {
+  content: string;
+  darkMode: boolean;
+}
+```
+
+**MarkdownToolbar.tsx**
+```typescript
+interface ToolbarAction {
+  icon: React.ReactNode;
+  title: string;
+  action: () => void;
+  shortcut?: string;
+}
+```
+
+### データファイルプレビュー
+
+#### 対応形式
+- **CSV/TSV** - 表形式データの高性能表示、ヘッダー行自動認識
+- **JSON/YAML** - 階層構造データの見やすい表示、フラット/ネスト切替
+- **Excel(.xlsx/.xls)** - シート別プレビュー、データ範囲指定、ヘッダー設定
+- **Parquet** - 列指向データフォーマット対応
+- **Jupyter Notebook(.ipynb)** - セル別コンテンツ表示
+- **PDF(.pdf)** - PDF.js統合プレビュー
+
+#### 実装詳細
+
+**DataPreview.tsx**
+```typescript
+interface DataPreviewProps {
+  data: any[];
+  fileType: 'csv' | 'json' | 'yaml' | 'excel' | 'parquet';
+  fileName: string;
+}
+```
+
+**DataTable.tsx**
+```typescript
+interface DataTableProps {
+  data: Record<string, any>[];
+  pageSize?: number;
+  sortable?: boolean;
+  editable?: boolean;
+}
+```
+
+### データ分析機能
+
+#### 単一ファイル分析モード
+
+**SQLクエリ機能**
+- **AlasQL**エンジンによる高性能SQL実行
+- SELECT、WHERE、GROUP BY、ORDER BY構文サポート
+- クエスチョンマーク（?）による簡易テーブル参照
+- クエリ結果の即座テーブル表示
+- 階層データの平坦化表示/ネスト表示切り替え
+
+**統計情報表示**
+- **pandas.describe()相当**の詳細統計サマリー
+- データ型別統計情報（数値・文字列・null値の分析）
+- 各カラムの基本情報（型、非null件数、最大文字数、サンプル値）
+- 欠損値の可視化と分析
+
+**高度なグラフ作成機能**
+
+対応グラフタイプ（8種類）:
+- **棒グラフ** - カテゴリ別集計値の比較
+- **折れ線グラフ** - 時系列データやトレンド分析
+- **円グラフ** - 構成比の可視化
+- **散布図** - 2変数間の相関関係
+- **積立棒グラフ** - カテゴリ別の多次元データ比較
+- **回帰分析グラフ** - 5種類の回帰タイプによる予測線表示
+- **ヒストグラム** - データ分布の可視化
+- **ガントチャート** - プロジェクトスケジュール・タスク管理可視化
+
+**回帰分析機能（5種類の回帰タイプ）:**
+- **線形回帰** - y = ax + b の直線フィッティング
+- **多項式回帰** - y = a₀ + a₁x + a₂x² + ... + aₙxⁿ の曲線フィッティング
+- **指数回帰** - y = ae^(bx) の指数関数フィッティング
+- **べき乗回帰** - y = ax^b のべき乗関数フィッティング
+- **対数回帰** - y = a ln(x) + b の対数関数フィッティング
+
+#### 複数ファイル分析モード
+
+**ファイル統合機能**
+- **UNION結合** - 同じスキーマファイルの縦結合
+- **INTERSECTION結合** - 共通データの抽出
+- **JOIN結合** - キー項目による横結合
+
+**FROM句指定機能**
+- 特定ファイルを指定したSQLクエリ実行
+- `FROM filename` 構文による柔軟なデータ操作
+- 複数ファイル間の横断的分析
+
+#### 実装詳細
+
+**DataAnalysis.tsx (643行に最適化)**
+```typescript
+interface DataAnalysisProps {
+  data: any[];
+  fileName: string;
+  fileType: string;
+}
+```
+
+**AnalysisChartRenderer.tsx (561行)**
+```typescript
+interface ChartRendererProps {
+  data: any[];
+  settings: ChartSettings;
+  darkMode: boolean;
+}
+
+interface ChartSettings {
+  chartType: 'bar' | 'line' | 'pie' | 'scatter' | 'stacked' | 'regression' | 'histogram';
+  xAxis: string;
+  yAxis: string;
+  groupBy?: string;
+  aggregation: 'sum' | 'avg' | 'count' | 'min' | 'max';
+}
+```
+
+### 検索・置換機能
+
+VSCodeライクな全文検索・置換機能を実装:
+
+- ファイルやディレクトリ内のテキスト検索
+- 大文字/小文字の区別、正規表現検索のサポート
+- 検索結果のハイライト表示
+- 一括置換機能
+- ファイルパターンによるフィルタリング（includePattern/excludePattern）
+- 検索パネルのトグル表示（ヘッダーの検索アイコンをクリック）
+- 検索結果からファイルへの直接ジャンプ
+
+#### 実装詳細
+
+**SearchPanel.tsx**
+```typescript
+interface SearchConfig {
+  query: string;
+  caseSensitive: boolean;
+  useRegex: boolean;
+  includePattern: string;
+  excludePattern: string;
+}
+
+interface SearchResult {
+  filePath: string;
+  lineNumber: number;
+  lineContent: string;
+  matchIndex: number;
+}
+```
+
+## API Reference - ユーティリティ関数仕様
+
+### ファイルシステム関数 (fileSystemUtils.ts)
+
+#### `openDirectory(): Promise<FileSystemDirectoryHandle>`
+ディレクトリ選択ダイアログを開き、選択されたディレクトリハンドルを取得。
+
+#### `buildFileTree(dirHandle: FileSystemDirectoryHandle): Promise<FileTree>`
+ディレクトリハンドルから階層ファイルツリー構造を構築。
+
+```typescript
+interface FileTree {
+  name: string;
+  kind: 'file' | 'directory';
+  children?: FileTree[];
+  handle?: FileSystemFileHandle | FileSystemDirectoryHandle;
+}
+```
+
+#### `readFileContent(fileHandle: FileSystemFileHandle): Promise<string>`
+ファイルハンドルからテキストコンテンツを読み取り。
+
+#### `writeFileContent(fileHandle: FileSystemFileHandle, content: string): Promise<void>`
+ファイルハンドルにテキストコンテンツを書き込み。
+
+#### `searchInFiles(dirHandle: FileSystemDirectoryHandle, searchConfig: SearchConfig): Promise<SearchResult[]>`
+ディレクトリ内ファイルの全文検索。
+
+#### `replaceInFiles(dirHandle: FileSystemDirectoryHandle, replaceConfig: ReplaceConfig): Promise<ReplaceResult[]>`
+ディレクトリ内ファイルの一括置換。
+
+### データプレビュー関数 (dataPreviewUtils.ts)
+
+#### `parseCSV(content: string): Promise<any[]>`
+CSV文字列をJavaScriptオブジェクト配列に変換。
+
+#### `parseTSV(content: string): Promise<any[]>`
+TSV文字列をJavaScriptオブジェクト配列に変換。
+
+#### `parseJSON(content: string): any`
+JSON文字列を安全にパース（エラーハンドリング付き）。
+
+#### `parseYAML(content: string): any`
+YAML文字列をJavaScriptオブジェクトに変換。
+
+#### `parseExcel(file: File, options: ExcelParseOptions): Promise<any[]>`
+Excelファイルを解析し、指定シートのデータを取得。
+
+```typescript
+interface ExcelParseOptions {
+  sheetName?: string;
+  startRow?: number;
+  startCol?: number;
+  endRow?: number;
+  endCol?: number;
+}
+```
+
+#### `parseParquet(file: File): Promise<any[]>`
+Parquetファイルを解析（簡易対応）。
+
+#### `detectFileType(fileName: string, content: string): string`
+ファイル名と内容からファイルタイプを推定。
+
+### データ分析関数 (dataAnalysisUtils.ts)
+
+#### `executeSQL(data: any[], query: string): Promise<any[]>`
+AlasQLエンジンでSQLクエリを実行。
+
+#### `calculateStatistics(data: any[]): StatsSummary`
+データの統計情報を計算（pandas.describe()相当）。
+
+```typescript
+interface StatsSummary {
+  [column: string]: {
+    count: number;
+    mean?: number;
+    std?: number;
+    min?: number;
+    '25%'?: number;
+    '50%'?: number;
+    '75%'?: number;
+    max?: number;
+  };
+}
+```
+
+#### `getColumnInfo(data: any[]): ColumnInfo`
+各カラムの型・サンプル値・統計情報を分析。
+
+```typescript
+interface ColumnInfo {
+  [column: string]: {
+    type: string;
+    nonNullCount: number;
+    maxLength?: number;
+    sample: any[];
+  };
+}
+```
+
+#### `prepareChartData(data: any[], settings: ChartSettings): ChartData`
+グラフ描画用データを準備・集計。
+
+```typescript
+interface ChartData {
+  labels: string[];
+  datasets: {
+    label: string;
+    data: number[];
+    backgroundColor?: string[];
+    borderColor?: string;
+  }[];
+}
+```
+
+#### `performRegression(xData: number[], yData: number[]): RegressionResult`
+線形回帰分析を実行。
+
+```typescript
+interface RegressionResult {
+  slope: number;
+  intercept: number;
+  rSquared: number;
+  equation: string;
+  predictions: number[];
+}
+```
+
+#### `unionFiles(files: FileData[]): any[]`
+複数ファイルをUNION結合。
+
+#### `intersectionFiles(files: FileData[]): any[]`
+複数ファイルのINTERSECTION結合。
+
+#### `joinFiles(files: FileData[], joinKey: string, joinType: JoinType): any[]`
+複数ファイルをJOIN結合。
+
+```typescript
+type JoinType = 'inner' | 'left' | 'right' | 'full';
+```
+
+### エディタ関数 (editorUtils.ts)
+
+#### `getLanguageFromFileName(fileName: string): string`
+ファイル名から言語タイプを推定。
+
+#### `getThemeFromSettings(settings: EditorSettings): Extension`
+設定からCodeMirrorテーマ拡張を取得。
+
+```typescript
+interface EditorSettings {
+  theme: 'light' | 'dark';
+  fontSize: number;
+  wordWrap: boolean;
+  lineNumbers: boolean;
+}
+```
+
+#### `createLanguageExtension(language: string): Extension`
+指定言語のCodeMirror拡張を作成。
+
+#### `formatCode(code: string, language: string): string`
+コードフォーマッター（基本実装）。
+
+## 状態管理システム
+
+Zustandを使用した状態管理システムでは、以下の状態を管理しています：
+
+### タブ管理
+- **`tabs`**: 開いているタブのMap（キー: タブID、値: タブデータ）
+- **`activeTabId`**: 現在アクティブなタブのID
+- **アクション**: `setActiveTabId`, `addTab`, `updateTab`, `removeTab`, `getTab`
+
+### ファイルエクスプローラ
+- **`rootDirHandle`**: ルートディレクトリハンドル
+- **`rootFileTree`**: ファイルツリー構造
+- **`rootFolderName`**: ルートフォルダ名
+- **アクション**: `setRootDirHandle`, `setRootFileTree`, `setRootFolderName`
+
+### エディタ設定
+- **`editorSettings`**: テーマ、フォントサイズなどの設定
+- **アクション**: `updateEditorSettings`
+
+### パネル表示状態
+- **`paneState`**: 各パネル（エクスプローラ、エディタ、プレビューなど）の表示状態
+- **アクション**: `updatePaneState`
+
+### 検索設定
+- **`searchSettings`**: 検索機能の設定（大文字小文字の区別、正規表現など）
+- **アクション**: `updateSearchSettings`
+
+### 分析機能
+- **`analysisEnabled`**: 分析機能の有効/無効
+- **`analysisData`**: 分析データ
+- **`sqlResult`**: SQL実行結果
+- **`chartSettings`**: チャート設定
+- **アクション**: `setAnalysisEnabled`, `setAnalysisData`, `setSqlResult`, `updateChartSettings`
+
+## コンポーネント構造詳細
+
+### メインレイアウト (MainLayout.tsx)
+
+アプリケーション全体のレイアウト管理を担当。
+
+```typescript
+interface MainLayoutProps {
+  children: React.ReactNode;
+}
+```
+
+**主要機能**:
+- 3ペイン レイアウト (Explorer | Editor | Preview)
+- レスポンシブ対応
+- ダークモード切替
+- パネル表示/非表示制御
+
+### ファイル管理
+
+**FileExplorer.tsx**
+- File System Access API 統合
+- 階層ファイルツリー表示
+- ファイル選択・開く機能
+- コンテキストメニュー
+
+**TabBar.tsx**
+- マルチタブ管理
+- タブ並び替え (Drag & Drop)
+- 未保存状態表示
+- タブ閉じる機能
+
+### エディタ機能 (Editor.tsx)
+
+CodeMirror 6を使用した高機能テキストエディタ。
+
+**機能**:
+- 50+ プログラミング言語対応
+- シンタックスハイライト
+- 自動インデント
+- 検索・置換
+- キーボードショートカット
+
+### プレビュー機能
+
+**MarkdownPreview.tsx**
+- リアルタイムプレビュー
+- 目次自動生成
+- Mermaid図表描画
+- Word エクスポート
+
+**DataPreview.tsx**
+統合プレビューシステム
+
+**対応形式**:
+- CSV/TSV: DataTable コンポーネント
+- JSON/YAML: ObjectViewer コンポーネント
+- Excel: ExcelPreview コンポーネント
+- Parquet: 簡易対応
+- PDF: PdfPreview コンポーネント
+
+**DataTable.tsx**
+高機能データテーブル
+
+**機能**:
+- ページネーション
+- カラムソート
+- データ編集
+- 検索・フィルタリング
+- CSV エクスポート
+
+### データ分析コンポーネント
+
+**DataAnalysis.tsx (643行に最適化)**
+分析機能の統合管理
+
+**AnalysisTabNavigation.tsx (115行)**
+タブナビゲーション管理
+
+**AnalysisSettingsPanel.tsx (317行)**
+分析設定パネル
+
+**AnalysisChartRenderer.tsx (561行)**
+チャート描画エンジン
+
+**対応チャート (8種類)**:
+- Bar Chart (Plotly.js)
+- Line Chart (Chart.js)
+- Pie Chart (Chart.js)
+- Scatter Plot (Plotly.js)
+- Stacked Bar (Chart.js)
+- Regression (Plotly.js)
+- Histogram (Plotly.js)
+- Gantt Chart (Plotly.js)
+
+**MultiFileAnalysis.tsx**
+複数ファイル統合分析
+
+**機能**:
+- UNION結合
+- INTERSECTION結合
+- JOIN結合
+- FROM句指定
+- クロス集計
+
+### 検索機能 (SearchPanel.tsx)
+
+VSCode風全文検索
+
+**機能**:
+- フォルダ内検索
+- 正規表現対応
+- ファイルパターンフィルタ
+- 一括置換
+- 結果ハイライト
+
+## パフォーマンス最適化
+
+### コンポーネント最適化
+- **React.memo**: 不要な再レンダリング防止
+- **useMemo/useCallback**: 重い計算処理のキャッシュ
+- **動的インポート**: 必要時のみモジュール読み込み
+
+### データ処理最適化
+- **Web Workers**: バックグラウンド処理（将来拡張）
+- **仮想化**: 大容量データテーブル表示
+- **ページネーション**: メモリ使用量制限
+
+### ビルド最適化
+- **Tree Shaking**: 不要コードの除去
+- **Code Splitting**: チャンク分割による初期読み込み高速化
+- **バンドルサイズ最適化**: Next.js 最適化機能活用
+
+## セキュリティ設計
+
+### データ保護
+- **ローカル処理**: データはブラウザ内で処理、外部送信なし
+- **File System Access API**: セキュアなファイルアクセス
+- **型安全性**: TypeScriptによるランタイムエラー防止
+
+### アクセス制御
+- **ブラウザ権限**: ユーザー明示的許可によるファイルアクセス
+- **HTTPS必須**: File System Access API セキュリティ要件
+
+## エラーハンドリング
+
+### 共通エラータイプ
+```typescript
+interface APIError {
+  code: string;
+  message: string;
+  details?: any;
+}
+```
+
+### エラーコード一覧
+- `FILE_READ_ERROR`: ファイル読み込み失敗
+- `FILE_WRITE_ERROR`: ファイル書き込み失敗
+- `PARSE_ERROR`: データ解析失敗
+- `SQL_EXECUTION_ERROR`: SQLクエリ実行失敗
+- `CHART_RENDER_ERROR`: グラフ描画失敗
+- `PERMISSION_ERROR`: ファイルアクセス権限不足
+
+## セットアップと開発
+
+### 必要条件
+- [Node.js](https://nodejs.org/) 18.0.0以上
+- [npm](https://www.npmjs.com/) 8.0.0以上
+- **対応ブラウザ**：Chrome 86+、Edge 86+、またはその他のChromiumベースのブラウザ最新版
+
+### インストールと起動
+
+```bash
+# リポジトリのクローン
+git clone https://github.com/yourusername/ido_editor.git
+cd ido_editor
+
+# パッケージのインストール
+npm install
+
+# 開発サーバーの起動
+npm run dev
+```
+
+### 開発時の注意点
+- File System Access APIを使用するため、HTTPS接続またはlocalhost上での実行が必要
+- Firefox、SafariなどではFile System Access APIがサポートされていないため、一部機能が利用できません
+
+## 今後の拡張予定
+
+### 分析機能拡張
+- **機械学習モデル統合** - scikit-learn.js等のML機能
+- **時系列分析** - ARIMA、季節調整等の高度分析
+- **Jupyter Notebookエディタ** - セル実行・出力表示機能
+
+### ファイル形式拡張
+- **Parquet完全サポート** - バイナリパース最適化
+- **Database接続** - PostgreSQL、MySQL等への直接接続
+- **API統合** - REST/GraphQL APIからのデータ取得
+
+### コラボレーション機能
+- **リアルタイム共同編集** - WebSocketベース協調編集
+- **バージョン管理統合** - Git操作のGUI化
+- **コメント・レビュー** - ファイル単位の協調作業
+
+この技術仕様書により、開発者やLLMはIDO Editorの全機能と実装詳細を包括的に理解し、効率的な開発・保守・拡張作業を行うことができます。

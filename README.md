@@ -2,6 +2,29 @@
 
 ReactとNext.jsを使用して構築された高機能エディタアプリケーションです。Zustandによる状態管理、CodeMirrorベースのテキスト編集、Excel/Wordエクスポート、複数データ形式のプレビュー、強力なデータ分析機能など多彩な機能を備えています。
 
+## 📖 ドキュメント
+
+### 🤖 LLMフレンドリーなドキュメント
+
+AI開発・自動化に最適化された技術文書:
+- **[llms.txt](./llms.txt)** - LLM向けプロジェクト概要とナビゲーション
+- **[llms-full.txt](./llms-full.txt)** - 完全技術仕様書（LLM向け集約版）
+
+### 📚 詳細ドキュメント
+
+包括的な技術文書は[docsフォルダ](./docs/)をご覧ください:
+- **[アーキテクチャ](./docs/architecture.md)** - 設計思想とシステム構成
+- **[API リファレンス](./docs/api-reference.md)** - 関数・型定義の詳細仕様
+- **[コンポーネント構造](./docs/component-structure.md)** - React コンポーネント階層
+- **[開発ガイド](./docs/development-guide.md)** - 開発環境・ワークフロー
+- **[データ分析機能](./docs/data-analysis.md)** - 分析・可視化機能の詳細
+- **[Next.js 仕様](./docs/nextjs/README.md)** - フレームワーク設定・最適化
+- **[テスト戦略](./docs/testing/README.md)** - Testing Trophy アプローチ
+
+### 🔄 シーケンス図
+
+各機能の詳細な処理フローは[シーケンス図集](./docs/sequence-diagrams/)で確認できます。
+
 ## 🚀 主要機能
 
 ### エディタ機能

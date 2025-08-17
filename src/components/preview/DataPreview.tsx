@@ -114,14 +114,11 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   const dataDisplayMode = editorSettings.dataDisplayMode || 'flat';
   
   useEffect(() => {
-    console.log('DataPreview useEffect呼び出し:', { tabId, hasTab: !!tabs.get(tabId) });
     let isMounted = true; // コンポーネントがマウントされているかを追跡
     
     const loadData = async () => {
       const tab = tabs.get(tabId);
-      console.log('DataPreview loadData:', { tabId, tab: tab ? { name: tab.name, type: tab.type, hasFile: !!tab.file } : null });
       if (!tab) {
-        console.log('タブが見つかりません:', tabId);
         if (isMounted) {
           setError('タブが見つかりません');
           setParsedData(null);
@@ -140,7 +137,6 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
         
         // Excelファイルの場合は特別な処理
         if (tab.type === 'excel') {
-          console.log('Excel タブの読み込み開始:', { tabId, tabName: tab.name, hasFile: !!tab.file });
           await parseContent(tab.content, tab.type);
         } else {
           setContent(tab.content);
@@ -221,7 +217,6 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   }, [dataDisplayMode, originalData]);
   
   const parseContent = async (content: string, type: string) => {
-    console.log('parseContent開始:', { type, contentType: typeof content, contentLength: content?.length });
     setLoading(true);
     setError(null);
     setParsedData(null);
@@ -229,11 +224,9 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     setColumns([]);
     
     const tab = tabs.get(tabId);
-    console.log('タブ情報:', { tabId, tabType: tab?.type, fileName: tab?.name, hasFile: !!tab?.file });
     
     // コンテンツが空の場合（Excelファイルは除く）
     if ((!content || content.trim() === '') && type !== 'excel') {
-      console.log('コンテンツが空です');
       setLoading(false);
       setParsedData(null);
       return;
@@ -453,17 +446,12 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
             
             // FileSystemFileHandleの場合
             if (tab.file && 'getFile' in tab.file) {
-              console.log('FileSystemFileHandleとして処理中...');
               const file = await (tab.file as FileSystemFileHandle).getFile();
-              console.log('File取得成功:', { name: file.name, size: file.size, type: file.type });
               buffer = await file.arrayBuffer();
-              console.log('ArrayBuffer取得成功:', buffer.byteLength, 'bytes');
             } 
             // File型の場合
             else if (tab.file instanceof File) {
-              console.log('File型として処理中...');
               buffer = await tab.file.arrayBuffer();
-              console.log('ArrayBuffer取得成功:', buffer.byteLength, 'bytes');
             } 
             else {
               console.error('不明なファイル形式:', { file: tab.file, hasGetFile: 'getFile' in (tab.file || {}) });
@@ -471,7 +459,6 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
             }
             
             setContent(buffer as any); // ArrayBufferをcontentに設定（ExcelPreviewで使用）
-            console.log('Excel content設定完了、レンダリング開始');
           } catch (err) {
             console.error('Excel処理エラー:', err);
             setError(`Excelファイルの読み込みに失敗しました: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -555,7 +542,6 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
         }
       } catch (err) {
         // 解析エラーの場合は何もしない
-        console.log('Content parsing for sync update failed:', err);
       }
     }
   };
@@ -674,7 +660,6 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   };
   
   const renderPreviewWithEditOption = () => {
-    console.log('renderPreviewWithEditOption実行:', { type, isEditing, isTableEditing, hasContent: !!content, hasError: !!error });
     
     if (isEditing) {
       // テーブル形式に変換可能かどうかをチェック

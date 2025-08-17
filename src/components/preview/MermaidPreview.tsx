@@ -63,7 +63,6 @@ const initializeMermaid = async (retryCount = 0): Promise<any> => {
       
       // 最大3回までリトライ
       if (retryCount < 3) {
-        console.log(`Retrying mermaid import... (${retryCount + 1}/3)`);
         // リトライ時は初期化フラグをリセット
         mermaidInitialized = false;
         await new Promise(resolve => setTimeout(resolve, 1000)); // 1秒待機

@@ -103,7 +103,6 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
     }
     
     // 設定前にログ出力（デバッグ用）
-    console.log(`タブID: ${tabId}, 現在のモード: ${viewMode}, 新しいモード: ${newMode}, ファイルタイプ: ${currentTab?.type}`);
     
     // モード変更を適用（editorStoreに保存）
     setViewMode(tabId, newMode);
@@ -112,7 +111,6 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
     // これによりモード変更が確実に反映されるようにする
     setTimeout(() => {
       const currentMode = getViewMode(tabId);
-      console.log(`適用後の状態確認 - タブID: ${tabId}, モード: ${currentMode}`);
       
       // ここで強制的にローカル状態も更新
       if (currentTab) {

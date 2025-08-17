@@ -66,13 +66,10 @@ const MarkdownPreview = forwardRef<HTMLDivElement, MarkdownPreviewProps>(({ tabI
       const rect = element.getBoundingClientRect();
       const parentRect = parent.getBoundingClientRect();
       const scrollDelta = rect.top - parentRect.top;
-      console.log('[TOC] Jump to heading:', { id, scrollDelta, parentScrollTop: parent.scrollTop });
       parent.scrollTop += scrollDelta;
     } else if (element) {
-      console.log('[TOC] Fallback scrollIntoView:', { id });
       element.scrollIntoView({ behavior: 'smooth' });
     } else {
-      console.log('[TOC] Heading not found:', { id });
     }
   };
   
@@ -92,7 +89,6 @@ const MarkdownPreview = forwardRef<HTMLDivElement, MarkdownPreviewProps>(({ tabI
     const tab = tabs.get(tabId);
     if (tab) {
       setMarkdown(tab.content);
-      console.log('MarkdownPreview: コンテンツを更新しました', tab.content.substring(0, 50));
     }
   }, [tabId, tabs]);
   
@@ -308,42 +304,36 @@ const MarkdownPreview = forwardRef<HTMLDivElement, MarkdownPreviewProps>(({ tabI
                   const text = Array.isArray(children) ? children.join('') : children?.toString() || '';
                   const slugger = new GithubSlugger();
                   const id = slugger.slug(text);
-                  console.log('[MD] heading', {text, id});
                   return <h1 id={id} {...props}>{children}</h1>;
                 },
                 h2: ({ children, ...props }) => {
                   const text = Array.isArray(children) ? children.join('') : children?.toString() || '';
                   const slugger = new GithubSlugger();
                   const id = slugger.slug(text);
-                  console.log('[MD] heading', {text, id});
                   return <h2 id={id} {...props}>{children}</h2>;
                 },
                 h3: ({ children, ...props }) => {
                   const text = Array.isArray(children) ? children.join('') : children?.toString() || '';
                   const slugger = new GithubSlugger();
                   const id = slugger.slug(text);
-                  console.log('[MD] heading', {text, id});
                   return <h3 id={id} {...props}>{children}</h3>;
                 },
                 h4: ({ children, ...props }) => {
                   const text = Array.isArray(children) ? children.join('') : children?.toString() || '';
                   const slugger = new GithubSlugger();
                   const id = slugger.slug(text);
-                  console.log('[MD] heading', {text, id});
                   return <h4 id={id} {...props}>{children}</h4>;
                 },
                 h5: ({ children, ...props }) => {
                   const text = Array.isArray(children) ? children.join('') : children?.toString() || '';
                   const slugger = new GithubSlugger();
                   const id = slugger.slug(text);
-                  console.log('[MD] heading', {text, id});
                   return <h5 id={id} {...props}>{children}</h5>;
                 },
                 h6: ({ children, ...props }) => {
                   const text = Array.isArray(children) ? children.join('') : children?.toString() || '';
                   const slugger = new GithubSlugger();
                   const id = slugger.slug(text);
-                  console.log('[MD] heading', {text, id});
                   return <h6 id={id} {...props}>{children}</h6>;
                 },
               }}

@@ -272,23 +272,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
           }
           
       // 読み込んだデータの型を確認
-      console.log('CSVデータロード結果:', {
-        カラム: cols,
-        データ数: data.length,
-        最初の行: data[0],
-        数値型かどうか: {
-          最初の行の最初のカラム: typeof data[0]?.[cols[0]],
-          最初の行の2番目のカラム: typeof data[0]?.[cols[1]],
-          '最初の行のsepal_length': typeof data[0]?.sepal_length,
-          '最初の行のsepal_width': typeof data[0]?.sepal_width,
-        },
-        値の例: {
-          [cols[0]]: data.slice(0, 5).map(row => ({ 値: row[cols[0]], 型: typeof row[cols[0]] })),
-          [cols[1]]: data.slice(0, 5).map(row => ({ 値: row[cols[1]], 型: typeof row[cols[1]] })),
-          'sepal_length': data.slice(0, 5).map(row => ({ 値: row['sepal_length'], 型: typeof row['sepal_length'] })),
-          'sepal_width': data.slice(0, 5).map(row => ({ 値: row['sepal_width'], 型: typeof row['sepal_width'] }))
-        }
-      });          // すべてのカラムの値を詳しく確認
+          // すべてのカラムの値を詳しく確認
           if (data.length > 0 && cols.length > 0) {
             const firstRow = data[0];
             const columnValues: Record<string, any> = {};
@@ -302,7 +286,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                 カラム名小文字比較: col.toLowerCase() === 'species',
               };
             });
-            console.log('最初の行の各カラム値の詳細:', columnValues);
             // info summary を計算
             const info = calculateInfo(data);
             if (!info.error && info.info) {
@@ -317,14 +300,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
             );
             
             if (speciesColumn) {
-              console.log('Speciesカラム発見:', {
-                カラム名: speciesColumn,
-                値の例: data.slice(0, 10).map(row => ({
-                  rawValue: row[speciesColumn],
-                  type: typeof row[speciesColumn],
-                  stringValue: String(row[speciesColumn])
-                }))
-              });
             }
           }
           break;
@@ -340,15 +315,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
           cols = tsvResult.columns;
           
           // TSVデータも同様に確認
-          console.log('TSVデータロード結果:', {
-            カラム: cols,
-            データ数: data.length,
-            最初の行: data[0],
-            数値型かどうか: {
-              最初の行の最初のカラム: typeof data[0]?.[cols[0]],
-              最初の行の2番目のカラム: typeof data[0]?.[cols[1]]
-            }
-          });
           break;
           
         case 'json':
@@ -718,7 +684,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
           .map(item => String(item[categoryField]))
         )];
         
-        console.log('カテゴリデバッグ - 検出されたカテゴリ一覧:', uniqueCategories);
       }
       
       // 元データの列名を大文字小文字を区別せずに確認
@@ -745,7 +710,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
         ) || chartSettings.yAxis;
         
         if (normalizedYAxis !== chartSettings.yAxis) {
-          console.log(`Y値デバッグ - 列名を正規化: "${chartSettings.yAxis}" -> "${normalizedYAxis}"`);
           updateChartSettings({ yAxis: normalizedYAxis });
           // 列名が変更されたので一度この関数を終了し、useEffectで再度呼び出されるようにする
           setLoading(false);
@@ -961,7 +925,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                   
                   // 列名の正規化が必要な場合は設定を更新して再実行
                   if (xAxisNormalized !== chartSettings.xAxis || yAxisNormalized !== chartSettings.yAxis) {
-                    console.log('Y値デバッグ - 列名が異なるため更新します');
                     updateChartSettings({ 
                       xAxis: xAxisNormalized, 
                       yAxis: yAxisNormalized 
@@ -1045,7 +1008,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                   return result;
                 }) || [])];
                 
-                console.log('【デバッグ】検出されたカテゴリ一覧:', categories);
                 
                 // 散布図データ準備のログを削除して必要なものだけ残す
                 console.log('【デバッグ】散布図データの準備:', {
@@ -1114,13 +1076,11 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                   if (typeof item[actualXField] === 'number') {
                     xValue = item[actualXField];
                     if (idx < 5 && actualXField !== chartSettings.xAxis) {
-                      console.log(`【デバッグ】X軸列名を正規化: "${chartSettings.xAxis}" -> "${actualXField}"`);
                     }
                   } else if (item[actualXField] !== undefined && item[actualXField] !== null) {
                     const xStr = String(item[actualXField]).trim();
                     xValue = parseFloat(xStr);
                     if (isNaN(xValue) && idx < 5) {
-                      console.log(`【デバッグ】X値の変換に失敗 [${idx}]: "${xStr}" (型: ${typeof item[actualXField]})`);
                     }
                   }
                   
@@ -1128,15 +1088,12 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                   if (typeof item[actualYField] === 'number') {
                     yValue = item[actualYField];
                     if (idx < 5) {
-                      console.log(`【デバッグ】Y値は数値型 [${idx}]: ${yValue} (${typeof yValue}), 使用した列名: ${actualYField}`);
                     }
                   } else if (item[actualYField] !== undefined && item[actualYField] !== null) {
                     const yStr = String(item[actualYField]).trim();
                     yValue = parseFloat(yStr);
                     if (isNaN(yValue) && idx < 5) {
-                      console.log(`【デバッグ】Y値の変換に失敗 [${idx}]: "${yStr}" (型: ${typeof item[actualYField]})`);
                     } else if (idx < 5) {
-                      console.log(`【デバッグ】Y値の変換成功 [${idx}]: "${yStr}" => ${yValue} (${typeof yValue}), 使用した列名: ${actualYField}`);
                     }
                   }
                   
@@ -1175,9 +1132,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                 }).filter(point => point !== null && point.x !== null && point.y !== null && !isNaN(point.x) && !isNaN(point.y)); // 無効なポイントを除外
                 
                 // カテゴリ散布図データのログを簡素化
-                console.log(`【デバッグ】カテゴリ ${category} の有効データポイント数:`, categoryScatterData.length);
                 if (categoryScatterData.length > 0) {
-                  console.log(`【デバッグ】カテゴリ ${category} の最初のポイント:`, categoryScatterData[0]);
                 }
                 
                 const color = getColor(index);
@@ -1263,7 +1218,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                   xValue = parseFloat(xString);
                   
                   if (index < 5) {
-                    console.log(`X値デバッグ - 変換: [${index}]: 元の値="${originalXValue}" (${typeof originalXValue}) => ${xValue}`);
                   }
                 }
                 
@@ -1274,7 +1228,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                 if (typeof item[actualYField] === 'number') {
                   yValue = item[actualYField];
                   if (index < 5) {
-                    console.log(`Y値デバッグ - 数値型のY値 [${index}]: ${yValue} (${typeof yValue}), 使用した列名: ${actualYField}`);
                   }
                 } else if (item[actualYField] !== undefined && item[actualYField] !== null) {
                   // 文字列を数値に変換する前に、元の値を保存
@@ -1283,7 +1236,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                   
                   // 変換前の文字列をログに出力
                   if (index < 5) {
-                    console.log(`Y値デバッグ - Y値の文字列表現 [${index}]: "${yString}" (長さ:${yString.length}), 使用した列名: ${actualYField}`);
                   }
                   
                   // 文字列を数値に変換
@@ -1291,7 +1243,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                   
                   // 変換後の数値をログに出力
                   if (index < 5) {
-                    console.log(`Y値デバッグ - Y値の変換結果 [${index}]: 元の値="${originalYValue}" (${typeof originalYValue}) => ${yValue} (${typeof yValue}), isNaN=${isNaN(yValue)}`);
                   }
                 }
                 
@@ -1306,7 +1257,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                     yValue = parseFloat(String(item[chartSettings.yAxis]).trim());
                   }
                   if (index < 5) {
-                    console.log(`Y値デバッグ - 元のY列名フィールドから取得 [${index}]: ${yValue}, 使用した列名: ${chartSettings.yAxis}`);
                   }
                 }
                 
@@ -1320,7 +1270,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                     yValue = parseFloat(String(item.value).trim());
                   }
                   if (index < 5) {
-                    console.log(`Y値デバッグ - valueフィールドから取得 [${index}]: ${yValue}`);
                   }
                 }
                 
@@ -1337,7 +1286,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                       yValue = parseFloat(String(item[upperCaseYAxis]).trim());
                     }
                     if (index < 5) {
-                      console.log(`Y値デバッグ - 大文字列名からY値を取得 [${index}]: ${yValue}, 使用した列名: ${upperCaseYAxis}`);
                     }
                   } else if (item[lowerCaseYAxis] !== undefined && item[lowerCaseYAxis] !== null) {
                     if (typeof item[lowerCaseYAxis] === 'number') {
@@ -1346,14 +1294,12 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                       yValue = parseFloat(String(item[lowerCaseYAxis]).trim());
                     }
                     if (index < 5) {
-                      console.log(`Y値デバッグ - 小文字列名からY値を取得 [${index}]: ${yValue}, 使用した列名: ${lowerCaseYAxis}`);
                     }
                   }
                 }
                 
                 // 5. 他の数値フィールドを探す（最後の手段）
                 if ((yValue === null || isNaN(yValue as number)) && index < 5) {
-                  console.log(`Y値デバッグ - Y値が見つかりません [${index}]: item[${actualYField}]=${item[actualYField]}, 全てのキー:`, Object.keys(item));
                   
                   // 全ての数値フィールドをチェック
                   const numericFields = Object.keys(item).filter(key => 
@@ -1364,7 +1310,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                   
                   if (numericFields.length > 0) {
                     yValue = item[numericFields[0]];
-                    console.log(`Y値デバッグ - 最後の手段として数値フィールドから取得 [${index}]: ${yValue}, 使用した列名: ${numericFields[0]}`);
                   }
                 }
                 
@@ -1380,7 +1325,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                 // NaNでないことを確認
                 if (xValue === null || yValue === null || (typeof xValue === 'number' && isNaN(xValue)) || (typeof yValue === 'number' && isNaN(yValue))) {
                   if (index < 5) {
-                    console.log(`Y値デバッグ - 無効なデータポイント[${index}]: x=${xValue}, y=${yValue}`);
                   }
                   return null;
                 }
@@ -1456,7 +1400,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
               // Y値のログを詳細に出す
               scatterData.slice(0, 5).forEach((point, idx) => {
                 if (point) {
-                  console.log(`Y値デバッグ - 最終データポイント[${idx}]: X=${point.x}, Y=${point.y}, 型=${typeof point.y}`);
                 }
               });
               
@@ -2140,7 +2083,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
               
               // フィールドが存在すれば、元データから直接散布図データを作成
               if (hasXAxis && hasYAxis) {
-                console.log('カテゴリデバッグ - 元データから散布図データを作成します');
                 
                 // 新しいデータセットを作成
                 const newDataset: any = {
@@ -2360,13 +2302,11 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                   // point.raw に元の値が保存されている可能性がある
                   if (isNaN(y) && point.raw && typeof point.raw.y === 'number' && !isNaN(point.raw.y)) {
                     y = point.raw.y;
-                    console.log(`カテゴリデバッグ - ポイント[${idx}]: rawから値を取得 ${y}`);
                   }
                 } else {
                   // point.raw に元の値が保存されている可能性がある
                   if (point.raw && typeof point.raw.y === 'number' && !isNaN(point.raw.y)) {
                     y = point.raw.y;
-                    console.log(`カテゴリデバッグ - ポイント[${idx}]: 未定義の場合にrawから値を取得 ${y}`);
                   } else {
                     y = NaN;
                   }
@@ -2387,12 +2327,10 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                     });
                   } else {
                     categoryText = dataset.label || '';
-                    console.log(`カテゴリデバッグ - ポイント[${idx}]のデフォルトカテゴリ:`, categoryText);
                   }
                   
                   textValues.push(categoryText);
                   if (idx < 5) {
-                    console.log(`カテゴリデバッグ - ポイント[${idx}]の最終カテゴリ:`, categoryText);
                   }
                 }
               });
@@ -2407,7 +2345,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
               // 重要: Y値が全て0かチェック
               const allYZero = yValues.every((y: number) => y === 0);
               if (allYZero && yValues.length > 0) {
-                console.log('カテゴリデバッグ - すべてのY値が0です。元データから修正を試みます。');
                 
                 // グローバルのparsedDataまたはqueryResultを使用して修正
                 const originalData = chartSettings.dataSource === 'queryResult' ? queryResult : parsedData;
@@ -2449,7 +2386,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                         xValues = directDataPoints.map((p: any) => p.x);
                         yValues = directDataPoints.map((p: any) => p.y);
                         textValues = directDataPoints.map(() => '');
-                        console.log('カテゴリデバッグ - データを置き換えました');
                       }
                     }
                   } catch (err) {
@@ -2472,7 +2408,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                   textValues.push(dataset.label || '');
                   
                   if (i < 5) {
-                    console.log(`Y値デバッグ - 数値配列変換 [${i}]: x=${i}, y=${yValue}`);
                   }
                 }
               }
@@ -2497,7 +2432,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                     xValues.push(x);
                     yValues.push(y);
                     textValues.push('');
-                    console.log(`Y値デバッグ - 変換形式2: 有効なデータポイント追加[${i}]: x=${x}, y=${y}`);
                   } else if (i < 5) {
                     console.warn(`Y値デバッグ - 変換形式2: 無効なデータポイント[${i}]: x=${x}, y=${y}`);
                   }
@@ -2507,14 +2441,12 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
             
               // データの整合性チェック
               if (xValues.length === 0 || yValues.length === 0) {
-                console.log('カテゴリデバッグ - 有効なデータがありません');
                 return;
               }
               
               // Y値チェック
               const zeroYCount = yValues.filter((y: number) => y === 0).length;
               if (zeroYCount === yValues.length && yValues.length > 0) {
-                console.log('カテゴリデバッグ - すべてのY値が0です');
               }
               
               // Plotlyのデータ構造に変換
@@ -2658,7 +2590,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
             });
           });
         } else {
-          console.log('カテゴリデバッグ - 散布図用のデータセットがありません');
           
           // データがない場合はダミーデータを表示（空のプロット）
           plotlyData.push({
@@ -3040,7 +2971,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                 }
               }
               
-              console.log(`Y値デバッグ - プロット直前のY値チェック: 0の数=${zeroCount}/${totalCount}, 非ゼロ値の存在=${hasNonZeroY}`);
               
               if (!hasNonZeroY && totalCount > 0) {
                 console.warn('Y値デバッグ - 最終警告: すべてのY値が0です。データ変換に問題がある可能性があります。');
@@ -3119,7 +3049,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
       };
     }
     
-    console.log("Plotlyデータ:", plotlyData);
     
     return (
       <div className="h-full w-full">

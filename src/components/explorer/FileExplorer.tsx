@@ -174,18 +174,15 @@ const FileExplorer = () => {
       // 新しいタブを作成
       try {
         const fileType = getFileType(item.name);
-        console.log('ファイルクリック:', { fileName: item.name, fileType, path: item.path });
         
         let content: string | ArrayBuffer = '';
         
         // Excelファイルの場合は特別な処理
         if (fileType === 'excel') {
-          console.log('Excelファイルとして処理中');
           // Excelファイルの場合はcontentは空文字列でOK（後でArrayBufferを読み込む）
           content = '';
         } else {
           content = await readFileContent(item.fileHandle);
-          console.log('ファイル読み込み完了:', { contentType: typeof content, contentLength: content?.length });
         }
         
         const newTab: TabData = {
@@ -199,10 +196,8 @@ const FileExplorer = () => {
           file: item.fileHandle,
         };
         
-        console.log('新しいタブ作成:', { ...newTab, file: !!newTab.file });
         addTab(newTab);
         setActiveTabId(newTab.id);
-        console.log('アクティブタブ設定:', newTab.id);
       } catch (error) {
         console.error('Failed to read file:', error);
       }

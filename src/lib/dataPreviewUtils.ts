@@ -12,11 +12,9 @@ export const parseCSV = (content: string, delimiter: string = ',') => {
   try {
     // デバッグ情報を追加（最初の数行のみ）
     const sampleLines = content.split('\n').slice(0, 5).join('\n');
-    console.log('CSV解析デバッグ - 入力データサンプル:', sampleLines);
     
     // CSVヘッダー行を取得して列名を確認
     const headerLine = content.split('\n')[0];
-    console.log('CSV解析デバッグ - ヘッダー行:', headerLine);
     
     const result = Papa.parse(content, {
       header: true,
@@ -28,7 +26,6 @@ export const parseCSV = (content: string, delimiter: string = ',') => {
       transform: (value, field) => {
         // デバッグ用に変換前の値を記録
         if (field === 'sepal_length' || field === 'sepal_width' || field === 'petal_length' || field === 'petal_width') {
-          console.log(`CSV解析デバッグ - 列[${field}]の値変換:`, { 変換前: value, 型: typeof value });
         }
         
         if (value === '') return null; // 空文字列は null に変換
@@ -99,15 +96,12 @@ export const parseJSON = (content: string) => {
  */
 export const flattenNestedObjects = (data: any, parentPrefix: string = ''): any[] => {
   // デバッグ: 入力データの型と内容
-  console.log('[flattenNestedObjects] 入力:', { data, parentPrefix });
 
   if (!Array.isArray(data) && data !== null && typeof data === 'object') {
     const arrayKeys = Object.keys(data).filter(key => Array.isArray(data[key]));
-    console.log('[flattenNestedObjects] トップレベルがオブジェクト、配列キー:', arrayKeys);
     if (arrayKeys.length > 0) {
       const firstArrayKey = arrayKeys[0];
       const arrayData = data[firstArrayKey];
-      console.log('[flattenNestedObjects] 配列データ:', { firstArrayKey, arrayData });
       if (Array.isArray(arrayData) && arrayData.length > 0) {
         return flattenNestedObjects(arrayData, firstArrayKey);
       }
@@ -115,14 +109,11 @@ export const flattenNestedObjects = (data: any, parentPrefix: string = ''): any[
   }
 
   if (!Array.isArray(data) || data.length === 0) {
-    console.log('[flattenNestedObjects] 配列でない、または空:', data);
     return Array.isArray(data) ? data : [];
   }
 
   const allObjects = data.every(item => item !== null && typeof item === 'object' && !Array.isArray(item));
-  console.log('[flattenNestedObjects] 配列内がすべてオブジェクトか:', allObjects);
   if (!allObjects) {
-    console.log('[flattenNestedObjects] 配列内にオブジェクト以外が含まれる:', data);
     return data;
   }
 
@@ -136,7 +127,6 @@ export const flattenNestedObjects = (data: any, parentPrefix: string = ''): any[
       });
     }
   });
-  console.log('[flattenNestedObjects] ネストプロパティ:', Array.from(nestedProperties.keys()));
 
   const flattened = data.map(item => {
     const flatItem: Record<string, any> = {};
@@ -146,7 +136,6 @@ export const flattenNestedObjects = (data: any, parentPrefix: string = ''): any[
         flatItem[key] = value;
         if (Array.isArray(value)) {
           const prefix = parentPrefix ? `${parentPrefix}.${key}` : key;
-          console.log(`[flattenNestedObjects] 配列プロパティ: ${prefix}`, value);
           if (value.length === 0) {
             flatItem[prefix] = [];
           } else if (typeof value[0] === 'object' && !Array.isArray(value[0])) {
@@ -170,7 +159,6 @@ export const flattenNestedObjects = (data: any, parentPrefix: string = ''): any[
           }
         } else if (typeof value === 'object') {
           const prefix = parentPrefix ? `${parentPrefix}.${key}` : key;
-          console.log(`[flattenNestedObjects] オブジェクトプロパティ: ${prefix}`, value);
           if (Object.keys(value).length === 0) {
             flatItem[prefix] = {};
           } else {
@@ -185,11 +173,9 @@ export const flattenNestedObjects = (data: any, parentPrefix: string = ''): any[
         flatItem[key] = value;
       }
     });
-    console.log('[flattenNestedObjects] フラット化結果:', flatItem);
     return flatItem;
   });
 
-  console.log('[flattenNestedObjects] 全フラット化結果:', flattened);
   return flattened;
 };
 

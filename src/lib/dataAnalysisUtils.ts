@@ -1410,7 +1410,6 @@ export const prepareChartData = (
             dataPoints = labels.map(label => {
               return categoryData.filter(item => String(item[labelField]) === String(label)).length;
             });
-            console.log(`積み上げ棒グラフ - カテゴリ "${category}" の頻度分析結果:`, dataPoints);
           } else {
             // 通常の分析：集計済みデータを使用
             const categoryLabels = categoryData.map(item => item[labelField]);
@@ -1593,7 +1592,6 @@ export const prepareChartData = (
               dataPoints[binIndex]++;
             });
             
-            console.log(`線グラフ - カテゴリ "${category}" の数値フィールド頻度分析結果:`, dataPoints);
           } else {
             // 頻度分析の場合（valueFieldが空またはvalueフィールドが存在しない場合）
             const isFrequencyAnalysis = (!valueField || valueField.trim() === '') || 
@@ -1604,7 +1602,6 @@ export const prepareChartData = (
               dataPoints = labels.map(label => {
                 return categoryData.filter(item => String(item[labelField]) === String(label)).length;
               });
-              console.log(`線グラフ - カテゴリ "${category}" の頻度分析結果:`, dataPoints);
             } else {
               // 通常の分析：集計済みデータを使用
               const categoryLabels = categoryData.map(item => item[labelField]);
@@ -1751,7 +1748,6 @@ export const prepareChartData = (
         if (!actualYField && itemKeys.includes('value')) {
           actualYField = 'value';
           if (i < 3) {
-            console.log(`Y値フィールド解決 [${i}]: valueフィールドを使用します`);
           }
         }
         // 4. それでも見つからない場合は元のフィールド名を使用
@@ -1828,7 +1824,6 @@ export const prepareChartData = (
           const yStr = String(yRaw).trim();
           numY = parseFloat(yStr);
           if (i < 5) {
-            console.log(`Y値処理 [${i}]: 文字列変換 "${yStr}" -> ${numY}, isNaN=${isNaN(numY)}`);
             
             // 変換失敗した場合の詳細デバッグ
             if (isNaN(numY)) {
@@ -2330,7 +2325,6 @@ export const prepareChartData = (
           `${start.toFixed(2)} - ${binBoundaries[i + 1].toFixed(2)}`
         );
         
-        console.log('ヒストグラム生成:', { labels, counts: binCounts });
         
         return {
           labels,
@@ -2548,7 +2542,6 @@ export const prepareChartData = (
               dataPoints[binIndex]++;
             });
             
-            console.log(`カテゴリ "${category}" の数値フィールド頻度分析結果:`, dataPoints);
           } else {
             // 頻度分析の場合（valueFieldが空またはvalueフィールドが存在しない場合）
             const isFrequencyAnalysis = (!valueField || valueField.trim() === '') || 
@@ -2559,7 +2552,6 @@ export const prepareChartData = (
               dataPoints = labels.map(label => {
                 return categoryData.filter(item => String(item[labelField]) === String(label)).length;
               });
-              console.log(`カテゴリ "${category}" の頻度分析結果:`, dataPoints);
             } else {
               // 通常の分析：集計済みデータを使用
               const categoryLabels = categoryData.map(item => item[labelField]);

@@ -404,7 +404,6 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
         }
       } catch (err) {
         // 解析エラーの場合は何もしない
-        console.log('Content parsing for sync update failed:', err);
       }
     }
   };
