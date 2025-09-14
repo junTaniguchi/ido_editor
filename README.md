@@ -108,6 +108,36 @@ npm run dev
 
 ブラウザで [http://localhost:3000](http://localhost:3000) を開くとアプリケーションが表示されます。
 
+### デスクトップアプリ（Electron）
+
+ローカルで Electron 版（デスクトップアプリ）も起動・配布できます。
+
+開発起動:
+
+```bash
+# ターミナル1（Next.js 開発サーバ）
+npm run dev:web
+
+# ターミナル2（Electron ウィンドウ）
+npm run dev:electron
+```
+
+パッケージング（配布用）:
+
+```bash
+# 現在のOS向け（macなら .dmg / .zip、Windowsなら .exe など）
+npm run dist
+
+# Windows EXE（Windows 環境で実行推奨）
+npm run dist:win
+
+# macOS アプリ（macOS 上で実行）
+npm run dist:mac
+```
+
+- 詳細手順と注意事項（署名/公証、CIビルド等）は `docs/electron.md` を参照してください。
+- GitHub Actions による Windows 用 EXE ビルドは `.github/workflows/build-windows.yml` で提供しています。
+
 ## 使い方
 
 ### 基本操作

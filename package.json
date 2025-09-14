@@ -6,7 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "dev:web": "next dev",
+    "dev:electron": "ELECTRON_DEV=1 electron .",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac"
   },
   "dependencies": {
     "@codemirror/commands": "^6.8.1",
@@ -75,9 +80,32 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/turndown": "^5.0.5",
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3",
     "eslint": "^9",
     "eslint-config-next": "15.4.5",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "main": "electron/main.js",
+  "build": {
+    "appId": "com.ido.editor",
+    "productName": "IDO Editor",
+    "files": [
+      "electron/**",
+      ".next/**",
+      "public/**",
+      "package.json",
+      "node_modules/**"
+    ],
+    "asar": true,
+    "directories": {
+      "buildResources": "build"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    }
   }
 }

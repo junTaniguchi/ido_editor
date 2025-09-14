@@ -41,3 +41,16 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Electron パッケージング出力（配布に不要なものを除外）
+# 最終配布物（.exe / .dmg / .zip など）は残し、
+# 中間生成物やデバッグ用ファイルは無視します。
+dist/*-unpacked/
+dist/win-unpacked/
+dist/linux-unpacked/
+dist/mac/
+dist/mac-x64/
+dist/mac-arm64/
+dist/builder-debug.yml
+dist/builder-effective-config.yaml
+dist/*.blockmap
