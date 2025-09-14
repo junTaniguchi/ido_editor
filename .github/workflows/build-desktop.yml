@@ -8,12 +8,17 @@ on:
     tags:
       - 'v*.*.*'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     env:
-      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      # Prefer user-provided PAT if set; otherwise use built-in GITHUB_TOKEN
+      GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     strategy:
       matrix:
         os: [windows-latest, macos-latest]
