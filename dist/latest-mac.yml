@@ -1,0 +1,11 @@
+version: 0.1.0
+files:
+  - url: IDO-Editor-0.1.0-arm64-mac.zip
+    sha512: JfaDAWzCI711MAFTtkxjCBMq9R8MnhBuA5lkC51qFiO2O03Yhr+t4VNqSnILHCZ5LXeHR7U/7d4zX6NQkNbDPQ==
+    size: 557728430
+  - url: IDO-Editor-0.1.0-arm64.dmg
+    sha512: xLNv03MbfT6/yJe544IQPc5EOHw0p8r3ig3fzu3/QwJZMVHZHxKMrYjcQE6ykXAKPxl1AVLD9ok+sypoxd+GZg==
+    size: 574761542
+path: IDO-Editor-0.1.0-arm64-mac.zip
+sha512: JfaDAWzCI711MAFTtkxjCBMq9R8MnhBuA5lkC51qFiO2O03Yhr+t4VNqSnILHCZ5LXeHR7U/7d4zX6NQkNbDPQ==
+releaseDate: '2025-09-13T16:22:26.039Z'

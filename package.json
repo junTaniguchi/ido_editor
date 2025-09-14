@@ -91,6 +91,7 @@
   "build": {
     "appId": "com.ido.editor",
     "productName": "IDO Editor",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "files": [
       "electron/**",
       ".next/**",
@@ -104,7 +105,8 @@
     },
     "win": {
       "target": [
-        "nsis"
+        "nsis",
+        "portable"
       ]
     }
   }

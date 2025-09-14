@@ -54,3 +54,6 @@ dist/mac-arm64/
 dist/builder-debug.yml
 dist/builder-effective-config.yaml
 dist/*.blockmap
+dist/*.exe
+dist/*.dmg
+dist/*.zip

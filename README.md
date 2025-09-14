@@ -128,7 +128,7 @@ npm run dev:electron
 # 現在のOS向け（macなら .dmg / .zip、Windowsなら .exe など）
 npm run dist
 
-# Windows EXE（Windows 環境で実行推奨）
+# Windows（インストーラー + ポータブル、Windows で実行推奨）
 npm run dist:win
 
 # macOS アプリ（macOS 上で実行）
