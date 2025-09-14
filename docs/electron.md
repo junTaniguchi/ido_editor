@@ -15,7 +15,10 @@
   - `npm run dist`
 - Windows のビルド（インストーラー + ポータブル）を作成（Windows 環境で実行推奨）:
   - `npm run dist:win`
-  - 生成物: NSIS インストーラー（`*.exe`）に加え、ポータブル版（`*-portable.exe` など）も出力されます。
+  - 生成物: 
+    - インストーラー: `*-installer.exe`
+    - ポータブル: `*-portable.exe`
+    - いずれも `dist/` に出力されます。
 - macOS アプリ（.dmg / .zip）を作成（macOS 上で実行）:
   - `npm run dist:mac`
 

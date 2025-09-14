@@ -38,6 +38,9 @@ jobs:
       - name: Build Next.js
         run: npm run build
 
+      - name: Show electron-builder config (debug)
+        run: node -e "console.log(require('./package.json').build)"
+
       - name: Package Windows (no publish)
         if: runner.os == 'Windows' && !startsWith(github.ref, 'refs/tags/')
         run: npx electron-builder --win --publish=never
@@ -64,5 +67,8 @@ jobs:
             dist/*.dmg
             dist/*.zip
             dist/latest*.yml
+
+      - name: List dist files (debug)
+        run: dir dist || ls -la dist
 
   
