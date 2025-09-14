@@ -12,6 +12,8 @@ jobs:
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
     strategy:
       matrix:
         os: [windows-latest, macos-latest]
@@ -31,13 +33,21 @@ jobs:
       - name: Build Next.js
         run: npm run build
 
-      - name: Package Windows
-        if: runner.os == 'Windows'
-        run: npx electron-builder --win
+      - name: Package Windows (no publish)
+        if: runner.os == 'Windows' && !startsWith(github.ref, 'refs/tags/')
+        run: npx electron-builder --win --publish=never
 
-      - name: Package macOS
-        if: runner.os == 'macOS'
-        run: npx electron-builder --mac
+      - name: Package Windows and publish
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/')
+        run: npx electron-builder --win --publish=always
+
+      - name: Package macOS (no publish)
+        if: runner.os == 'macOS' && !startsWith(github.ref, 'refs/tags/')
+        run: npx electron-builder --mac --publish=never
+
+      - name: Package macOS and publish
+        if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/')
+        run: npx electron-builder --mac --publish=always
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -50,22 +60,4 @@ jobs:
             dist/*.zip
             dist/latest*.yml
 
-  release:
-    name: Release on tag
-    needs: build
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: dist-artifacts
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist-artifacts/**
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+  

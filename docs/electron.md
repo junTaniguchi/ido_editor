@@ -23,12 +23,22 @@
 
 ## GitHub Actions での Windows EXE ビルド
 
-リポジトリには `/.github/workflows/build-windows.yml` を同梱しています。以下のいずれかでトリガーできます。
+リポジトリには `/.github/workflows/build-desktop.yml` を同梱しています。以下のいずれかでトリガーできます。
 
 - Git タグ `vX.Y.Z` を push
 - GitHub から "Run workflow" (workflow_dispatch)
 
-成果物は Actions の Artifacts からダウンロードできます（`dist/` 以下）。
+成果物は Actions の Artifacts からダウンロードできます（`dist/` 以下）。タグで実行した場合は GitHub Release にも自動公開されます。
+
+### GH_TOKEN の設定（公開時に必要）
+
+electron-builder が GitHub Release に公開する際は環境変数 `GH_TOKEN` が必要です。以下の手順で PAT（Personal Access Token）を設定してください。
+
+1. GitHub → リポジトリ → Settings → Secrets and variables → Actions → New repository secret
+2. Name: `GH_TOKEN`
+3. Value: 生成した Personal Access Token（推奨スコープ: `repo`）
+
+ワークフローは `env: GH_TOKEN: ${{ secrets.GH_TOKEN }}` を参照します。
 
 ## macOS の署名 / 公証（配布向け）
 
