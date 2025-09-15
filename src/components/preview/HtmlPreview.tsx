@@ -81,7 +81,7 @@ const HtmlPreview = forwardRef<HTMLDivElement, HtmlPreviewProps>(({ tabId, onScr
         title={tab?.name || 'HTML Preview'}
         className="w-full border-0"
         style={{ height: iframeHeight ? `${iframeHeight}px` : '100%', display: 'block' }}
-        sandbox="allow-same-origin"
+        sandbox="allow-scripts allow-same-origin"
         srcDoc={srcDoc}
         onLoad={updateIframeHeight}
       />
@@ -90,4 +90,3 @@ const HtmlPreview = forwardRef<HTMLDivElement, HtmlPreviewProps>(({ tabId, onScr
 });
 
 export default HtmlPreview;
-
