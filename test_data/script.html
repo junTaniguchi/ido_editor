@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>スクリプト無効化テスト</title>
+  </head>
+  <body>
+    <h1>スクリプト無効化テスト</h1>
+    <p>iframeのsandboxにより、下記のalertは実行されない想定です。</p>
+    <script>
+      alert('このalertは実行されないはずです');
+      document.body.insertAdjacentHTML('beforeend', '<p id="script-status">スクリプトが実行されました。</p>');
+    </script>
+    <noscript>noscript: スクリプトが無効です。</noscript>
+  </body>
+  </html>
+

@@ -18,6 +18,7 @@ import Editor, { EditorProps } from '@/components/editor/Editor';
 import MarkdownPreview, { MarkdownPreviewProps } from '@/components/preview/MarkdownPreview';
 import MermaidPreview from '@/components/preview/MermaidPreview';
 import DataPreview from '@/components/preview/DataPreview';
+import HtmlPreview from '@/components/preview/HtmlPreview';
 import DataAnalysis from '@/components/analysis/DataAnalysis';
 import MultiFileAnalysis from '@/components/analysis/MultiFileAnalysis';
 import SearchPanel from '@/components/search/SearchPanel';
@@ -66,7 +67,8 @@ const MainLayout = () => {
   const activeTabViewMode = activeTabId ? getViewMode(activeTabId) : 'editor';
   const isMarkdown = activeTab?.type === 'markdown' || activeTab?.type === 'md';
   const isMermaid = activeTab?.type === 'mermaid' || activeTab?.type === 'mmd';
-  const isPreviewableSpecialType = isMarkdown || isMermaid;
+  const isHtml = activeTab?.type === 'html';
+  const isPreviewableSpecialType = isMarkdown || isMermaid || isHtml;
   const isDataPreviewable = activeTab?.type === 'csv' || activeTab?.type === 'tsv' || 
                           activeTab?.type === 'json' || activeTab?.type === 'yaml' || 
                           activeTab?.type === 'parquet' || activeTab?.type === 'excel';
@@ -260,6 +262,8 @@ const MainLayout = () => {
                                 <MermaidPreview content={activeTab.content} fileName={activeTab.name} />
                               </div>
                             </div>
+                          ) : isHtml ? (
+                            <HtmlPreview tabId={activeTabId} />
                           ) : (
                             <DataPreview tabId={activeTabId} />
                           )}
@@ -288,6 +292,8 @@ const MainLayout = () => {
                                   <MermaidPreview content={activeTab.content} fileName={activeTab.name} />
                                 </div>
                               </div>
+                            ) : isHtml ? (
+                              <HtmlPreview tabId={activeTabId} ref={previewRef} onScroll={handlePreviewScroll} />
                             ) : (
                               <DataPreview tabId={activeTabId} />
                             )}

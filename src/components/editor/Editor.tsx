@@ -19,6 +19,7 @@ import { IoCodeSlash, IoEye, IoAnalytics, IoSave, IoGrid, IoDownload } from 'rea
 import DataPreview from '@/components/preview/DataPreview';
 import MermaidPreview from '@/components/preview/MermaidPreview';
 import MarkdownPreview from '@/components/preview/MarkdownPreview';
+import HtmlPreview from '@/components/preview/HtmlPreview';
 import MarkdownEditorExtension from '@/components/markdown/MarkdownEditorExtension';
 import ExportModal from '@/components/preview/ExportModal';
 import { parseCSV, parseJSON, parseYAML, parseParquet } from '@/lib/dataPreviewUtils';
@@ -216,7 +217,7 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
                           currentTab.type === 'json' || currentTab.type === 'yaml' || 
                           currentTab.type === 'parquet' || currentTab.type === 'mermaid' || 
                           currentTab.type === 'markdown' || currentTab.type === 'md' || 
-                          currentTab.type === 'mmd';
+                          currentTab.type === 'mmd' || currentTab.type === 'html';
   
   // エディタ設定
   const { theme, fontSize, lineWrapping, rectangularSelection } = editorSettings;
@@ -262,12 +263,15 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
             >
               <IoSave className="inline mr-1" /> 保存
             </button>
-            {/* モード切替ボタン（目アイコンは不要なので削除、分割/プレビューのみ表示） */}
-            {viewMode === 'preview' && (
+            {/* モード切替ボタン（常時表示：エディタ→プレビュー→分割表示→エディタ） */}
+            {isPreviewable && (
               <button
                 className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
                 onClick={toggleViewMode}
-                title="分割表示モードに切り替え"
+                title={
+                  viewMode === 'editor' ? 'プレビューモードに切り替え' :
+                  viewMode === 'preview' ? '分割表示モードに切り替え' : 'エディタモードに切り替え'
+                }
               >
                 <IoGrid size={20} />
               </button>
@@ -333,6 +337,10 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
             ) : currentTab.type === 'markdown' || currentTab.type === 'md' ? (
               <div className="h-full">
                 <MarkdownPreview tabId={tabId} />
+              </div>
+            ) : currentTab.type === 'html' ? (
+              <div className="h-full">
+                <HtmlPreview tabId={tabId} />
               </div>
             ) : (
               <div className="h-full">

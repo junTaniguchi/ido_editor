@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HTML プレビュー テスト - サンプル</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height: 1.7; }
+      header { border-bottom: 1px solid #ccc; margin-bottom: 1rem; }
+      .badge { display: inline-block; padding: 0.2rem 0.5rem; background: #e5f0ff; color: #1e40af; border-radius: 6px; font-size: 12px; }
+      table { border-collapse: collapse; margin-top: 1rem; }
+      th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; }
+      pre { background: #f6f8fa; padding: 8px; overflow: auto; }
+      code { background: #f6f8fa; padding: 2px 4px; border-radius: 3px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>プレビュー動作確認 <span class="badge">sample.html</span></h1>
+    </header>
+    <p>これは <strong>基本的なHTMLドキュメント</strong> です。見出し、段落、リスト、表、コードブロック、画像(SVG)を含みます。</p>
+    <h2>リスト</h2>
+    <ul>
+      <li>項目 1</li>
+      <li>項目 2</li>
+      <li>項目 3</li>
+    </ul>
+    <h2>表</h2>
+    <table>
+      <thead>
+        <tr><th>キー</th><th>値</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>foo</td><td>bar</td></tr>
+        <tr><td>baz</td><td>qux</td></tr>
+      </tbody>
+    </table>
+    <h2>コード</h2>
+    <pre><code>console.log('Hello, HTML Preview!');
+const sum = (a, b) => a + b;
+    </code></pre>
+
+    <h2>インラインSVG画像</h2>
+    <svg width="200" height="100" viewBox="0 0 200 100" xmlns="http://www.w3.org/2000/svg">
+      <rect x="5" y="5" width="190" height="90" rx="12" fill="#dbeafe" stroke="#60a5fa" />
+      <text x="100" y="56" font-size="14" text-anchor="middle" fill="#1e3a8a">Inline SVG OK</text>
+    </svg>
+  </body>
+  </html>
+
