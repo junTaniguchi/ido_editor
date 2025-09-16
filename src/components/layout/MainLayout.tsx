@@ -258,7 +258,8 @@ const MainLayout = () => {
                             <MarkdownPreview tabId={activeTabId} />
                           ) : isMermaid && activeTab ? (
                             <div className="h-full w-full overflow-auto">
-                              <div className="max-w-4xl mx-auto">
+                              {/* 横スクロールを妨げないよう、幅制限を解除 */}
+                              <div className="w-full">
                                 <MermaidPreview content={activeTab.content} fileName={activeTab.name} />
                               </div>
                             </div>
