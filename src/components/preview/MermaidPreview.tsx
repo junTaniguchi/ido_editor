@@ -273,7 +273,7 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({ content, fileName }) =>
   return (
     <div className="h-full flex flex-col bg-white dark:bg-gray-900">
       {/* ヘッダー */}
-      <div className="flex-shrink-0 flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+      <div className="flex-shrink-0 flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
         <div className="flex items-center">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mr-4">
             {fileName}

@@ -471,7 +471,7 @@ const FileExplorer = () => {
   return (
     <div className="h-full flex flex-col bg-gray-100 dark:bg-gray-800 border-r border-gray-300 dark:border-gray-700">
       {/* ヘッダー */}
-      <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-700 flex justify-between items-center">
+      <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex justify-between items-center">
         <div className="flex items-center">
           <h2 className="font-medium text-sm">エクスプローラ</h2>
           {multiFileAnalysisEnabled && (

@@ -203,7 +203,7 @@ const MarkdownPreview = forwardRef<HTMLDivElement, MarkdownPreviewProps>(({ tabI
       )}
       {/* メインコンテンツ */}
       <div
-        className={`${showToc && tocItems.length > 0 ? 'flex-1 min-h-0' : 'w-full'} h-full min-h-0 overflow-auto bg-white text-gray-900 relative`}
+        className={`${showToc && tocItems.length > 0 ? 'flex-1 min-h-0' : 'w-full'} h-full min-h-0 overflow-auto bg-white text-gray-900 dark:bg-[#0f172a] dark:text-gray-100 relative`}
         ref={ref}
         onScroll={onScroll}
       >
@@ -218,15 +218,15 @@ const MarkdownPreview = forwardRef<HTMLDivElement, MarkdownPreviewProps>(({ tabI
           </button>
         )}
         <div className="px-6 py-8">
-        <article
-          className={`markdown-body max-w-none`}
-          style={{
-            backgroundColor: 'inherit',
-            color: 'inherit',
-            fontSize: `${fontSize}px`,
-            lineHeight: 1.7,
-          }}
-        >
+          <article
+            className={`markdown-body max-w-none`}
+            style={{
+              backgroundColor: 'inherit',
+              color: 'inherit',
+              fontSize: `${fontSize}px`,
+              lineHeight: 1.7,
+            }}
+          >
             <ReactMarkdown 
               remarkPlugins={[remarkGfm]}
               rehypePlugins={[rehypeHighlight]}

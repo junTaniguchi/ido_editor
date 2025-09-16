@@ -110,9 +110,9 @@ const MainLayout = () => {
   };
   
   return (
-    <div className="flex flex-col h-screen bg-white text-gray-900">
+    <div className="flex flex-col h-screen bg-white text-gray-900 dark:bg-[#0f172a] dark:text-gray-100">
       {/* ヘッダー */}
-      <header className="flex items-center px-4 h-12 bg-white border-b border-gray-300">
+      <header className="flex items-center px-4 h-12 bg-white border-b border-gray-300 dark:bg-gray-900 dark:border-gray-700">
         <button 
           className="p-1 mr-2 rounded hover:bg-gray-200"
           onClick={() => togglePane('isExplorerVisible')}
@@ -140,6 +140,16 @@ const MainLayout = () => {
             ＋
           </button>
         </div>
+        {/* Theme toggle */}
+        <button 
+          className="p-1 rounded hover:bg-gray-200 ml-2 dark:hover:bg-gray-800"
+          onClick={() => updateEditorSettings({ theme: editorSettings.theme === 'dark' ? 'light' : 'dark' })}
+          aria-label="Toggle Theme"
+          title={editorSettings.theme === 'dark' ? 'ライトモードに切替' : 'ダークモードに切替'}
+        >
+          {editorSettings.theme === 'dark' ? <IoSunny size={20} /> : <IoMoon size={20} />}
+        </button>
+
         <button 
           className="p-1 rounded hover:bg-gray-200 ml-2"
           onClick={() => setShowNewFileDialog(true)}
@@ -174,7 +184,7 @@ const MainLayout = () => {
       
       {/* 現在のビューモード表示（デバッグ用） */}
       {activeTab && (
-        <div className="bg-gray-100 px-2 py-1 border-b border-gray-300 flex justify-between items-center">
+        <div className="bg-gray-100 dark:bg-gray-900 px-2 py-1 border-b border-gray-300 dark:border-gray-700 flex justify-between items-center">
           <div className="text-xs flex items-center">
             <span className="font-medium mr-2">現在のモード:</span>
             <span className={`px-2 py-0.5 rounded ${
@@ -210,7 +220,7 @@ const MainLayout = () => {
       )}
       
       {/* メインコンテンツ */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden bg-white dark:bg-gray-900">
         {/* ファイルエクスプローラ */}
         {paneState.isExplorerVisible && (
           <div className="w-64 flex-shrink-0">

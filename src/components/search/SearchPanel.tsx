@@ -216,7 +216,7 @@ const SearchPanel: React.FC = () => {
   return (
     <div className="h-full flex flex-col bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-l border-gray-300 dark:border-gray-700">
       {/* ヘッダー */}
-      <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-700 flex justify-between items-center">
+      <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex justify-between items-center">
         <h2 className="font-medium text-sm">検索</h2>
         <button 
           className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
@@ -228,7 +228,7 @@ const SearchPanel: React.FC = () => {
       </div>
       
       {/* 検索フォーム */}
-      <div className="p-3 border-b border-gray-300 dark:border-gray-700">
+      <div className="p-3 border-b border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900">
         <div className="flex items-center mb-2">
           <div className="relative flex-1">
             <input

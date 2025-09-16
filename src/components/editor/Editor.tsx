@@ -59,6 +59,23 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
   // CodeMirrorのscroller要素をrefで取得
   const codeMirrorScrollerRef = useRef<HTMLDivElement | null>(null);
   
+  // テーマ切替時にCodeMirrorのscroller背景色も同期させる
+  // 早期returnの前に配置し、フックの順序が変化しないようにする
+  useEffect(() => {
+    const scroller = codeMirrorScrollerRef.current;
+    const isDark = editorSettings.theme === 'dark';
+    if (scroller) {
+      if (isDark) {
+        scroller.style.background = '#1e1e1e';
+        scroller.style.color = '#d4d4d4';
+      } else {
+        // ライトモードは常に白背景で視認性を確保
+        scroller.style.background = '#ffffff';
+        scroller.style.color = '#222222';
+      }
+    }
+  }, [editorSettings.theme]);
+  
   const viewMode = getViewMode(tabId);
   
   // 初期化時にタブデータを設定
@@ -229,7 +246,7 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
   return (
     <div className="h-full flex flex-col">
       {isPreviewable && (
-        <div className="p-2 border-b border-gray-300 dark:border-gray-700 flex justify-between items-center">
+        <div className="p-2 border-b border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex justify-between items-center">
           <div className="flex items-center">
             <span className="font-medium mr-2">エディタモード</span>
             {isDirty && <span className="text-sm text-amber-500 ml-2">(未保存の変更があります)</span>}

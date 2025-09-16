@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import ThemeController from "@/components/theme/ThemeController";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,6 +29,28 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        {/* Ensure dark mode is applied before hydration using persisted store */}
+        <Script id="theme-init" strategy="beforeInteractive">
+          {`
+          (function(){
+            try {
+              var raw = localStorage.getItem('editor-storage');
+              if (!raw) return;
+              var data = JSON.parse(raw);
+              var state = data?.state || data; // zustand persist structure
+              var theme = state?.editorSettings?.theme;
+              if (theme === 'dark') {
+                document.documentElement.classList.add('dark');
+                document.documentElement.setAttribute('data-theme','dark');
+              }
+            } catch(e) {
+              // noop
+            }
+          })();
+          `}
+        </Script>
+        {/* Apply dark class on <html> based on persisted setting */}
+        <ThemeController />
         {children}
       </body>
     </html>

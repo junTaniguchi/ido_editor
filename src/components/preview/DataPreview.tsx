@@ -787,7 +787,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     
     return (
       <div className="h-full flex flex-col">
-        <div className="p-2 border-b border-gray-300 dark:border-gray-700 flex justify-between items-center">
+        <div className="p-2 border-b border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex justify-between items-center">
           <div className="flex items-center">
             <span className="font-medium mr-2">データプレビュー</span>
             <span className="text-sm text-gray-500 ml-2">
@@ -919,7 +919,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   };
   
   return (
-    <div className="h-full overflow-hidden bg-white">
+    <div className="h-full overflow-hidden bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100">
       {renderPreviewWithEditOption()}
       
       {/* エクスポートモーダル */}
