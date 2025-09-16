@@ -280,19 +280,7 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
             >
               <IoSave className="inline mr-1" /> 保存
             </button>
-            {/* モード切替ボタン（常時表示：エディタ→プレビュー→分割表示→エディタ） */}
-            {isPreviewable && (
-              <button
-                className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
-                onClick={toggleViewMode}
-                title={
-                  viewMode === 'editor' ? 'プレビューモードに切り替え' :
-                  viewMode === 'preview' ? '分割表示モードに切り替え' : 'エディタモードに切り替え'
-                }
-              >
-                <IoGrid size={20} />
-              </button>
-            )}
+            {/* 上部にモード切替ボタンがあるため、ここでの切替は削除 */}
           </div>
         </div>
       )}
