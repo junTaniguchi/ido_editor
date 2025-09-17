@@ -95,7 +95,7 @@ const ResultChartPanel: React.FC<ResultChartPanelProps> = ({
         ) : (
           <div className="p-3">
             <ResultChartBuilder
-              rows={rows}
+              rows={originalRows ?? rows}
               title={chartTitle}
               collapsedByDefault={false}
               className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded"

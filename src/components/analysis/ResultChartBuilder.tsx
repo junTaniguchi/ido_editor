@@ -46,7 +46,8 @@ const buildPlotConfig = (
   xField: string,
   yField: string,
   aggregation: ResultAggregation,
-  bins: number
+  bins: number,
+  categoryField?: string
 ): { plot?: PlotState; error?: string } => {
   if (!rows || rows.length === 0) {
     return { error: 'チャートを作成するデータがありません' };
@@ -56,18 +57,18 @@ const buildPlotConfig = (
     return { error: 'X軸に使用する列を選択してください' };
   }
 
-  const getSeriesFromAggregation = () => {
+  const getSeriesFromAggregation = (sourceData: any[] = flattened) => {
     if (!yField && aggregation !== 'count') {
       return { error: 'Y軸の列が未選択の場合は集計方法に「件数」を指定してください' };
     }
 
-    const result = aggregateData(flattened, xField, yField || '', aggregation, false);
+    const result = aggregateData(sourceData, xField, yField || '', aggregation, false);
     if (result.error || !result.data) {
       return { error: result.error || '集計に失敗しました' };
     }
 
     if (yField) {
-      const hasNumeric = flattened.some(row => typeof row[yField] === 'number' && !Number.isNaN(row[yField]));
+      const hasNumeric = sourceData.some(row => typeof row[yField] === 'number' && !Number.isNaN(row[yField]));
       if (!hasNumeric) {
         return { error: '選択したY軸の列には数値データが必要です' };
       }
@@ -99,33 +100,81 @@ const buildPlotConfig = (
           return { error: '散布図を作成できる十分なデータがありません' };
         }
 
-        const trace: Partial<PlotlyData> = {
-          type: 'scatter',
-          mode: 'markers',
-          x: xValues,
-          y: yValues,
-          marker: {
-            color: '#2563eb',
-            size: 8,
-            opacity: 0.8,
-          },
-        };
+        const categoriesRaw = categoryField
+          ? [...new Set(flattened
+              .map(row => row[categoryField])
+              .filter(value => value !== undefined && value !== null)
+              .map(value => String(value)))]
+          : [];
+        const categories = categoryField ? (categoriesRaw.length > 0 ? categoriesRaw : [undefined]) : [undefined];
+
+        const colorPalette = [
+          '#2563eb',
+          '#ef4444',
+          '#10b981',
+          '#f59e0b',
+          '#8b5cf6',
+          '#ec4899',
+          '#14b8a6',
+          '#f97316',
+          '#6366f1',
+        ];
+
+        const traces: PlotlyData[] = [];
+
+        categories.forEach((category, index) => {
+          const filtered = category
+            ? flattened.filter(row => String(row[categoryField!]) === category)
+            : flattened;
+
+          const xValuesCat = filtered
+            .map(row => row[xField])
+            .filter(value => value !== undefined && value !== null);
+          const yValuesCat = filtered
+            .map(row => row[yField])
+            .filter(value => typeof value === 'number' && !Number.isNaN(value));
+
+          if (xValuesCat.length > 0 && yValuesCat.length > 0) {
+            const displayName = category
+              || (categoryField ? '未分類' : (yField || (aggregation === 'count' ? 'count' : 'value')));
+            traces.push({
+              type: 'scatter',
+              mode: 'markers',
+              x: xValuesCat,
+              y: yValuesCat,
+              name: displayName,
+              marker: {
+                color: colorPalette[index % colorPalette.length],
+                size: 8,
+                opacity: 0.8,
+              },
+            } as PlotlyData);
+          }
+        });
+
+        if (traces.length === 0) {
+          return { error: '散布図を作成できるデータがありません' };
+        }
 
         return {
           plot: {
-            data: [trace as PlotlyData],
+            data: traces,
             layout: {
               autosize: true,
               height: 320,
               margin: { t: 40, r: 20, b: 60, l: 60 },
               xaxis: { title: xField },
               yaxis: { title: yField },
+              showlegend: traces.length > 1,
             },
           },
         };
       }
 
       case 'histogram': {
+        if (categoryField) {
+          return { error: 'ヒストグラムではグループ分けを利用できません' };
+        }
         const values = flattened
           .map(row => row[xField])
           .filter(value => typeof value === 'number' && !Number.isNaN(value));
@@ -157,6 +206,9 @@ const buildPlotConfig = (
       }
 
       case 'pie': {
+        if (categoryField) {
+          return { error: '円グラフではグループ分けを利用できません' };
+        }
         const { labels, values, error } = getSeriesFromAggregation();
         if (error) return { error };
         if (!labels || !values || values.every(v => v === undefined || v === null)) {
@@ -185,32 +237,86 @@ const buildPlotConfig = (
 
       case 'line':
       case 'bar': {
-        const { labels, values, error } = getSeriesFromAggregation();
-        if (error) return { error };
-        if (!labels || !values || values.length === 0) {
+        const categoriesRaw = categoryField
+          ? [...new Set(flattened
+              .map(row => row[categoryField])
+              .filter(value => value !== undefined && value !== null)
+              .map(value => String(value)))]
+          : [];
+        const categories = categoryField ? (categoriesRaw.length > 0 ? categoriesRaw : [undefined]) : [undefined];
+
+        const colorPalette = [
+          '#2563eb',
+          '#ef4444',
+          '#10b981',
+          '#f59e0b',
+          '#8b5cf6',
+          '#ec4899',
+          '#14b8a6',
+          '#f97316',
+          '#6366f1',
+        ];
+
+        const allLabelsSet = new Set<string | number>();
+        const seriesMaps: { category: string; values: Map<string | number, number> }[] = [];
+
+        categories.forEach((category, index) => {
+          const filtered = category
+            ? flattened.filter(row => String(row[categoryField!]) === category)
+            : flattened;
+
+          const { labels, values, error } = getSeriesFromAggregation(filtered);
+          if (error || !labels || !values) {
+            return;
+          }
+          const valueMap = new Map<string | number, number>();
+          labels.forEach((label, idx) => {
+            const value = values[idx];
+            if (value !== undefined && value !== null) {
+              valueMap.set(label, value);
+            }
+            allLabelsSet.add(label);
+          });
+          const displayName = category
+            || (categoryField ? `未分類` : (yField || (aggregation === 'count' ? 'count' : 'value')));
+          seriesMaps.push({ category: displayName, values: valueMap });
+        });
+
+        const labels = Array.from(allLabelsSet);
+        if (labels.length === 0 || seriesMaps.length === 0) {
           return { error: 'チャートを作成できるデータがありません' };
         }
 
-        const trace: Partial<PlotlyData> = {
-          type: chartType === 'bar' ? 'bar' : 'scatter',
-          mode: chartType === 'line' ? 'lines+markers' : undefined,
-          x: labels,
-          y: values,
-          marker: {
-            color: chartType === 'bar' ? '#2563eb' : '#10b981',
-          },
-          line: chartType === 'line' ? { color: '#10b981', width: 2 } : undefined,
-        };
+        const traces: PlotlyData[] = seriesMaps.map((series, idx) => {
+          const data = labels.map(label => {
+            const value = series.values.get(label);
+            return value !== undefined ? value : 0;
+          });
+
+          return {
+            type: chartType === 'bar' ? 'bar' : 'scatter',
+            mode: chartType === 'line' ? 'lines+markers' : undefined,
+            x: labels,
+            y: data,
+            name: series.category,
+            marker: {
+              color: colorPalette[idx % colorPalette.length],
+            },
+            line: chartType === 'line' ? { color: colorPalette[idx % colorPalette.length], width: 2 } : undefined,
+          } as PlotlyData;
+        });
 
         return {
           plot: {
-            data: [trace as PlotlyData],
+            data: traces,
             layout: {
               autosize: true,
               height: 320,
               margin: { t: 40, r: 20, b: 60, l: 60 },
               xaxis: { title: xField },
               yaxis: { title: yField || '値' },
+              barmode: chartType === 'bar' && categories.length > 1 ? 'group' : undefined,
+              showlegend: categories.length > 1,
             },
           },
         };
@@ -243,6 +349,8 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     );
   }, [availableColumns, flattened]);
 
+  const [categoryField, setCategoryField] = useState<string>('');
+
   const [expanded, setExpanded] = useState(!collapsedByDefault);
   const [chartType, setChartType] = useState<ResultChartType>('bar');
   const [xField, setXField] = useState<string>('');
@@ -268,6 +376,20 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
   }, [numericColumns]);
 
   useEffect(() => {
+    if (categoryField && !availableColumns.includes(categoryField)) {
+      setCategoryField('');
+    }
+  }, [availableColumns, categoryField]);
+
+  const supportsCategory = chartType === 'bar' || chartType === 'line' || chartType === 'scatter';
+
+  useEffect(() => {
+    if (!supportsCategory && categoryField) {
+      setCategoryField('');
+    }
+  }, [supportsCategory, categoryField]);
+
+  useEffect(() => {
     if ((chartType === 'bar' || chartType === 'line' || chartType === 'pie') && !yField && aggregation !== 'count') {
       setAggregation('count');
     }
@@ -286,11 +408,12 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
       xField,
       canSelectYField ? yField : '',
       aggregation,
-      bins
+      bins,
+      supportsCategory && categoryField ? categoryField : undefined
     );
     setError(plotError || null);
     return { plot };
-  }, [rows, flattened, chartType, xField, yField, aggregation, bins, expanded, canSelectYField]);
+  }, [rows, flattened, chartType, xField, yField, aggregation, bins, expanded, canSelectYField, supportsCategory, categoryField]);
 
   const aggregationDisabled = !allowAggregation || !xField || (requiresNumericY && !yField);
   const showYField = canSelectYField && (chartType !== 'pie' || numericColumns.length > 0);
@@ -363,6 +486,22 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
                 >
                   {aggregationOptions.map(option => (
                     <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            {supportsCategory && (
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1 col-span-full lg:col-span-1">
+                グループ分け
+                <select
+                  value={categoryField}
+                  onChange={(e) => setCategoryField(e.target.value)}
+                  className="p-2 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                >
+                  <option value="">グループ分けなし</option>
+                  {availableColumns.map(column => (
+                    <option key={column} value={column}>{column}</option>
                   ))}
                 </select>
               </label>
