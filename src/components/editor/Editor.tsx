@@ -379,4 +379,6 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
   );
 });
 
+Editor.displayName = 'Editor';
+
 export default Editor;
