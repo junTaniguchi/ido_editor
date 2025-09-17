@@ -103,3 +103,18 @@ export interface ChartSettings {
     taskNameField?: string;
   }
 }
+
+// SQLノートブックセルに関する型定義
+export interface SqlNotebookCell {
+  id: string;
+  title: string;
+  query: string;
+  status: 'idle' | 'running' | 'success' | 'error';
+  error: string | null;
+  result: any[] | null;
+  originalResult: any[] | null;
+  columns: string[];
+  executedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}

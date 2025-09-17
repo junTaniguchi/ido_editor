@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useEditorStore } from '@/store/editorStore';
 import { parseCSV, parseJSON, parseYAML, parseParquet, parseExcel, flattenNestedObjects } from '@/lib/dataPreviewUtils';
-import { executeQuery, calculateStatistics, aggregateData, prepareChartData, calculateInfo } from '@/lib/dataAnalysisUtils';
-import { IoAlertCircleOutline, IoAnalyticsOutline, IoBarChartOutline, IoStatsChartOutline, IoCodeSlash, IoEye, IoLayersOutline, IoCreate, IoSave, IoGitNetwork, IoChevronUpOutline, IoChevronDownOutline } from 'react-icons/io5';
+import { executeQuery, calculateStatistics, aggregateData, prepareChartData, calculateInfo, downloadData } from '@/lib/dataAnalysisUtils';
+import { IoAlertCircleOutline, IoAnalyticsOutline, IoBarChartOutline, IoStatsChartOutline, IoCodeSlash, IoEye, IoLayersOutline, IoCreate, IoSave, IoGitNetwork, IoChevronUpOutline, IoChevronDownOutline, IoBookOutline, IoAddOutline, IoPlay, IoPlayForward, IoTrashOutline, IoDownloadOutline } from 'react-icons/io5';
 import QueryResultTable from './QueryResultTable';
 import InfoResultTable from './InfoResultTable';
 import EditableQueryResultTable from './EditableQueryResultTable';
@@ -34,6 +34,7 @@ const Plot = dynamic(() => import('react-plotly.js'), { ssr: false });
 import ChartDataLabels from 'chartjs-plugin-datalabels';
 // 関係グラフコンポーネントを動的インポート（SSR回避）
 const RelationshipGraph = dynamic(() => import('./RelationshipGraph'), { ssr: false });
+import { SqlNotebookCell } from '@/types';
 
 // Chart.jsコンポーネントを登録
 ChartJS.register(
@@ -65,7 +66,9 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
     getViewMode,
     setViewMode,
     editorSettings,
-    updateEditorSettings
+    updateEditorSettings,
+    sqlNotebook,
+    setSqlNotebook
   } = useEditorStore();
 
   const toggleViewMode = () => {
@@ -132,7 +135,41 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
   // 関係グラフのサイズを更新するためのステート
   const [graphSize, setGraphSize] = useState({ width: 800, height: 600 });
   const [isSettingsCollapsed, setIsSettingsCollapsed] = useState(false);
-  
+  const [isNotebookMode, setIsNotebookMode] = useState(false);
+  const [runAllInProgress, setRunAllInProgress] = useState(false);
+
+  const notebookCells = useMemo(() => sqlNotebook[tabId] || [], [sqlNotebook, tabId]);
+  const hasNotebookCells = notebookCells.length > 0;
+
+  const generateCellId = useCallback(() => {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+      return crypto.randomUUID();
+    }
+    return `cell-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+  }, []);
+
+  const createNotebookCell = useCallback((index: number): SqlNotebookCell => {
+    const timestamp = new Date().toISOString();
+    return {
+      id: generateCellId(),
+      title: `セル ${index}`,
+      query: 'SELECT * FROM ? LIMIT 10',
+      status: 'idle',
+      error: null,
+      result: null,
+      originalResult: null,
+      columns: [],
+      executedAt: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+  }, [generateCellId]);
+
+  const updateNotebookCells = useCallback((updater: (cells: SqlNotebookCell[]) => SqlNotebookCell[]) => {
+    const currentCells = sqlNotebook[tabId] || [];
+    setSqlNotebook(tabId, updater(currentCells));
+  }, [setSqlNotebook, sqlNotebook, tabId]);
+
   // 関係グラフのサイズを更新
   useEffect(() => {
     if (activeTab === 'relationship' && graphContainerRef.current) {
@@ -153,6 +190,13 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
       };
     }
   }, [activeTab]);
+
+  // ノートブックの初期セルを準備
+  useEffect(() => {
+    if (!sqlNotebook[tabId] || sqlNotebook[tabId].length === 0) {
+      setSqlNotebook(tabId, [createNotebookCell(1)]);
+    }
+  }, [createNotebookCell, setSqlNotebook, sqlNotebook, tabId]);
   
   // データを初期ロード
   useEffect(() => {
@@ -498,6 +542,22 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
         setQueryResult(queryResult.data as any[]);
         setOriginalQueryResult(queryResult.data as any[]);
       }
+
+      updateNotebookCells((cells) => {
+        const normalizedCells = cells.length > 0 ? cells : [createNotebookCell(1)];
+        const timestamp = new Date().toISOString();
+        return normalizedCells.map((cell, idx) => ({
+          ...cell,
+          title: cell.title || `セル ${idx + 1}`,
+          status: 'idle',
+          error: null,
+          result: null,
+          originalResult: null,
+          columns: [],
+          executedAt: null,
+          updatedAt: timestamp,
+        }));
+      });
       
       // デフォルトチャートデータを準備（もし適切な数値カラムがあれば）
       if (data.length > 0 && cols.length > 1) {
@@ -585,6 +645,203 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
       setLoading(false);
     }
   };
+
+  const addNotebookCell = useCallback(() => {
+    updateNotebookCells((cells) => {
+      const nextCells = [...cells, createNotebookCell(cells.length + 1)];
+      return nextCells.map((cell, idx) => ({
+        ...cell,
+        title: `セル ${idx + 1}`,
+      }));
+    });
+  }, [createNotebookCell, updateNotebookCells]);
+
+  const removeNotebookCell = useCallback((cellId: string) => {
+    updateNotebookCells((cells) => {
+      const filtered = cells.filter(cell => cell.id !== cellId);
+      if (filtered.length === 0) {
+        return [createNotebookCell(1)];
+      }
+      return filtered.map((cell, idx) => ({
+        ...cell,
+        title: `セル ${idx + 1}`,
+      }));
+    });
+  }, [createNotebookCell, updateNotebookCells]);
+
+  const updateNotebookCellQuery = useCallback((cellId: string, query: string) => {
+    updateNotebookCells((cells) => cells.map(cell => (
+      cell.id === cellId
+        ? { ...cell, query, updatedAt: new Date().toISOString() }
+        : cell
+    )));
+  }, [updateNotebookCells]);
+
+  const executeNotebookCell = useCallback(async (cellId: string): Promise<boolean> => {
+    if (!parsedData) {
+      updateNotebookCells((cells) => cells.map(cell => (
+        cell.id === cellId
+          ? {
+              ...cell,
+              status: 'error',
+              error: 'データが読み込まれていません',
+            }
+          : cell
+      )));
+      return false;
+    }
+
+    let targetCell: SqlNotebookCell | undefined;
+    updateNotebookCells((cells) => cells.map(cell => {
+      if (cell.id === cellId) {
+        targetCell = cell;
+        return {
+          ...cell,
+          status: 'running',
+          error: null,
+        };
+      }
+      return cell;
+    }));
+
+    if (!targetCell) {
+      return false;
+    }
+
+    const queryText = targetCell.query?.trim();
+
+    if (!queryText) {
+      updateNotebookCells((cells) => cells.map(cell => (
+        cell.id === cellId
+          ? {
+              ...cell,
+              status: 'error',
+              error: 'SQLクエリが入力されていません',
+            }
+          : cell
+      )));
+      return false;
+    }
+
+    try {
+      const flatResult = executeQuery(parsedData, queryText, true);
+
+      if (flatResult.error) {
+        updateNotebookCells((cells) => cells.map(cell => (
+          cell.id === cellId
+            ? {
+                ...cell,
+                status: 'error',
+                error: flatResult.error,
+                result: null,
+                originalResult: null,
+                columns: [],
+                executedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              }
+            : cell
+        )));
+        console.error('Notebook SQL execution error:', flatResult.error);
+        return false;
+      }
+
+      const resultData = (flatResult.data as any[]) || [];
+      let nestedResult: any[] | null = null;
+
+      if (originalData) {
+        const nested = executeQuery(originalData, queryText, true);
+        if (!nested.error) {
+          nestedResult = nested.data as any[];
+        }
+      }
+
+      const columns = resultData.length > 0 ? Object.keys(resultData[0]) : [];
+      const timestamp = new Date().toISOString();
+
+      updateNotebookCells((cells) => cells.map(cell => (
+        cell.id === cellId
+          ? {
+              ...cell,
+              status: 'success',
+              error: null,
+              result: resultData,
+              originalResult: nestedResult,
+              columns,
+              executedAt: timestamp,
+              updatedAt: timestamp,
+            }
+          : cell
+      )));
+
+      setQueryResult(resultData);
+      setOriginalQueryResult(nestedResult || resultData);
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'クエリ実行中にエラーが発生しました';
+      updateNotebookCells((cells) => cells.map(cell => (
+        cell.id === cellId
+          ? {
+              ...cell,
+              status: 'error',
+              error: message,
+              result: null,
+              originalResult: null,
+              columns: [],
+              executedAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            }
+          : cell
+      )));
+      console.error('Notebook SQL execution error:', message);
+      return false;
+    }
+  }, [parsedData, originalData, updateNotebookCells, setQueryResult, setOriginalQueryResult]);
+
+  const executeAllNotebookCells = useCallback(async () => {
+    setRunAllInProgress(true);
+
+    try {
+      for (const cell of notebookCells) {
+        const success = await executeNotebookCell(cell.id);
+        if (!success) {
+          break;
+        }
+      }
+    } finally {
+      setRunAllInProgress(false);
+    }
+  }, [executeNotebookCell, notebookCells]);
+
+  const exportNotebook = useCallback(() => {
+    if (!notebookCells || notebookCells.length === 0) {
+      return;
+    }
+
+    const activeTab = tabs.get(tabId);
+    const baseName = activeTab?.name?.replace(/\.[^/.]+$/, '') || 'sql-notebook';
+    const timestamp = new Date().toISOString();
+    const payload = {
+      version: 1,
+      exportedAt: timestamp,
+      tabId,
+      tabName: activeTab?.name || null,
+      cellCount: notebookCells.length,
+      cells: notebookCells.map((cell) => ({
+        id: cell.id,
+        title: cell.title,
+        query: cell.query,
+        status: cell.status,
+        error: cell.error,
+        executedAt: cell.executedAt,
+        updatedAt: cell.updatedAt,
+        previewRowCount: cell.result ? cell.result.length : 0,
+        preview: cell.result ? cell.result.slice(0, 100) : [],
+        columns: cell.columns,
+      })),
+    };
+
+    downloadData(JSON.stringify(payload, null, 2), `${baseName}.sqlnb.json`, 'application/json');
+  }, [notebookCells, tabId, tabs]);
   
   // チャートを更新
   const updateChart = () => {
@@ -1709,12 +1966,143 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
       </div>
     );
   };
-  
+
+  const renderNotebookWorkspace = () => {
+    if (!notebookCells || notebookCells.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full p-6 text-gray-500 dark:text-gray-400">
+          <p className="mb-4">ノートブックセルがありません。</p>
+          <button
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center"
+            onClick={addNotebookCell}
+          >
+            <IoAddOutline className="mr-2" />
+            セルを追加
+          </button>
+        </div>
+      );
+    }
+
+    const statusStyles: Record<SqlNotebookCell['status'], { text: string; className: string }> = {
+      idle: { text: '未実行', className: 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200' },
+      running: { text: '実行中', className: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200' },
+      success: { text: '成功', className: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200' },
+      error: { text: 'エラー', className: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200' },
+    };
+
+    return (
+      <div className="space-y-6 p-4">
+        {notebookCells.map((cell, index) => {
+          const statusInfo = statusStyles[cell.status];
+          const isRunning = cell.status === 'running' || runAllInProgress;
+          const resultData = editorSettings.dataDisplayMode === 'nested' && cell.originalResult ? cell.originalResult : cell.result;
+          const hasResult = Array.isArray(resultData) && resultData.length > 0;
+          const rowCount = Array.isArray(resultData) ? resultData.length : 0;
+          const executedLabel = cell.executedAt
+            ? (() => {
+                try {
+                  return new Date(cell.executedAt).toLocaleString();
+                } catch {
+                  return cell.executedAt;
+                }
+              })()
+            : null;
+
+          return (
+            <div
+              key={cell.id}
+              className="border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 shadow-sm overflow-hidden"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+                    {cell.title || `セル ${index + 1}`}
+                  </span>
+                  {executedLabel && (
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      最終実行: {executedLabel}
+                    </span>
+                  )}
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${statusInfo.className}`}>
+                    {statusInfo.text}
+                  </span>
+                  {hasResult && (
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {rowCount} 件
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center text-sm disabled:opacity-50"
+                    onClick={() => executeNotebookCell(cell.id)}
+                    disabled={isRunning}
+                  >
+                    <IoPlay className="mr-1" />
+                    {cell.status === 'running' ? '実行中...' : 'セルを実行'}
+                  </button>
+                  <button
+                    className="px-3 py-1.5 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 flex items-center text-sm disabled:opacity-50"
+                    onClick={() => removeNotebookCell(cell.id)}
+                    disabled={notebookCells.length === 1 || runAllInProgress}
+                  >
+                    <IoTrashOutline className="mr-1" />
+                    削除
+                  </button>
+                </div>
+              </div>
+              <div className="p-4 space-y-4">
+                <textarea
+                  value={cell.query}
+                  onChange={(e) => updateNotebookCellQuery(cell.id, e.target.value)}
+                  className="w-full min-h-[120px] p-3 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-mono text-sm"
+                  placeholder="SELECT * FROM ? LIMIT 10"
+                  spellCheck={false}
+                  disabled={isRunning}
+                />
+                <div className="border border-gray-200 dark:border-gray-700 rounded">
+                  {cell.status === 'running' ? (
+                    <div className="flex items-center justify-center py-10 text-blue-500">
+                      <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-500 mr-3"></div>
+                      <span>クエリを実行中...</span>
+                    </div>
+                  ) : cell.status === 'error' ? (
+                    <div className="p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-300 text-sm">
+                      {cell.error || 'クエリ実行でエラーが発生しました'}
+                    </div>
+                  ) : hasResult ? (
+                    <div className="max-h-[360px] overflow-auto">
+                      <QueryResultTable data={resultData || []} />
+                    </div>
+                  ) : (
+                    <div className="p-4 text-sm text-gray-500 dark:text-gray-400">
+                      実行済みの結果がありません。クエリを実行すると結果が表示されます。
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        <div className="flex justify-center pb-4">
+          <button
+            className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 flex items-center"
+            onClick={addNotebookCell}
+          >
+            <IoAddOutline className="mr-2" />
+            セルを追加
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   // クエリ結果の編集データの変更をハンドリング
   const handleQueryDataChange = (newData: any[]) => {
     setEditedQueryResult(newData);
   };
-  
+
   // クエリ結果の編集を保存
   const saveQueryEdits = () => {
     if (!editedQueryResult) return;
@@ -1726,6 +2114,10 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
   
   // クエリ結果の表示
   const renderQueryResult = () => {
+    if (isNotebookMode) {
+      return renderNotebookWorkspace();
+    }
+
     if (!queryResult || queryResult.length === 0) {
       return <div className="text-center p-4 text-gray-500">クエリ結果がありません</div>;
     }
@@ -3197,28 +3589,100 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
           <div className="p-4">
             {/* SQLクエリ設定 */}
             {activeTab === 'query' && (
-              <div>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    SQLクエリ
-                  </label>
-                  <textarea
-                    value={sqlQuery}
-                    onChange={(e) => setSqlQuery(e.target.value)}
-                    className="w-full h-32 p-2 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                    placeholder="SELECT * FROM ? LIMIT 10"
-                  />
-                  <div className="mt-2 flex justify-between items-center">
-                    <div className="text-sm text-gray-500 dark:text-gray-400">
-                      テーブルは ?（クエスチョンマーク）で参照できます
+              <div className="space-y-4">
+                <div>
+                  <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      SQLクエリ
+                    </label>
+                    <div className="inline-flex rounded overflow-hidden border border-gray-300 dark:border-gray-600">
+                      <button
+                        className={`px-3 py-1 text-sm ${
+                          !isNotebookMode
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-white text-gray-600 dark:bg-gray-800 dark:text-gray-300'
+                        }`}
+                        onClick={() => setIsNotebookMode(false)}
+                      >
+                        シングルクエリ
+                      </button>
+                      <button
+                        className={`px-3 py-1 text-sm ${
+                          isNotebookMode
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-white text-gray-600 dark:bg-gray-800 dark:text-gray-300'
+                        }`}
+                        onClick={() => setIsNotebookMode(true)}
+                      >
+                        ノートブック
+                      </button>
                     </div>
-                    <button
-                      className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                      onClick={executeUserQuery}
-                    >
-                      実行
-                    </button>
                   </div>
+
+                  {!isNotebookMode ? (
+                    <>
+                      <textarea
+                        value={sqlQuery}
+                        onChange={(e) => setSqlQuery(e.target.value)}
+                        className="w-full h-32 p-2 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                        placeholder="SELECT * FROM ? LIMIT 10"
+                      />
+                      <div className="mt-2 flex justify-between items-center">
+                        <div className="text-sm text-gray-500 dark:text-gray-400">
+                          テーブルは ?（クエスチョンマーク）で参照できます
+                        </div>
+                        <button
+                          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                          onClick={executeUserQuery}
+                        >
+                          実行
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                        <div className="flex items-center gap-2 text-gray-600 dark:text-gray-300">
+                          <IoBookOutline size={16} />
+                          <span>Notebookモードでは複数のSQLセルを順次実行できます。</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center disabled:opacity-50"
+                            onClick={addNotebookCell}
+                          >
+                            <IoAddOutline className="mr-1" /> セル追加
+                          </button>
+                          <button
+                            className="px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700 flex items-center disabled:opacity-50"
+                            onClick={executeAllNotebookCells}
+                            disabled={!parsedData || runAllInProgress || !hasNotebookCells}
+                          >
+                            {runAllInProgress ? (
+                              <>
+                                <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
+                                実行中...
+                              </>
+                            ) : (
+                              <>
+                                <IoPlayForward className="mr-1" /> 全セル実行
+                              </>
+                            )}
+                          </button>
+                          <button
+                            className="px-3 py-1.5 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 flex items-center disabled:opacity-50"
+                            onClick={exportNotebook}
+                            disabled={!hasNotebookCells}
+                          >
+                            <IoDownloadOutline className="mr-1" /> Notebookを保存
+                          </button>
+                        </div>
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        テーブルは ?（クエスチョンマーク）で参照できます。各セル単位でSQLを編集・実行して結果を確認できます。
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

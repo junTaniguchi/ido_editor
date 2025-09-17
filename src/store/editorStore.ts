@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { TabData, FileTreeItem, EditorSettings, PaneState, ContextMenuTarget, SearchSettings, AnalysisData, SqlResult, ChartSettings, SearchResult } from '@/types';
+import { TabData, FileTreeItem, EditorSettings, PaneState, ContextMenuTarget, SearchSettings, AnalysisData, SqlResult, ChartSettings, SearchResult, SqlNotebookCell } from '@/types';
 
 interface EditorStore {
   // タブ管理
@@ -62,6 +62,9 @@ interface EditorStore {
   setSqlResult: (result: SqlResult | null) => void;
   chartSettings: ChartSettings;
   updateChartSettings: (settings: Partial<ChartSettings>) => void;
+  sqlNotebook: Record<string, SqlNotebookCell[]>;
+  setSqlNotebook: (tabId: string, cells: SqlNotebookCell[]) => void;
+  clearSqlNotebook: (tabId: string) => void;
 
   // 複数ファイル分析機能
   selectedFiles: Set<string>;
@@ -249,6 +252,16 @@ export const useEditorStore = create<EditorStore>()(
       updateChartSettings: (settings) => set((state) => ({
         chartSettings: { ...state.chartSettings, ...settings }
       })),
+      sqlNotebook: {},
+      setSqlNotebook: (tabId, cells) => set((state) => ({
+        sqlNotebook: { ...state.sqlNotebook, [tabId]: cells }
+      })),
+      clearSqlNotebook: (tabId) => set((state) => {
+        if (!state.sqlNotebook[tabId]) return state;
+        const nextNotebook = { ...state.sqlNotebook };
+        delete nextNotebook[tabId];
+        return { sqlNotebook: nextNotebook };
+      }),
 
       // 複数ファイル分析機能
       selectedFiles: new Set<string>(),
@@ -302,6 +315,19 @@ export const useEditorStore = create<EditorStore>()(
           searchSettings: state.searchSettings,
           analysisEnabled: state.analysisEnabled,
           chartSettings: state.chartSettings,
+          sqlNotebook: Object.keys(state.sqlNotebook || {}).reduce<Record<string, SqlNotebookCell[]>>((acc, key) => {
+            const cells = state.sqlNotebook[key] || [];
+            acc[key] = cells.map((cell) => ({
+              ...cell,
+              status: 'idle',
+              error: null,
+              result: null,
+              originalResult: null,
+              columns: [],
+              executedAt: null,
+            }));
+            return acc;
+          }, {}),
         };
       },
       // デシリアライズ時にMapに戻す処理
@@ -338,6 +364,22 @@ export const useEditorStore = create<EditorStore>()(
           // lastViewMode の復元
           if (!state.lastViewMode) {
             state.lastViewMode = 'editor';
+          }
+          if (!state.sqlNotebook) {
+            state.sqlNotebook = {};
+          } else {
+            Object.keys(state.sqlNotebook).forEach((key) => {
+              const cells = state.sqlNotebook[key] || [];
+              state.sqlNotebook[key] = cells.map((cell) => ({
+                ...cell,
+                status: 'idle',
+                error: null,
+                result: null,
+                originalResult: null,
+                columns: cell.columns || [],
+                executedAt: null,
+              }));
+            });
           }
         }
       }
