@@ -139,7 +139,6 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
           if (extension === 'ipynb') mappedType = 'ipynb';
           if (extension === 'pdf') mappedType = 'pdf';
         }
-        console.log('DataPreview loadData mappedType', { originalType: tab.type, mappedType, name: tab.name });
         setType(mappedType as typeof type);
         
         // Excelファイルの場合は特別な処理
@@ -177,7 +176,6 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
         if (extension === 'ipynb') mappedType = 'ipynb';
         if (extension === 'pdf') mappedType = 'pdf';
       }
-      console.log('DataPreview external update', { originalType: tab.type, mappedType, name: tab.name });
       parseContent(tab.content, mappedType);
     }
   }, [tabs, tabId, isEditing, isTableEditing]);

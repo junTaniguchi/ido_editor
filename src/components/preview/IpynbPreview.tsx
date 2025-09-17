@@ -20,6 +20,15 @@ import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
+const normalizeText = (text: string): string => {
+  if (!text) return '';
+  return text
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t');
+};
+
 interface NotebookCell {
   cell_type: 'markdown' | 'code' | string;
   metadata?: Record<string, any>;
@@ -58,7 +67,8 @@ interface IpynbPreviewProps {
 const renderOutput = (output: NotebookOutput, index: number) => {
   switch (output.output_type) {
     case 'stream': {
-      const text = Array.isArray(output.text) ? output.text.join('') : output.text;
+      const textRaw = Array.isArray(output.text) ? output.text.join('') : (output.text || '');
+      const text = normalizeText(textRaw);
       const isError = output.name === 'stderr';
       return (
         <pre
@@ -74,11 +84,12 @@ const renderOutput = (output: NotebookOutput, index: number) => {
     case 'execute_result':
     case 'display_data': {
       const data = output.data || {};
-      const mimeText =
+      const mimeTextRaw =
         data['text/plain']?.join?.('') ||
         data['text/plain'] ||
         data['text/html']?.join?.('') ||
         data['text/html'];
+      const mimeText = mimeTextRaw ? normalizeText(String(mimeTextRaw)) : '';
       if (data['image/png']) {
         const src = `data:image/png;base64,${data['image/png']}`;
         return (
@@ -117,7 +128,7 @@ const renderOutput = (output: NotebookOutput, index: number) => {
           key={`error-${index}`}
           className="bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-200 text-xs px-3 py-2 rounded-md overflow-x-auto whitespace-pre-wrap"
         >
-          {`${output.ename}: ${output.evalue}\n${(output.traceback || []).join('\n')}`}
+          {normalizeText(`${output.ename}: ${output.evalue}\n${(output.traceback || []).join('\n')}`)}
         </pre>
       );
     }
@@ -138,7 +149,8 @@ const IpynbPreview: React.FC<IpynbPreviewProps> = ({ data }) => {
   return (
     <div className="space-y-4">
       {data.cells.map((cell, idx) => {
-        const source = cell.source?.join('') || '';
+        const source = cell.source ? cell.source.join('') : '';
+        const normalizedSource = normalizeText(source);
         const isMarkdown = cell.cell_type === 'markdown';
         const executionLabel =
           cell.cell_type === 'code'
@@ -161,11 +173,11 @@ const IpynbPreview: React.FC<IpynbPreviewProps> = ({ data }) => {
             <div className="px-4 py-3 space-y-3">
               {isMarkdown ? (
                 <div className="prose prose-sm dark:prose-invert max-w-none">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{source}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{normalizedSource}</ReactMarkdown>
                 </div>
               ) : (
-                <pre className="bg-gray-900/90 text-gray-50 text-xs px-3 py-2 rounded-md overflow-x-auto">
-                  <code>{source}</code>
+                <pre className="bg-gray-900/90 text-gray-50 text-xs px-3 py-2 rounded-md overflow-x-auto whitespace-pre-wrap">
+                  <code className="whitespace-pre-wrap block">{normalizedSource}</code>
                 </pre>
               )}
 
