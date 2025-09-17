@@ -38,6 +38,7 @@ import {
 import QueryResultTable from './QueryResultTable';
 import InfoResultTable from './InfoResultTable';
 import EditableQueryResultTable from './EditableQueryResultTable';
+import ResultChartBuilder from './ResultChartBuilder';
 import { SqlNotebookCell } from '@/types';
 import { 
   Chart as ChartJS, 
@@ -162,6 +163,7 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
   const notebookCells = useMemo(() => sqlNotebook[MULTI_FILE_NOTEBOOK_ID] || [], [sqlNotebook, MULTI_FILE_NOTEBOOK_ID]);
   const hasNotebookCells = notebookCells.length > 0;
   const notebookSnapshotMeta = sqlNotebookMeta[MULTI_FILE_NOTEBOOK_ID];
+  const [openNotebookCharts, setOpenNotebookCharts] = useState<Record<string, boolean>>({});
   
   // グラフコンテナのref
   const graphContainerRef = useRef<HTMLDivElement | null>(null);
@@ -450,6 +452,7 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
       if (cellsToUse.length > 0) {
         setSqlQuery(cellsToUse[0].query);
       }
+      setOpenNotebookCharts({});
       setError(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Notebookの読み込みに失敗しました';
@@ -576,6 +579,7 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
     setSqlQuery('SELECT * FROM combined');
     setSqlNotebookMeta(MULTI_FILE_NOTEBOOK_ID, undefined);
     setSqlNotebook(MULTI_FILE_NOTEBOOK_ID, [createNotebookCell(1)]);
+    setOpenNotebookCharts({});
     
     try {
       const newFileDataMap = new Map<string, any[]>();
@@ -1051,6 +1055,7 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
                 }
               })()
             : null;
+          const isChartOpen = openNotebookCharts[cell.id] ?? false;
 
           return (
             <div key={cell.id} className="border border-gray-200 rounded-lg bg-white shadow-sm overflow-hidden">
@@ -1077,6 +1082,14 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
                   >
                     <IoPlay className="mr-1" />
                     {cell.status === 'running' ? '実行中...' : 'セルを実行'}
+                  </button>
+                  <button
+                    className="px-3 py-1.5 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 flex items-center text-sm disabled:opacity-50"
+                    onClick={() => setOpenNotebookCharts(prev => ({ ...prev, [cell.id]: !isChartOpen }))}
+                    disabled={!hasResult || isRunning}
+                  >
+                    <IoBarChartOutline className="mr-1" />
+                    {isChartOpen ? 'チャートを閉じる' : 'チャート'}
                   </button>
                   <button
                     className="px-3 py-1.5 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 flex items-center text-sm disabled:opacity-50"
@@ -1117,6 +1130,14 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
                     </div>
                   )}
                 </div>
+                {isChartOpen && hasResult && (
+                  <ResultChartBuilder
+                    rows={resultData}
+                    title="セル結果のチャート"
+                    collapsedByDefault={false}
+                    className="border border-gray-200 rounded"
+                  />
+                )}
               </div>
             </div>
           );
@@ -1134,16 +1155,26 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
       );
     }
 
+    const dataToUse = editedQueryResult || queryResult;
+
     return (
-      <div className="border border-gray-200 rounded">
-        {isQueryEditing ? (
-          <EditableQueryResultTable 
-            data={editedQueryResult || queryResult} 
-            onDataChange={setEditedQueryResult}
-          />
-        ) : (
-          <QueryResultTable data={queryResult} />
-        )}
+      <div className="space-y-3">
+        <div className="border border-gray-200 rounded">
+          {isQueryEditing ? (
+            <EditableQueryResultTable 
+              data={dataToUse} 
+              onDataChange={setEditedQueryResult}
+            />
+          ) : (
+            <QueryResultTable data={dataToUse} />
+          )}
+        </div>
+        <ResultChartBuilder
+          rows={dataToUse}
+          title="クエリ結果でチャート作成"
+          collapsedByDefault
+          className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded"
+        />
       </div>
     );
   };

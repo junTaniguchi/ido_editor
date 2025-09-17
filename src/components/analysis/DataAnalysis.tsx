@@ -8,6 +8,7 @@ import { IoAlertCircleOutline, IoAnalyticsOutline, IoBarChartOutline, IoStatsCha
 import QueryResultTable from './QueryResultTable';
 import InfoResultTable from './InfoResultTable';
 import EditableQueryResultTable from './EditableQueryResultTable';
+import ResultChartBuilder from './ResultChartBuilder';
 import { 
   Chart as ChartJS, 
   CategoryScale, 
@@ -138,6 +139,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
   const [isSettingsCollapsed, setIsSettingsCollapsed] = useState(false);
   const [isNotebookMode, setIsNotebookMode] = useState(false);
   const [runAllInProgress, setRunAllInProgress] = useState(false);
+  const [openChartCells, setOpenChartCells] = useState<Record<string, boolean>>({});
 
   const notebookCells = useMemo(() => sqlNotebook[tabId] || [], [sqlNotebook, tabId]);
   const hasNotebookCells = notebookCells.length > 0;
@@ -293,6 +295,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
     setInfoResult(null);
     setNotebookSnapshotMeta(null);
     setIsNotebookMode(false);
+    setOpenChartCells({});
     
     try {
       let data: any[] = [];
@@ -352,6 +355,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
             if (cellsToUse.length > 0) {
               setSqlQuery(cellsToUse[0].query);
             }
+            setOpenChartCells({});
 
             setOriginalData(null);
             setOriginalQueryResult(null);
@@ -2102,6 +2106,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                 }
               })()
             : null;
+          const isChartOpen = openChartCells[cell.id] ?? false;
 
           return (
             <div
@@ -2135,6 +2140,14 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                   >
                     <IoPlay className="mr-1" />
                     {cell.status === 'running' ? '実行中...' : 'セルを実行'}
+                  </button>
+                  <button
+                    className="px-3 py-1.5 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 flex items-center text-sm disabled:opacity-50"
+                    onClick={() => setOpenChartCells(prev => ({ ...prev, [cell.id]: !isChartOpen }))}
+                    disabled={!hasResult || isRunning}
+                  >
+                    <IoBarChartOutline className="mr-1" />
+                    {isChartOpen ? 'チャートを閉じる' : 'チャート'}
                   </button>
                   <button
                     className="px-3 py-1.5 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 flex items-center text-sm disabled:opacity-50"
@@ -2175,6 +2188,14 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                     </div>
                   )}
                 </div>
+                {isChartOpen && hasResult && (
+                  <ResultChartBuilder
+                    rows={resultData || []}
+                    title="セル結果のチャート"
+                    collapsedByDefault={false}
+                    className="border border-gray-200 dark:border-gray-700 rounded"
+                  />
+                )}
               </div>
             </div>
           );
@@ -2268,6 +2289,14 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
         </div>
         <div className="flex-1 overflow-auto">
           <QueryResultTable data={dataToUse} />
+        </div>
+        <div className="border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-3">
+          <ResultChartBuilder
+            rows={dataToUse}
+            title="クエリ結果でチャート作成"
+            collapsedByDefault
+            className="bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded"
+          />
         </div>
       </div>
     );
