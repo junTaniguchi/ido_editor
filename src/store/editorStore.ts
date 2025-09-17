@@ -241,7 +241,7 @@ export const useEditorStore = create<EditorStore>()(
         yAxis: '',
         aggregation: 'none', // デフォルトは集計なし
         categoryField: '',
-        dataSource: 'originalData', // デフォルトでは元データを使用
+        dataSource: 'queryResult', // デフォルトではクエリ結果を使用
         options: {
           bins: 10,
           regressionType: 'linear',

@@ -933,7 +933,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
       カテゴリフィールドの値チェック: chartSettings.categoryField ? 'あり' : 'なし',
       カテゴリフィールドの長さ: chartSettings.categoryField ? chartSettings.categoryField.length : 0,
       チャートタイプ: chartSettings.type,
-      データソース: chartSettings.dataSource || 'originalData',
+      データソース: chartSettings.dataSource || 'queryResult',
       集計方法: chartSettings.aggregation
     });
     
@@ -951,9 +951,9 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
     setLoading(true);
     setError(null); // エラーをクリア
     
-    // データソースが未設定の場合はoriginalDataを使用
+    // データソースが未設定の場合はクエリ結果を使用
     if (!chartSettings.dataSource) {
-      updateChartSettings({ dataSource: 'originalData' });
+      updateChartSettings({ dataSource: 'queryResult' });
     }
     
     console.log('カテゴリデバッグ - チャート更新開始:', {
@@ -961,7 +961,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
       Y軸: chartSettings.yAxis,
       カテゴリフィールド: chartSettings.categoryField,
       チャートタイプ: chartSettings.type,
-      データソース: chartSettings.dataSource || 'originalData'
+      データソース: chartSettings.dataSource || 'queryResult'
     });
     
     let sourceData: any[] | null = null;

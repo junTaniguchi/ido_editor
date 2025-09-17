@@ -560,7 +560,7 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         updateChartSettings({
           xAxis: categoryCol || availableColumns[0],
           yAxis: numericCol || availableColumns[availableColumns.length > 1 ? 1 : 0],
-          dataSource: 'originalData'
+          dataSource: 'queryResult'
         });
       }
     }
@@ -795,14 +795,17 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         オプション: chartSettings.options
       });
 
-      const dataSource = chartSettings.dataSource === 'queryResult' && queryResult 
-        ? queryResult 
-        : combinedData;
-
-      if (!dataSource || dataSource.length === 0) {
-        setError('チャート用データソースが空です');
-        setLoading(false);
-        return;
+      let dataSource: any[] | null = null;
+      if (chartSettings.dataSource === 'queryResult') {
+        dataSource = queryResult;
+        if (!dataSource || dataSource.length === 0) {
+          setError('クエリ結果がありません。クエリを実行してからチャートを作成してください。');
+          setChartData(null);
+          setLoading(false);
+          return;
+        }
+      } else {
+        dataSource = combinedData;
       }
 
       // 散布図の場合、X軸とY軸が必須

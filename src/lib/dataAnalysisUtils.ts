@@ -298,38 +298,60 @@ const executeSimpleSelectQuery = (data: any[], query: string) => {
       });
     }
     
+    let resultData: any[] = filteredData;
+    
     // GROUP BY句の処理
     const groupByMatch = normalizedQuery.match(/group\s+by\s+([^order]+?)(?:\s+order\s+by|$)/);
     if (groupByMatch) {
       const groupByColumns = groupByMatch[1].split(',').map(col => col.trim());
-      const groupedData = groupDataByColumns(filteredData, groupByColumns, query);
-      return groupedData;
-    }
-    
-    // SELECT句の処理
-    const selectMatch = normalizedQuery.match(/select\s+(.+?)(?:\s+from|$)/);
-    if (selectMatch) {
-      const selectClause = selectMatch[1].trim();
-      
-      // SELECT *の場合
-      if (selectClause === '*') {
-        return filteredData;
+      resultData = groupDataByColumns(filteredData, groupByColumns, query);
+    } else {
+      // SELECT句の処理
+      const selectMatch = normalizedQuery.match(/select\s+(.+?)(?:\s+from|$)/);
+      if (selectMatch) {
+        const selectClause = selectMatch[1].trim();
+        
+        if (selectClause !== '*') {
+          // 特定の列を選択
+          const columns = selectClause.split(',').map(col => col.trim());
+          resultData = filteredData.map(row => {
+            const filteredRow: any = {};
+            columns.forEach(col => {
+              if (row.hasOwnProperty(col)) {
+                filteredRow[col] = row[col];
+              }
+            });
+            return filteredRow;
+          });
+        }
       }
-      
-      // 特定の列を選択
-      const columns = selectClause.split(',').map(col => col.trim());
-      return filteredData.map(row => {
-        const filteredRow: any = {};
-        columns.forEach(col => {
-          if (row.hasOwnProperty(col)) {
-            filteredRow[col] = row[col];
-          }
-        });
-        return filteredRow;
-      });
     }
     
-    return filteredData;
+    // LIMIT/OFFSET句の処理
+    const limitOffsetMatch = normalizedQuery.match(/limit\s+(\d+)\s+offset\s+(\d+)/);
+    const limitCommaMatch = normalizedQuery.match(/limit\s+(\d+)\s*,\s*(\d+)/);
+    const simpleLimitMatch = normalizedQuery.match(/limit\s+(\d+)/);
+    
+    let limit: number | null = null;
+    let offset = 0;
+    
+    if (limitOffsetMatch) {
+      limit = parseInt(limitOffsetMatch[1], 10);
+      offset = parseInt(limitOffsetMatch[2], 10);
+    } else if (limitCommaMatch) {
+      offset = parseInt(limitCommaMatch[1], 10);
+      limit = parseInt(limitCommaMatch[2], 10);
+    } else if (simpleLimitMatch) {
+      limit = parseInt(simpleLimitMatch[1], 10);
+    }
+    
+    if (limit !== null && !isNaN(limit)) {
+      const start = Math.max(offset, 0);
+      const end = start + Math.max(limit, 0);
+      return resultData.slice(start, end);
+    }
+    
+    return resultData;
   }
   
   return data;
@@ -2615,7 +2637,7 @@ export const prepareChartData = (
  * @param order 多項式の次数（polynomialの場合）
  * @returns 回帰線の座標データ
  */
-const calculateRegressionLine = (
+export const calculateRegressionLine = (
   data: { x: number; y: number }[], 
   regressionType: string, 
   order: number = 2
@@ -2893,7 +2915,7 @@ const solveLinearSystem = (matrix: number[][], result: number[]): number[] | nul
 /**
  * 回帰タイプのラベルを取得する
  */
-const getRegressionTypeLabel = (regressionType: string): string => {
+export const getRegressionTypeLabel = (regressionType: string): string => {
   switch (regressionType) {
     case 'linear': return '線形';
     case 'polynomial': return '多項式';
