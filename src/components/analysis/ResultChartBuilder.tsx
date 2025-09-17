@@ -706,14 +706,9 @@ const buildPlotConfig = (
         return { error: 'サンバーストチャートを作成できるデータがありません' };
       }
 
-      const rootValue = computeAggregatedValue(rootValues, rootCount);
-      if (rootValue === null) {
-        return { error: 'サンバーストチャートを作成できるデータがありません' };
-      }
-
-      const labels: string[] = [rootLabel];
-      const parents: string[] = [''];
-      const values: number[] = [rootValue];
+      const labels: string[] = [];
+      const parents: string[] = [];
+      const values: number[] = [];
 
       if (categoryField) {
         parentStats.forEach((entry, parentLabel) => {
@@ -722,7 +717,7 @@ const buildPlotConfig = (
             return;
           }
           labels.push(parentLabel);
-          parents.push(rootLabel);
+          parents.push('');
           values.push(value);
         });
       }
