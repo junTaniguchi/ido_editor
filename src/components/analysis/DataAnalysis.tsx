@@ -3560,7 +3560,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
   };
   
   // ローディング表示（グラフタブでない場合のみ全体表示）
-  if (loading && activeTab !== 'chart') {
+  if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-8">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
@@ -3570,7 +3570,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
   }
   
   // エラー表示（グラフタブでない場合のみ全体表示）
-  if (error && activeTab !== 'chart') {
+  if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-8 text-red-500">
         <IoAlertCircleOutline size={48} className="mb-4" />
@@ -3613,17 +3613,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
         >
           <IoStatsChartOutline className="inline mr-1" size={16} />
           統計情報
-        </button>
-        <button
-          className={`px-4 py-2 ${
-            activeTab === 'chart'
-              ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
-              : 'text-gray-600 dark:text-gray-400'
-          }`}
-          onClick={() => setActiveTab('chart')}
-        >
-          <IoBarChartOutline className="inline mr-1" size={16} />
-          チャート
         </button>
         <button
           className={`px-4 py-2 ${

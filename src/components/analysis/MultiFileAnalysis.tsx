@@ -1235,17 +1235,6 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         </button>
         <button
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'chart'
-              ? 'text-blue-600 border-blue-600'
-              : 'text-gray-600 border-transparent hover:text-gray-800 hover:border-gray-300'
-          }`}
-          onClick={() => setActiveTab('chart')}
-        >
-          <IoBarChartOutline className="inline mr-1" size={16} />
-          チャート
-        </button>
-        <button
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             activeTab === 'relationship'
               ? 'text-blue-600 border-blue-600'
               : 'text-gray-600 border-transparent hover:text-gray-800 hover:border-gray-300'
