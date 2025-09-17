@@ -133,15 +133,22 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
         let mappedType = tab.type;
         if (tab.type === 'md') mappedType = 'markdown';
         if (tab.type === 'mmd') mappedType = 'mermaid';
+        if (tab.type === 'text' || tab.type === 'json') {
+          const fileName = tab.name || '';
+          const extension = fileName.split('.').pop()?.toLowerCase();
+          if (extension === 'ipynb') mappedType = 'ipynb';
+          if (extension === 'pdf') mappedType = 'pdf';
+        }
+        console.log('DataPreview loadData mappedType', { originalType: tab.type, mappedType, name: tab.name });
         setType(mappedType as typeof type);
         
         // Excelファイルの場合は特別な処理
         if (tab.type === 'excel') {
-          await parseContent(tab.content, tab.type);
+          await parseContent(tab.content, mappedType);
         } else {
           setContent(tab.content);
           setEditableContent(tab.content);
-          await parseContent(tab.content, tab.type);
+          await parseContent(tab.content, mappedType);
         }
       }
     };
@@ -163,12 +170,24 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     if (!isEditing && !isTableEditing) {
       setContent(tab.content);
       setEditableContent(tab.content);
-      parseContent(tab.content, tab.type);
+      let mappedType = tab.type;
+      if (tab.type === 'text' || tab.type === 'json') {
+        const fileName = tab.name || '';
+        const extension = fileName.split('.').pop()?.toLowerCase();
+        if (extension === 'ipynb') mappedType = 'ipynb';
+        if (extension === 'pdf') mappedType = 'pdf';
+      }
+      console.log('DataPreview external update', { originalType: tab.type, mappedType, name: tab.name });
+      parseContent(tab.content, mappedType);
     }
   }, [tabs, tabId, isEditing, isTableEditing]);
   
   // データ表示モードが変更された時にデータを更新
   useEffect(() => {
+    if (type === 'ipynb') {
+      return;
+    }
+
     if (originalData) {
       if (dataDisplayMode === 'flat') {
         // フラット化モードの場合
@@ -214,7 +233,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
         }
       }
     }
-  }, [dataDisplayMode, originalData]);
+  }, [dataDisplayMode, originalData, type]);
   
   const parseContent = async (content: string, type: string) => {
     setLoading(true);
@@ -484,7 +503,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
           } catch (e) {
             setError('Notebookデータの解析に失敗しました');
           }
-          break;
+          return; // ipynb は特殊処理に任せる
         case 'pdf':
           // PDFはcontentにURLまたはBase64が入る想定
           setParsedData(content);

@@ -313,7 +313,14 @@ export const useEditorStore = create<EditorStore>()(
 
           if (tabsObj) {
             Object.keys(tabsObj).forEach(key => {
-              tabsMap.set(key, tabsObj[key]);
+              const tabEntry = tabsObj[key];
+              if (tabEntry && tabEntry.type === 'json' && tabEntry.name?.toLowerCase().endsWith('.ipynb')) {
+                tabEntry.type = 'ipynb';
+              }
+              if (tabEntry && tabEntry.type === 'text' && tabEntry.name?.toLowerCase().endsWith('.pdf')) {
+                tabEntry.type = 'pdf';
+              }
+              tabsMap.set(key, tabEntry);
             });
             state.tabs = tabsMap;
           }
