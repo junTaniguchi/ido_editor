@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, Menu } = require('electron');
 const path = require('path');
 const http = require('http');
 const url = require('url');
@@ -17,7 +17,14 @@ function createWindow(loadUrl) {
       sandbox: true,
     },
     show: false,
+    autoHideMenuBar: process.platform !== 'darwin',
   });
+
+  if (process.platform !== 'darwin') {
+    win.setMenu(null);
+    win.setMenuBarVisibility(false);
+    Menu.setApplicationMenu(null);
+  }
 
   win.once('ready-to-show', () => win.show());
   win.on('closed', () => {

@@ -36,6 +36,7 @@
     "csv-parser": "^3.2.0",
     "csv-stringify": "^6.6.0",
     "docx": "^9.5.1",
+    "fflate": "^0.8.2",
     "github-markdown-css": "^5.8.1",
     "github-slugger": "^2.0.0",
     "js-yaml": "^4.1.0",

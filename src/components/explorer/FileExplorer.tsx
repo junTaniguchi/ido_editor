@@ -14,10 +14,23 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   IoFolderOutline, IoDocumentOutline, IoChevronForward, IoChevronDown,
-  IoAddOutline, IoCreateOutline, IoTrashOutline, IoReloadOutline
+  IoCreateOutline, IoReloadOutline
 } from 'react-icons/io5';
 import { useEditorStore } from '@/store/editorStore';
-import { readFileContent, readDirectoryContents, createNewFile, createNewDirectory, deleteFile, deleteDirectory, renameFile, renameDirectory } from '@/lib/fileSystemUtils';
+import { 
+  readFileContent, 
+  readDirectoryContents, 
+  createNewFile, 
+  createNewDirectory, 
+  deleteFile, 
+  deleteDirectory, 
+  renameFile, 
+  renameDirectory,
+  extractZipArchive,
+  extractTarGzArchive,
+  compressToZip,
+  compressToTarGz
+} from '@/lib/fileSystemUtils';
 import { getFileType } from '@/lib/editorUtils';
 import { FileTreeItem, TabData } from '@/types';
 import ContextMenu from '@/components/modals/ContextMenu';
@@ -157,6 +170,16 @@ const FileExplorer = () => {
     }
     
     // 通常モード：タブとして開く
+    const lowerName = item.name.toLowerCase();
+    if (lowerName.endsWith('.exe')) {
+      alert('EXEファイルはプレビューに対応していません。');
+      return;
+    }
+    if (lowerName.endsWith('.dmg')) {
+      alert('DMGファイルはプレビューに対応していません。');
+      return;
+    }
+
     // 既に開いているタブがあるか確認
     let existingTabId: string | undefined;
     
@@ -176,11 +199,12 @@ const FileExplorer = () => {
         const fileType = getFileType(item.name);
         
         let content: string | ArrayBuffer = '';
-        
-        // Excelファイルの場合は特別な処理
+
         if (fileType === 'excel') {
-          // Excelファイルの場合はcontentは空文字列でOK（後でArrayBufferを読み込む）
           content = '';
+        } else if (fileType === 'pdf') {
+          const file = await item.fileHandle.getFile();
+          content = URL.createObjectURL(file);
         } else {
           content = await readFileContent(item.fileHandle);
         }
@@ -267,6 +291,94 @@ const FileExplorer = () => {
     if (!selectedItem) return;
     
     setShowConfirmDialog(true);
+  };
+
+  type ArchiveFormat = 'zip' | 'tar.gz';
+
+  const getParentDirectoryHandleForItem = async (item: FileTreeItem): Promise<FileSystemDirectoryHandle | null> => {
+    if (!rootDirHandle) return null;
+    if (!item.path) {
+      return rootDirHandle;
+    }
+
+    const segments = item.path.split('/').filter(segment => segment);
+    if (segments.length > 0) {
+      segments.pop();
+    }
+
+    let currentHandle: FileSystemDirectoryHandle = rootDirHandle;
+    for (const segment of segments) {
+      currentHandle = await currentHandle.getDirectoryHandle(segment);
+    }
+    return currentHandle;
+  };
+
+  const deriveArchiveBaseName = (name: string, format: ArchiveFormat) => {
+    if (format === 'zip') {
+      return /\.zip$/i.test(name) ? name.replace(/\.zip$/i, '') : `${name}_extracted`;
+    }
+    return /\.tar\.gz$/i.test(name) ? name.replace(/\.tar\.gz$/i, '') : `${name}_extracted`;
+  };
+
+  const buildArchiveFileName = (name: string, format: ArchiveFormat) => {
+    const lower = name.toLowerCase();
+    if (format === 'zip') {
+      return lower.endsWith('.zip') ? `${name}_archive.zip` : `${name}.zip`;
+    }
+    return lower.endsWith('.tar.gz') ? `${name}_archive.tar.gz` : `${name}.tar.gz`;
+  };
+
+  const handleExtractArchive = async (format: ArchiveFormat) => {
+    if (!selectedItem || !selectedItem.fileHandle) return;
+
+    try {
+      const parentHandle = await getParentDirectoryHandleForItem(selectedItem);
+      if (!parentHandle) {
+        throw new Error('親フォルダを取得できませんでした');
+      }
+
+      const baseName = deriveArchiveBaseName(selectedItem.name, format);
+
+      if (format === 'zip') {
+        await extractZipArchive(selectedItem.fileHandle, parentHandle, { createSubdirectory: baseName });
+      } else {
+        await extractTarGzArchive(selectedItem.fileHandle, parentHandle, { createSubdirectory: baseName });
+      }
+
+      await refreshFolderContents(parentHandle);
+    } catch (error) {
+      console.error('Failed to extract archive:', error);
+      alert(`解凍に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleCompressArchive = async (format: ArchiveFormat) => {
+    if (!selectedItem) return;
+
+    try {
+      const parentHandle = await getParentDirectoryHandleForItem(selectedItem);
+      if (!parentHandle) {
+        throw new Error('親フォルダを取得できませんでした');
+      }
+
+      const targetHandle = selectedItem.isDirectory ? selectedItem.directoryHandle : selectedItem.fileHandle;
+      if (!targetHandle) {
+        throw new Error('対象のハンドルが見つかりません');
+      }
+
+      const archiveName = buildArchiveFileName(selectedItem.name, format);
+
+      if (format === 'zip') {
+        await compressToZip(targetHandle, parentHandle, archiveName, selectedItem.name);
+      } else {
+        await compressToTarGz(targetHandle, parentHandle, archiveName, selectedItem.name);
+      }
+
+      await refreshFolderContents(parentHandle);
+    } catch (error) {
+      console.error('Failed to compress:', error);
+      alert(`圧縮に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   };
   
   // 入力ダイアログの確認処理
@@ -467,7 +579,11 @@ const FileExplorer = () => {
       );
     }
   };
-  
+
+  const selectedIsZip = !!selectedItem && !selectedItem.isDirectory && selectedItem.name.toLowerCase().endsWith('.zip');
+  const selectedIsTarGz = !!selectedItem && !selectedItem.isDirectory && selectedItem.name.toLowerCase().endsWith('.tar.gz');
+  const selectedCanArchive = !!selectedItem && (selectedItem.isDirectory ? !!selectedItem.directoryHandle : !!selectedItem.fileHandle);
+
   return (
     <div className="h-full flex flex-col bg-gray-100 dark:bg-gray-800 border-r border-gray-300 dark:border-gray-700">
       {/* ヘッダー */}
@@ -556,6 +672,14 @@ const FileExplorer = () => {
           onDelete={handleDelete}
           onRefresh={() => refreshFolderContents()}
           isFile={!selectedItem.isDirectory}
+          showExtractZip={selectedIsZip}
+          showExtractTarGz={selectedIsTarGz}
+          showCompressZip={selectedCanArchive}
+          showCompressTarGz={selectedCanArchive}
+          onExtractZip={() => handleExtractArchive('zip')}
+          onExtractTarGz={() => handleExtractArchive('tar.gz')}
+          onCompressZip={() => handleCompressArchive('zip')}
+          onCompressTarGz={() => handleCompressArchive('tar.gz')}
         />
       )}
       

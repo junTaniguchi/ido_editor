@@ -161,6 +161,10 @@ export const getFileType = (fileName: string): 'text' | 'markdown' | 'html' | 'j
     return 'mermaid';
   } else if (lowerFileName.endsWith('.xlsx') || lowerFileName.endsWith('.xls')) {
     return 'excel';
+  } else if (lowerFileName.endsWith('.pdf')) {
+    return 'pdf';
+  } else if (lowerFileName.endsWith('.ipynb')) {
+    return 'ipynb';
   }
   
   return 'text';

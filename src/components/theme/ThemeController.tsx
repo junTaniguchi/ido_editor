@@ -13,9 +13,11 @@ const ThemeController = () => {
     if (isDark) {
       root.classList.add('dark');
       root.setAttribute('data-theme', 'dark');
+      document.cookie = 'ido-theme=dark; path=/; max-age=31536000';
     } else {
       root.classList.remove('dark');
       root.setAttribute('data-theme', 'light');
+      document.cookie = 'ido-theme=light; path=/; max-age=31536000';
     }
   }, [isDark]);
 

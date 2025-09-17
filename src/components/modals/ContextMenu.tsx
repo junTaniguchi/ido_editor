@@ -6,16 +6,15 @@
 'use client';
 
 import React, { useEffect, useRef } from 'react';
-import { 
-  IoAddOutline, 
-  IoCreateOutline, 
-  IoTrashOutline, 
-  IoFolderOutline, 
-  IoDocumentOutline, 
+import {
+  IoCreateOutline,
+  IoTrashOutline,
+  IoFolderOutline,
+  IoDocumentOutline,
   IoReloadOutline,
-  IoReturnUpForwardOutline
+  IoArchiveOutline,
+  IoFolderOpenOutline
 } from 'react-icons/io5';
-import { useEditorStore } from '@/store/editorStore';
 
 interface ContextMenuProps {
   x: number;
@@ -27,6 +26,14 @@ interface ContextMenuProps {
   onDelete: () => void;
   onRefresh: () => void;
   isFile: boolean;
+  showExtractZip?: boolean;
+  showExtractTarGz?: boolean;
+  showCompressZip?: boolean;
+  showCompressTarGz?: boolean;
+  onExtractZip?: () => void;
+  onExtractTarGz?: () => void;
+  onCompressZip?: () => void;
+  onCompressTarGz?: () => void;
 }
 
 const ContextMenu: React.FC<ContextMenuProps> = ({ 
@@ -51,7 +58,15 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   onRename, 
   onDelete,
   onRefresh,
-  isFile 
+  isFile,
+  showExtractZip = false,
+  showExtractTarGz = false,
+  showCompressZip = false,
+  showCompressTarGz = false,
+  onExtractZip,
+  onExtractTarGz,
+  onCompressZip,
+  onCompressTarGz
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   
@@ -108,6 +123,15 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
     onClose();
   };
   
+  const hasArchiveActions = Boolean(
+    (showExtractZip && onExtractZip) ||
+    (showExtractTarGz && onExtractTarGz) ||
+    (showCompressZip && onCompressZip) ||
+    (showCompressTarGz && onCompressTarGz)
+  );
+
+  const showCreationActions = !isFile;
+
   return (
     <div 
       ref={menuRef}
@@ -115,7 +139,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
       style={{ left: x, top: y }}
     >
       <div className="py-1">
-        {!isFile && (
+        {showCreationActions && (
           <button
             className="w-full px-4 py-2 text-left flex items-center hover:bg-gray-100 dark:hover:bg-gray-700"
             onClick={() => handleAction(onCreateFile)}
@@ -125,7 +149,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
           </button>
         )}
         
-        {!isFile && (
+        {showCreationActions && (
           <button
             className="w-full px-4 py-2 text-left flex items-center hover:bg-gray-100 dark:hover:bg-gray-700"
             onClick={() => handleAction(onCreateFolder)}
@@ -134,7 +158,55 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
             新規フォルダ
           </button>
         )}
-        
+
+        {showCreationActions && hasArchiveActions && (
+          <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
+        )}
+
+        {showExtractZip && onExtractZip && (
+          <button
+            className="w-full px-4 py-2 text-left flex items-center hover:bg-gray-100 dark:hover:bg-gray-700"
+            onClick={() => handleAction(onExtractZip)}
+          >
+            <IoFolderOpenOutline className="mr-2" />
+            Zipを解凍
+          </button>
+        )}
+
+        {showExtractTarGz && onExtractTarGz && (
+          <button
+            className="w-full px-4 py-2 text-left flex items-center hover:bg-gray-100 dark:hover:bg-gray-700"
+            onClick={() => handleAction(onExtractTarGz)}
+          >
+            <IoFolderOpenOutline className="mr-2" />
+            tar.gzを解凍
+          </button>
+        )}
+
+        {showCompressZip && onCompressZip && (
+          <button
+            className="w-full px-4 py-2 text-left flex items-center hover:bg-gray-100 dark:hover:bg-gray-700"
+            onClick={() => handleAction(onCompressZip)}
+          >
+            <IoArchiveOutline className="mr-2" />
+            Zipに圧縮
+          </button>
+        )}
+
+        {showCompressTarGz && onCompressTarGz && (
+          <button
+            className="w-full px-4 py-2 text-left flex items-center hover:bg-gray-100 dark:hover:bg-gray-700"
+            onClick={() => handleAction(onCompressTarGz)}
+          >
+            <IoArchiveOutline className="mr-2" />
+            tar.gzに圧縮
+          </button>
+        )}
+
+        {hasArchiveActions && (
+          <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
+        )}
+
         <button
           className="w-full px-4 py-2 text-left flex items-center hover:bg-gray-100 dark:hover:bg-gray-700"
           onClick={() => handleAction(onRename)}

@@ -1,4 +1,201 @@
 import { FileTreeItem, SearchMatch, SearchResult } from '@/types';
+import { gunzipSync, gzipSync, unzipSync, zipSync } from 'fflate';
+
+interface ArchiveEntry {
+  path: string;
+  type: 'file' | 'dir';
+  content?: Uint8Array;
+}
+
+const sanitizeRelativePath = (path: string) => {
+  const segments = path.split('/').filter(segment => segment && segment !== '.' && segment !== '..');
+  return segments.join('/');
+};
+
+const ensureDirectory = async (baseDir: FileSystemDirectoryHandle, relativePath: string) => {
+  const sanitized = sanitizeRelativePath(relativePath);
+  if (!sanitized) {
+    return baseDir;
+  }
+
+  const segments = sanitized.split('/');
+  let currentDir = baseDir;
+  for (const segment of segments) {
+    currentDir = await currentDir.getDirectoryHandle(segment, { create: true });
+  }
+  return currentDir;
+};
+
+const writeFileToHandle = async (dirHandle: FileSystemDirectoryHandle, fileName: string, content: Uint8Array) => {
+  const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(content);
+  await writable.close();
+};
+
+const collectEntriesFromDirectory = async (
+  dirHandle: FileSystemDirectoryHandle,
+  basePath: string,
+  entries: ArchiveEntry[]
+) => {
+  const normalizedBase = basePath ? `${basePath}/` : '';
+  entries.push({ path: `${normalizedBase}`.replace(/\/$/, ''), type: 'dir' });
+
+  for await (const [name, handle] of dirHandle.entries()) {
+    const currentPath = `${normalizedBase}${name}`;
+    if (handle.kind === 'directory') {
+      await collectEntriesFromDirectory(handle as FileSystemDirectoryHandle, currentPath, entries);
+    } else {
+      const fileHandle = handle as FileSystemFileHandle;
+      const file = await fileHandle.getFile();
+      const buffer = new Uint8Array(await file.arrayBuffer());
+      entries.push({ path: currentPath, type: 'file', content: buffer });
+    }
+  }
+};
+
+const buildTarArchive = (entries: ArchiveEntry[]): Uint8Array => {
+  const blocks: Uint8Array[] = [];
+
+  const writeOctal = (buffer: Uint8Array, offset: number, length: number, value: number) => {
+    const octal = value.toString(8).padStart(length - 1, '0');
+    for (let i = 0; i < length - 1; i++) {
+      buffer[offset + i] = i < octal.length ? octal.charCodeAt(i) : 0;
+    }
+    buffer[offset + length - 1] = 0;
+  };
+
+  const writeString = (buffer: Uint8Array, offset: number, length: number, value: string) => {
+    const encoder = new TextEncoder();
+    const bytes = encoder.encode(value);
+    const slice = bytes.slice(0, length);
+    buffer.set(slice, offset);
+  };
+
+  for (const entry of entries) {
+    const isDir = entry.type === 'dir';
+    const normalizedPath = isDir && !entry.path.endsWith('/') ? `${entry.path}/` : entry.path;
+    if (!normalizedPath) continue;
+
+    const header = new Uint8Array(512);
+    const encoder = new TextEncoder();
+
+    const fullPathBytes = encoder.encode(normalizedPath);
+    let name = normalizedPath;
+    let prefix = '';
+
+    if (fullPathBytes.length > 100) {
+      const segments = normalizedPath.split('/');
+      let tempName = segments.pop() || '';
+      let tempPrefix = segments.join('/');
+      if (tempName.length > 100 || tempPrefix.length > 155) {
+        tempName = normalizedPath.slice(-100);
+        tempPrefix = normalizedPath.slice(0, normalizedPath.length - tempName.length).slice(-155);
+      }
+      name = tempName;
+      prefix = tempPrefix;
+    }
+
+    writeString(header, 0, 100, name);
+    writeOctal(header, 100, 8, isDir ? 0o40755 : 0o100644);
+    writeOctal(header, 108, 8, 0);
+    writeOctal(header, 116, 8, 0);
+    const size = entry.content ? entry.content.length : 0;
+    writeOctal(header, 124, 12, size);
+    writeOctal(header, 136, 12, Math.floor(Date.now() / 1000));
+    // checksum placeholder
+    for (let i = 148; i < 156; i++) {
+      header[i] = 32; // space
+    }
+    header[156] = isDir ? 53 : 48; // '5' or '0'
+    writeString(header, 257, 6, 'ustar\0');
+    writeString(header, 263, 2, '00');
+    writeString(header, 265, 32, 'user');
+    writeString(header, 297, 32, 'group');
+    writeOctal(header, 329, 8, 0);
+    writeOctal(header, 337, 8, 0);
+    writeString(header, 345, 155, prefix);
+
+    let checksum = 0;
+    for (const byte of header) {
+      checksum += byte;
+    }
+    writeOctal(header, 148, 8, checksum);
+
+    blocks.push(header);
+
+    if (!isDir && entry.content) {
+      blocks.push(entry.content);
+      const remainder = entry.content.length % 512;
+      if (remainder !== 0) {
+        blocks.push(new Uint8Array(512 - remainder));
+      }
+    }
+  }
+
+  blocks.push(new Uint8Array(512));
+  blocks.push(new Uint8Array(512));
+
+  const totalLength = blocks.reduce((sum, block) => sum + block.length, 0);
+  const tarArray = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const block of blocks) {
+    tarArray.set(block, offset);
+    offset += block.length;
+  }
+  return tarArray;
+};
+
+const parseTarArchive = (data: Uint8Array): ArchiveEntry[] => {
+  const entries: ArchiveEntry[] = [];
+  const decoder = new TextDecoder();
+  const blockSize = 512;
+
+  const readString = (buffer: Uint8Array, offset: number, length: number) => {
+    let end = offset;
+    while (end < offset + length && buffer[end] !== 0) {
+      end++;
+    }
+    return decoder.decode(buffer.subarray(offset, end));
+  };
+
+  const readOctal = (buffer: Uint8Array, offset: number, length: number) => {
+    const str = readString(buffer, offset, length).trim();
+    return str ? parseInt(str, 8) : 0;
+  };
+
+  for (let offset = 0; offset < data.length; ) {
+    const header = data.subarray(offset, offset + blockSize);
+    const isEmpty = header.every(byte => byte === 0);
+    if (isEmpty) {
+      break;
+    }
+
+    const name = readString(header, 0, 100);
+    const prefix = readString(header, 345, 155);
+    const fullName = prefix ? `${prefix}/${name}` : name;
+    const sanitized = sanitizeRelativePath(fullName);
+    const typeFlag = header[156];
+    const size = readOctal(header, 124, 12);
+
+    const contentStart = offset + blockSize;
+    const contentEnd = contentStart + size;
+    const fileContent = data.subarray(contentStart, contentEnd);
+
+    if (sanitized) {
+      if (typeFlag === 53 || fullName.endsWith('/')) {
+        entries.push({ path: sanitized.endsWith('/') ? sanitized.slice(0, -1) : sanitized, type: 'dir' });
+      } else {
+        entries.push({ path: sanitized, type: 'file', content: fileContent.slice() });
+      }
+    }
+
+    const advance = blockSize + Math.ceil(size / blockSize) * blockSize;
+    offset += advance;
+  }
+
+  return entries;
+};
 
 /**
  * ファイルシステムAPIでディレクトリ内容を再帰的に読み込む
@@ -100,6 +297,175 @@ export const readFileContent = async (fileHandle: FileSystemFileHandle): Promise
     console.error('Error reading file:', error);
     throw new Error('ファイルの読み込みに失敗しました');
   }
+};
+
+export const extractZipArchive = async (
+  fileHandle: FileSystemFileHandle,
+  targetDirHandle: FileSystemDirectoryHandle,
+  options?: { createSubdirectory?: string }
+) => {
+  const file = await fileHandle.getFile();
+  const buffer = new Uint8Array(await file.arrayBuffer());
+  const unzipped = unzipSync(buffer);
+  const subDirName = options?.createSubdirectory ? sanitizeRelativePath(options.createSubdirectory) : null;
+  const baseDir = subDirName
+    ? await targetDirHandle.getDirectoryHandle(subDirName, { create: true })
+    : targetDirHandle;
+
+  for (const [rawPath, content] of Object.entries(unzipped)) {
+    const sanitized = sanitizeRelativePath(rawPath);
+    if (!sanitized) continue;
+
+    const isDirectory = rawPath.endsWith('/');
+    let workingPath = sanitized;
+    if (subDirName) {
+      const prefix = `${subDirName}/`;
+      if (workingPath === subDirName) {
+        if (isDirectory) {
+          continue;
+        }
+        workingPath = '';
+      } else if (workingPath.startsWith(prefix)) {
+        workingPath = workingPath.slice(prefix.length);
+      }
+    }
+
+    if (!workingPath) {
+      if (isDirectory) {
+        continue;
+      }
+      workingPath = sanitized.split('/').pop() || sanitized;
+    }
+
+    if (!workingPath) {
+      continue;
+    }
+
+    const segments = workingPath.split('/');
+    const fileName = segments.pop();
+    const parentPath = segments.join('/');
+    const parentDir = await ensureDirectory(baseDir, parentPath);
+
+    if (isDirectory || !fileName) {
+      await ensureDirectory(parentDir, fileName || '');
+    } else {
+      await writeFileToHandle(parentDir, fileName, content);
+    }
+  }
+};
+
+export const extractTarGzArchive = async (
+  fileHandle: FileSystemFileHandle,
+  targetDirHandle: FileSystemDirectoryHandle,
+  options?: { createSubdirectory?: string }
+) => {
+  const file = await fileHandle.getFile();
+  const gzBuffer = new Uint8Array(await file.arrayBuffer());
+  const tarBuffer = gunzipSync(gzBuffer);
+  const entries = parseTarArchive(tarBuffer);
+  const subDirName = options?.createSubdirectory ? sanitizeRelativePath(options.createSubdirectory) : null;
+  const baseDir = subDirName
+    ? await targetDirHandle.getDirectoryHandle(subDirName, { create: true })
+    : targetDirHandle;
+
+  for (const entry of entries) {
+    const isDirectory = entry.type === 'dir';
+    let workingPath = entry.path;
+    if (subDirName) {
+      if (workingPath === subDirName) {
+        if (isDirectory) {
+          continue;
+        }
+        workingPath = '';
+      }
+      const prefix = `${subDirName}/`;
+      if (workingPath.startsWith(prefix)) {
+        workingPath = workingPath.slice(prefix.length);
+      }
+    }
+
+    if (!workingPath) {
+      if (isDirectory) {
+        continue;
+      }
+      workingPath = entry.path.split('/').pop() || entry.path;
+    }
+
+    const segments = workingPath.split('/');
+    const fileName = segments.pop();
+    const parentPath = segments.join('/');
+    const parentDir = await ensureDirectory(baseDir, parentPath);
+
+    if (isDirectory || !fileName) {
+      await ensureDirectory(parentDir, fileName || '');
+    } else if (entry.content) {
+      await writeFileToHandle(parentDir, fileName, entry.content);
+    }
+  }
+};
+
+const buildZipArchive = (entries: ArchiveEntry[]): Uint8Array => {
+  const zipEntries: Record<string, Uint8Array> = {};
+  for (const entry of entries) {
+    if (entry.type === 'dir') {
+      const dirPath = entry.path.endsWith('/') ? entry.path : `${entry.path}/`;
+      zipEntries[dirPath] = new Uint8Array();
+    } else if (entry.content) {
+      zipEntries[entry.path] = entry.content;
+    }
+  }
+  return zipSync(zipEntries, { level: 6 });
+};
+
+export const compressToZip = async (
+  itemHandle: FileSystemFileHandle | FileSystemDirectoryHandle,
+  targetDirHandle: FileSystemDirectoryHandle,
+  archiveName: string,
+  entryRootName: string
+) => {
+  const entries: ArchiveEntry[] = [];
+  const rootName = sanitizeRelativePath(entryRootName) || 'archive';
+
+  if (itemHandle.kind === 'directory') {
+    await collectEntriesFromDirectory(itemHandle as FileSystemDirectoryHandle, rootName, entries);
+  } else {
+    const fileHandle = itemHandle as FileSystemFileHandle;
+    const file = await fileHandle.getFile();
+    const buffer = new Uint8Array(await file.arrayBuffer());
+    entries.push({ path: rootName, type: 'file', content: buffer });
+  }
+
+  const zipData = buildZipArchive(entries);
+  const archiveHandle = await targetDirHandle.getFileHandle(archiveName, { create: true });
+  const writable = await archiveHandle.createWritable();
+  await writable.write(zipData);
+  await writable.close();
+};
+
+export const compressToTarGz = async (
+  itemHandle: FileSystemFileHandle | FileSystemDirectoryHandle,
+  targetDirHandle: FileSystemDirectoryHandle,
+  archiveName: string,
+  entryRootName: string
+) => {
+  const entries: ArchiveEntry[] = [];
+  const baseName = sanitizeRelativePath(entryRootName) || 'archive';
+
+  if (itemHandle.kind === 'directory') {
+    await collectEntriesFromDirectory(itemHandle as FileSystemDirectoryHandle, baseName, entries);
+  } else {
+    const fileHandle = itemHandle as FileSystemFileHandle;
+    const file = await fileHandle.getFile();
+    const buffer = new Uint8Array(await file.arrayBuffer());
+    entries.push({ path: baseName, type: 'file', content: buffer });
+  }
+
+  const tarData = buildTarArchive(entries);
+  const gzData = gzipSync(tarData, { level: 6 });
+  const archiveHandle = await targetDirHandle.getFileHandle(archiveName, { create: true });
+  const writable = await archiveHandle.createWritable();
+  await writable.write(gzData);
+  await writable.close();
 };
 
 /**

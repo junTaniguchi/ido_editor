@@ -116,12 +116,29 @@ export const useEditorStore = create<EditorStore>()(
         const newTabs = new Map(state.tabs);
         const tab = newTabs.get(id);
         if (tab) {
+          const newContent = updates.content;
+          if (
+            tab.type === 'pdf' &&
+            typeof tab.content === 'string' &&
+            tab.content.startsWith('blob:') &&
+            typeof newContent === 'string' &&
+            newContent.startsWith('blob:') &&
+            tab.content !== newContent
+          ) {
+            URL.revokeObjectURL(tab.content);
+          }
           newTabs.set(id, { ...tab, ...updates });
         }
         return { tabs: newTabs };
       }),
       removeTab: (id) => set((state) => {
         const newTabs = new Map(state.tabs);
+        const tab = newTabs.get(id);
+
+        if (tab && tab.type === 'pdf' && typeof tab.content === 'string' && tab.content.startsWith('blob:')) {
+          URL.revokeObjectURL(tab.content);
+        }
+
         newTabs.delete(id);
         
         // アクティブなタブを削除した場合、別のタブをアクティブにする

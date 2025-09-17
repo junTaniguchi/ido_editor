@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
+import { cookies } from "next/headers";
 import "./globals.css";
 import ThemeController from "@/components/theme/ThemeController";
 
@@ -24,8 +25,12 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const cookieStore = cookies();
+  const cookieTheme = cookieStore.get('ido-theme')?.value;
+  const initialTheme = cookieTheme === 'dark' ? 'dark' : 'light';
+
   return (
-    <html lang="ja" suppressHydrationWarning>
+    <html lang="ja" suppressHydrationWarning className={initialTheme === 'dark' ? 'dark' : undefined} data-theme={initialTheme}>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
@@ -34,6 +39,14 @@ export default function RootLayout({
           {`
           (function(){
             try {
+              var cookieMatch = document.cookie.match(/(?:^|; )ido-theme=([^;]+)/);
+              if (cookieMatch) {
+                var themeFromCookie = decodeURIComponent(cookieMatch[1]);
+                if (themeFromCookie === 'dark') {
+                  document.documentElement.classList.add('dark');
+                  document.documentElement.setAttribute('data-theme','dark');
+                }
+              }
               var raw = localStorage.getItem('editor-storage');
               if (!raw) return;
               var data = JSON.parse(raw);
@@ -42,6 +55,9 @@ export default function RootLayout({
               if (theme === 'dark') {
                 document.documentElement.classList.add('dark');
                 document.documentElement.setAttribute('data-theme','dark');
+              } else if (theme === 'light') {
+                document.documentElement.classList.remove('dark');
+                document.documentElement.setAttribute('data-theme','light');
               }
             } catch(e) {
               // noop
