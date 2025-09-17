@@ -8,7 +8,7 @@ import { IoAlertCircleOutline, IoAnalyticsOutline, IoBarChartOutline, IoStatsCha
 import QueryResultTable from './QueryResultTable';
 import InfoResultTable from './InfoResultTable';
 import EditableQueryResultTable from './EditableQueryResultTable';
-import ResultChartBuilder from './ResultChartBuilder';
+import ResultChartPanel from './ResultChartPanel';
 import { 
   Chart as ChartJS, 
   CategoryScale, 
@@ -139,7 +139,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
   const [isSettingsCollapsed, setIsSettingsCollapsed] = useState(false);
   const [isNotebookMode, setIsNotebookMode] = useState(false);
   const [runAllInProgress, setRunAllInProgress] = useState(false);
-  const [openChartCells, setOpenChartCells] = useState<Record<string, boolean>>({});
+  const [cellViewModes, setCellViewModes] = useState<Record<string, 'table' | 'chart'>>({});
 
   const notebookCells = useMemo(() => sqlNotebook[tabId] || [], [sqlNotebook, tabId]);
   const hasNotebookCells = notebookCells.length > 0;
@@ -295,7 +295,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
     setInfoResult(null);
     setNotebookSnapshotMeta(null);
     setIsNotebookMode(false);
-    setOpenChartCells({});
+    setCellViewModes({});
     
     try {
       let data: any[] = [];
@@ -355,7 +355,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
             if (cellsToUse.length > 0) {
               setSqlQuery(cellsToUse[0].query);
             }
-            setOpenChartCells({});
+            setCellViewModes({});
 
             setOriginalData(null);
             setOriginalQueryResult(null);
@@ -2106,7 +2106,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                 }
               })()
             : null;
-          const isChartOpen = openChartCells[cell.id] ?? false;
+          const cellView = cellViewModes[cell.id] ?? 'table';
 
           return (
             <div
@@ -2143,14 +2143,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                   </button>
                   <button
                     className="px-3 py-1.5 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 flex items-center text-sm disabled:opacity-50"
-                    onClick={() => setOpenChartCells(prev => ({ ...prev, [cell.id]: !isChartOpen }))}
-                    disabled={!hasResult || isRunning}
-                  >
-                    <IoBarChartOutline className="mr-1" />
-                    {isChartOpen ? 'チャートを閉じる' : 'チャート'}
-                  </button>
-                  <button
-                    className="px-3 py-1.5 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 flex items-center text-sm disabled:opacity-50"
                     onClick={() => removeNotebookCell(cell.id)}
                     disabled={notebookCells.length === 1 || runAllInProgress}
                   >
@@ -2168,33 +2160,31 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                   spellCheck={false}
                   disabled={isRunning}
                 />
-                <div className="border border-gray-200 dark:border-gray-700 rounded">
-                  {cell.status === 'running' ? (
+                {cell.status === 'running' ? (
+                  <div className="border border-gray-200 dark:border-gray-700 rounded">
                     <div className="flex items-center justify-center py-10 text-blue-500">
                       <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-500 mr-3"></div>
                       <span>クエリを実行中...</span>
                     </div>
-                  ) : cell.status === 'error' ? (
-                    <div className="p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-300 text-sm">
-                      {cell.error || 'クエリ実行でエラーが発生しました'}
-                    </div>
-                  ) : hasResult ? (
-                    <div className="max-h-[360px] overflow-auto">
-                      <QueryResultTable data={resultData || []} />
-                    </div>
-                  ) : (
-                    <div className="p-4 text-sm text-gray-500 dark:text-gray-400">
-                      実行済みの結果がありません。クエリを実行すると結果が表示されます。
-                    </div>
-                  )}
-                </div>
-                {isChartOpen && hasResult && (
-                  <ResultChartBuilder
+                  </div>
+                ) : cell.status === 'error' ? (
+                  <div className="border border-red-200 dark:border-red-800 rounded bg-red-50 dark:bg-red-900/20 p-4 text-sm text-red-600 dark:text-red-300">
+                    {cell.error || 'クエリ実行でエラーが発生しました'}
+                  </div>
+                ) : hasResult ? (
+                  <ResultChartPanel
                     rows={resultData || []}
-                    title="セル結果のチャート"
-                    collapsedByDefault={false}
-                    className="border border-gray-200 dark:border-gray-700 rounded"
+                    originalRows={cell.originalResult || resultData || []}
+                    isEditable={false}
+                    chartTitle="セル結果のチャート"
+                    initialView={cellView}
+                    activeView={cellView}
+                    onViewChange={(view) => setCellViewModes(prev => ({ ...prev, [cell.id]: view }))}
                   />
+                ) : (
+                  <div className="border border-gray-200 dark:border-gray-700 rounded p-4 text-sm text-gray-500 dark:text-gray-400">
+                    実行済みの結果がありません。クエリを実行すると結果が表示されます。
+                  </div>
                 )}
               </div>
             </div>
@@ -2275,30 +2265,21 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
     }
     
     return (
-      <div className="flex flex-col h-full">
-        <div className="p-2 border-b border-gray-300 dark:border-gray-700 flex justify-end">
-          <button
-            className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
-            onClick={() => {
-              setIsQueryEditing(true);
-              setEditedQueryResult([...dataToUse]);
-            }}
-          >
-            <IoCreate className="inline mr-1" /> 結果を編集
-          </button>
-        </div>
-        <div className="flex-1 overflow-auto">
-          <QueryResultTable data={dataToUse} />
-        </div>
-        <div className="border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-3">
-          <ResultChartBuilder
-            rows={dataToUse}
-            title="クエリ結果でチャート作成"
-            collapsedByDefault
-            className="bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded"
-          />
-        </div>
-      </div>
+      <ResultChartPanel
+        rows={dataToUse}
+        originalRows={originalQueryResult || null}
+        isEditable
+        isEditing={isQueryEditing}
+        onToggleEdit={() => {
+          if (!isQueryEditing) {
+            setEditedQueryResult([...dataToUse]);
+          }
+          setIsQueryEditing(prev => !prev);
+        }}
+        onEditedRowsChange={handleQueryDataChange}
+        editingRows={editedQueryResult || dataToUse}
+        chartTitle="クエリ結果でチャート作成"
+      />
     );
   };
   
