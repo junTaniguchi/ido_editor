@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { TabData, FileTreeItem, EditorSettings, PaneState, ContextMenuTarget, SearchSettings, AnalysisData, SqlResult, ChartSettings, SearchResult, SqlNotebookCell } from '@/types';
+import { TabData, FileTreeItem, EditorSettings, PaneState, ContextMenuTarget, SearchSettings, AnalysisData, SqlResult, ChartSettings, SearchResult, SqlNotebookCell, SqlNotebookSnapshotMeta } from '@/types';
 
 interface EditorStore {
   // タブ管理
@@ -65,6 +65,8 @@ interface EditorStore {
   sqlNotebook: Record<string, SqlNotebookCell[]>;
   setSqlNotebook: (tabId: string, cells: SqlNotebookCell[]) => void;
   clearSqlNotebook: (tabId: string) => void;
+  sqlNotebookMeta: Record<string, SqlNotebookSnapshotMeta | undefined>;
+  setSqlNotebookMeta: (tabId: string, meta: SqlNotebookSnapshotMeta | undefined) => void;
 
   // 複数ファイル分析機能
   selectedFiles: Set<string>;
@@ -262,6 +264,10 @@ export const useEditorStore = create<EditorStore>()(
         delete nextNotebook[tabId];
         return { sqlNotebook: nextNotebook };
       }),
+      sqlNotebookMeta: {},
+      setSqlNotebookMeta: (tabId, meta) => set((state) => ({
+        sqlNotebookMeta: { ...state.sqlNotebookMeta, [tabId]: meta }
+      })),
 
       // 複数ファイル分析機能
       selectedFiles: new Set<string>(),
@@ -328,6 +334,7 @@ export const useEditorStore = create<EditorStore>()(
             }));
             return acc;
           }, {}),
+          sqlNotebookMeta: state.sqlNotebookMeta,
         };
       },
       // デシリアライズ時にMapに戻す処理
@@ -380,6 +387,9 @@ export const useEditorStore = create<EditorStore>()(
                 executedAt: null,
               }));
             });
+          }
+          if (!state.sqlNotebookMeta) {
+            state.sqlNotebookMeta = {};
           }
         }
       }

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useEditorStore } from '@/store/editorStore';
 import { parseCSV, parseJSON, parseYAML, parseParquet, parseExcel } from '@/lib/dataPreviewUtils';
 import { 
@@ -12,7 +12,8 @@ import {
   calculateStatistics,
   prepareChartData,
   calculateInfo,
-  aggregateData
+  aggregateData,
+  downloadData
 } from '@/lib/dataAnalysisUtils';
 import { 
   IoAnalyticsOutline, 
@@ -28,11 +29,16 @@ import {
   IoChevronUpOutline,
   IoChevronDownOutline,
   IoGrid,
-  IoPlay
+  IoPlay,
+  IoBookOutline,
+  IoDownloadOutline,
+  IoAddOutline,
+  IoTrashOutline
 } from 'react-icons/io5';
 import QueryResultTable from './QueryResultTable';
 import InfoResultTable from './InfoResultTable';
 import EditableQueryResultTable from './EditableQueryResultTable';
+import { SqlNotebookCell } from '@/types';
 import { 
   Chart as ChartJS, 
   CategoryScale, 
@@ -77,8 +83,14 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
     rootDirHandle,
     editorSettings,
     updateEditorSettings,
-    tabs
+    tabs,
+    sqlNotebook,
+    setSqlNotebook,
+    sqlNotebookMeta,
+    setSqlNotebookMeta
   } = useEditorStore();
+
+  const MULTI_FILE_NOTEBOOK_ID = '__multi_file_analysis__';
 
   // 状態管理
   const [loading, setLoading] = useState(false);
@@ -140,13 +152,312 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
   // チャート関連
   const [chartData, setChartData] = useState<any | null>(null);
   const { chartSettings, updateChartSettings } = useEditorStore();
-  
+
   // テーマ関連
   const [currentTheme, setCurrentTheme] = useState<string>('light');
+
+  // ノートブック関連
+  const [isNotebookMode, setIsNotebookMode] = useState(false);
+  const [runAllInProgress, setRunAllInProgress] = useState(false);
+  const notebookCells = useMemo(() => sqlNotebook[MULTI_FILE_NOTEBOOK_ID] || [], [sqlNotebook, MULTI_FILE_NOTEBOOK_ID]);
+  const hasNotebookCells = notebookCells.length > 0;
+  const notebookSnapshotMeta = sqlNotebookMeta[MULTI_FILE_NOTEBOOK_ID];
   
   // グラフコンテナのref
   const graphContainerRef = useRef<HTMLDivElement | null>(null);
   const [graphSize, setGraphSize] = useState({ width: 800, height: 600 });
+  const notebookImportInputRef = useRef<HTMLInputElement | null>(null);
+
+  const generateCellId = useCallback(() => {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+      return crypto.randomUUID();
+    }
+    return `mf-cell-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+  }, []);
+
+  const createNotebookCell = useCallback((index: number): SqlNotebookCell => {
+    const timestamp = new Date().toISOString();
+    return {
+      id: generateCellId(),
+      title: `セル ${index}`,
+      query: index === 1 ? 'SELECT * FROM combined LIMIT 100' : 'SELECT * FROM combined LIMIT 100',
+      status: 'idle',
+      error: null,
+      result: null,
+      originalResult: null,
+      columns: [],
+      executedAt: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+  }, [generateCellId]);
+
+  const updateNotebookCells = useCallback((updater: (cells: SqlNotebookCell[]) => SqlNotebookCell[]) => {
+    const currentCells = sqlNotebook[MULTI_FILE_NOTEBOOK_ID] || [];
+    setSqlNotebook(MULTI_FILE_NOTEBOOK_ID, updater(currentCells));
+  }, [sqlNotebook, MULTI_FILE_NOTEBOOK_ID, setSqlNotebook]);
+
+  useEffect(() => {
+    const existingCells = sqlNotebook[MULTI_FILE_NOTEBOOK_ID];
+    if (!existingCells || existingCells.length === 0) {
+      setSqlNotebook(MULTI_FILE_NOTEBOOK_ID, [createNotebookCell(1)]);
+    }
+  }, [createNotebookCell, setSqlNotebook, sqlNotebook, MULTI_FILE_NOTEBOOK_ID]);
+
+  useEffect(() => {
+    if (isNotebookMode && notebookCells.length > 0) {
+      setSqlQuery(notebookCells[0].query);
+    }
+  }, [isNotebookMode, notebookCells]);
+
+  const addNotebookCell = useCallback(() => {
+    updateNotebookCells((cells) => {
+      const nextCells = [...cells, createNotebookCell(cells.length + 1)];
+      return nextCells.map((cell, index) => ({ ...cell, title: `セル ${index + 1}` }));
+    });
+  }, [createNotebookCell, updateNotebookCells]);
+
+  const removeNotebookCell = useCallback((cellId: string) => {
+    updateNotebookCells((cells) => {
+      const filtered = cells.filter(cell => cell.id !== cellId);
+      if (filtered.length === 0) {
+        return [createNotebookCell(1)];
+      }
+      return filtered.map((cell, index) => ({ ...cell, title: `セル ${index + 1}` }));
+    });
+  }, [createNotebookCell, updateNotebookCells]);
+
+  const updateNotebookCellQuery = useCallback((cellId: string, queryText: string) => {
+    updateNotebookCells((cells) => cells.map(cell => (
+      cell.id === cellId
+        ? { ...cell, query: queryText, updatedAt: new Date().toISOString() }
+        : cell
+    )));
+  }, [updateNotebookCells]);
+
+  const executeNotebookCell = useCallback(async (cellId: string): Promise<boolean> => {
+    if (!combinedData || combinedData.length === 0) {
+      updateNotebookCells((cells) => cells.map(cell => (
+        cell.id === cellId
+          ? {
+              ...cell,
+              status: 'error',
+              error: '統合データが読み込まれていません',
+              executedAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            }
+          : cell
+      )));
+      return false;
+    }
+
+    let targetCell: SqlNotebookCell | undefined;
+    updateNotebookCells((cells) => cells.map(cell => {
+      if (cell.id === cellId) {
+        targetCell = cell;
+        return { ...cell, status: 'running', error: null };
+      }
+      return cell;
+    }));
+
+    if (!targetCell) {
+      return false;
+    }
+
+    const queryText = targetCell.query?.trim();
+    if (!queryText) {
+      updateNotebookCells((cells) => cells.map(cell => (
+        cell.id === cellId
+          ? {
+              ...cell,
+              status: 'error',
+              error: 'SQLクエリが入力されていません',
+              executedAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            }
+          : cell
+      )));
+      return false;
+    }
+
+    try {
+      const result = executeMultiFileQueryAnalysis(fileDataMap, combinedData, queryText, true);
+      if (result.error) {
+        updateNotebookCells((cells) => cells.map(cell => (
+          cell.id === cellId
+            ? {
+                ...cell,
+                status: 'error',
+                error: result.error || 'クエリ実行エラー',
+                result: null,
+                originalResult: null,
+                columns: [],
+                executedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              }
+            : cell
+        )));
+        setError(result.error || null);
+        return false;
+      }
+
+      const resultData = Array.isArray(result.data) ? result.data : [];
+      const columns = resultData.length > 0 ? Object.keys(resultData[0]) : [];
+      const timestamp = new Date().toISOString();
+
+      updateNotebookCells((cells) => cells.map(cell => (
+        cell.id === cellId
+          ? {
+              ...cell,
+              status: 'success',
+              error: null,
+              result: resultData,
+              originalResult: resultData,
+              columns,
+              executedAt: timestamp,
+              updatedAt: timestamp,
+            }
+          : cell
+      )));
+
+      setQueryResult(resultData);
+      setError(null);
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'クエリ実行中にエラーが発生しました';
+      updateNotebookCells((cells) => cells.map(cell => (
+        cell.id === cellId
+          ? {
+              ...cell,
+              status: 'error',
+              error: message,
+              result: null,
+              originalResult: null,
+              columns: [],
+              executedAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            }
+          : cell
+      )));
+      setError(message);
+      return false;
+    }
+  }, [combinedData, fileDataMap, updateNotebookCells, setError, setQueryResult]);
+
+  const executeAllNotebookCells = useCallback(async () => {
+    setRunAllInProgress(true);
+    try {
+      for (const cell of notebookCells) {
+        const success = await executeNotebookCell(cell.id);
+        if (!success) {
+          break;
+        }
+      }
+    } finally {
+      setRunAllInProgress(false);
+    }
+  }, [executeNotebookCell, notebookCells]);
+
+  const exportNotebook = useCallback(() => {
+    if (!hasNotebookCells) {
+      return;
+    }
+
+    const timestamp = new Date().toISOString();
+    const baseName = 'multi-file-analysis';
+    const payload = {
+      version: 1,
+      type: 'sql-notebook',
+      scope: 'multi-file',
+      exportedAt: timestamp,
+      files: Array.from(selectedFiles),
+      cellCount: notebookCells.length,
+      cells: notebookCells.map((cell) => ({
+        id: cell.id,
+        title: cell.title,
+        query: cell.query,
+        status: cell.status,
+        error: cell.error,
+        executedAt: cell.executedAt,
+        updatedAt: cell.updatedAt,
+        previewRowCount: cell.result ? cell.result.length : 0,
+        preview: cell.result ? cell.result.slice(0, 100) : [],
+        columns: cell.columns,
+      })),
+    };
+
+    downloadData(JSON.stringify(payload, null, 2), `${baseName}.sqlnb.json`, 'application/json');
+    setSqlNotebookMeta(MULTI_FILE_NOTEBOOK_ID, { name: `${baseName}.sqlnb.json`, exportedAt: timestamp });
+  }, [hasNotebookCells, notebookCells, selectedFiles, setSqlNotebookMeta, MULTI_FILE_NOTEBOOK_ID]);
+
+  const triggerNotebookImport = useCallback(() => {
+    notebookImportInputRef.current?.click();
+  }, []);
+
+  const handleNotebookImport = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const trimmed = text.trim();
+      if (!trimmed.startsWith('{')) {
+        throw new Error('Notebookファイル形式が不正です');
+      }
+
+      const snapshot = JSON.parse(trimmed);
+      if (!snapshot || typeof snapshot !== 'object' || !Array.isArray((snapshot as any).cells)) {
+        throw new Error('Notebookファイルにセル情報が含まれていません');
+      }
+
+      const cellsSource = (snapshot as any).cells as any[];
+      const now = new Date().toISOString();
+      const mappedCells: SqlNotebookCell[] = cellsSource.map((rawCell, index) => {
+        const cellObj = rawCell && typeof rawCell === 'object' ? rawCell : {};
+        const previewRows = Array.isArray((cellObj as any).preview) ? (cellObj as any).preview.filter((row: unknown) => row && typeof row === 'object') : [];
+        const hasPreview = previewRows.length > 0;
+        const normalizedColumns = Array.isArray((cellObj as any).columns)
+          ? (cellObj as any).columns.filter((col: unknown): col is string => typeof col === 'string')
+          : hasPreview
+            ? Object.keys(previewRows[0] as Record<string, unknown>)
+            : [];
+
+        const createdAt = typeof (cellObj as any).createdAt === 'string' ? (cellObj as any).createdAt : now;
+        const updatedAt = typeof (cellObj as any).updatedAt === 'string' ? (cellObj as any).updatedAt : createdAt;
+
+        return {
+          id: typeof (cellObj as any).id === 'string' && (cellObj as any).id ? (cellObj as any).id : generateCellId(),
+          title: typeof (cellObj as any).title === 'string' && (cellObj as any).title ? (cellObj as any).title : `セル ${index + 1}`,
+          query: typeof (cellObj as any).query === 'string' && (cellObj as any).query ? (cellObj as any).query : 'SELECT * FROM combined LIMIT 100',
+          status: hasPreview ? 'success' : 'idle',
+          error: null,
+          result: hasPreview ? previewRows : null,
+          originalResult: hasPreview ? previewRows : null,
+          columns: normalizedColumns,
+          executedAt: typeof (cellObj as any).executedAt === 'string' ? (cellObj as any).executedAt : null,
+          createdAt,
+          updatedAt,
+        };
+      });
+
+      const cellsToUse = mappedCells.length > 0 ? mappedCells : [createNotebookCell(1)];
+      setSqlNotebook(MULTI_FILE_NOTEBOOK_ID, cellsToUse);
+      setSqlNotebookMeta(MULTI_FILE_NOTEBOOK_ID, {
+        name: file.name,
+        exportedAt: typeof (snapshot as any).exportedAt === 'string' ? (snapshot as any).exportedAt : undefined,
+      });
+      setIsNotebookMode(true);
+      if (cellsToUse.length > 0) {
+        setSqlQuery(cellsToUse[0].query);
+      }
+      setError(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Notebookの読み込みに失敗しました';
+      setError(message);
+    } finally {
+      event.target.value = '';
+    }
+  }, [createNotebookCell, generateCellId, setSqlNotebook, setSqlNotebookMeta, setIsNotebookMode, setSqlQuery, setError, MULTI_FILE_NOTEBOOK_ID]);
 
   // テーマ設定
   useEffect(() => {
@@ -257,6 +568,14 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
 
     setLoading(true);
     setError(null);
+    setQueryResult(null);
+    setIsQueryEditing(false);
+    setEditedQueryResult(null);
+    setIsNotebookMode(false);
+    setRunAllInProgress(false);
+    setSqlQuery('SELECT * FROM combined');
+    setSqlNotebookMeta(MULTI_FILE_NOTEBOOK_ID, undefined);
+    setSqlNotebook(MULTI_FILE_NOTEBOOK_ID, [createNotebookCell(1)]);
     
     try {
       const newFileDataMap = new Map<string, any[]>();
@@ -671,6 +990,164 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
     );
   };
 
+  const renderNotebookWorkspace = () => {
+    if (!hasNotebookCells) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full min-h-[320px] border border-dashed border-gray-300 rounded text-gray-500">
+          <p className="mb-3">Notebookセルがありません。</p>
+          <button
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center"
+            onClick={addNotebookCell}
+          >
+            <IoAddOutline className="mr-2" />
+            セルを追加
+          </button>
+        </div>
+      );
+    }
+
+    const statusStyles: Record<SqlNotebookCell['status'], { text: string; className: string }> = {
+      idle: { text: '未実行', className: 'bg-gray-200 text-gray-700' },
+      running: { text: '実行中', className: 'bg-blue-100 text-blue-700' },
+      success: { text: '成功', className: 'bg-green-100 text-green-700' },
+      error: { text: 'エラー', className: 'bg-red-100 text-red-700' },
+    };
+
+    const exportedLabel = notebookSnapshotMeta?.exportedAt
+      ? (() => {
+          try {
+            return new Date(notebookSnapshotMeta.exportedAt).toLocaleString();
+          } catch {
+            return notebookSnapshotMeta.exportedAt;
+          }
+        })()
+      : null;
+
+    return (
+      <div className="space-y-6">
+        {notebookSnapshotMeta && (
+          <div className="rounded-md border border-blue-200 bg-blue-50/70 p-4 text-sm text-blue-800">
+            <div className="font-medium">Notebookスナップショットを読み込みました。</div>
+            <div className="mt-1 text-xs sm:text-sm">
+              ファイル: {notebookSnapshotMeta.name}
+              {exportedLabel ? `（エクスポート: ${exportedLabel}）` : ''}
+              。保存時点のプレビューが含まれる場合がありますが、最新データで再計算するには各セルを再実行してください。
+            </div>
+          </div>
+        )}
+
+        {notebookCells.map((cell, index) => {
+          const statusInfo = statusStyles[cell.status];
+          const isRunning = cell.status === 'running' || runAllInProgress;
+          const resultData = cell.result || [];
+          const hasResult = Array.isArray(resultData) && resultData.length > 0;
+          const rowCount = hasResult ? resultData.length : 0;
+          const executedLabel = cell.executedAt
+            ? (() => {
+                try {
+                  return new Date(cell.executedAt).toLocaleString();
+                } catch {
+                  return cell.executedAt;
+                }
+              })()
+            : null;
+
+          return (
+            <div key={cell.id} className="border border-gray-200 rounded-lg bg-white shadow-sm overflow-hidden">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-gray-200 bg-gray-50">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-sm font-semibold text-gray-700">
+                    {cell.title || `セル ${index + 1}`}
+                  </span>
+                  {executedLabel && (
+                    <span className="text-xs text-gray-500">最終実行: {executedLabel}</span>
+                  )}
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${statusInfo.className}`}>
+                    {statusInfo.text}
+                  </span>
+                  {hasResult && (
+                    <span className="text-xs text-gray-500">{rowCount}件</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center text-sm disabled:opacity-50"
+                    onClick={() => executeNotebookCell(cell.id)}
+                    disabled={isRunning || !combinedData || combinedData.length === 0}
+                  >
+                    <IoPlay className="mr-1" />
+                    {cell.status === 'running' ? '実行中...' : 'セルを実行'}
+                  </button>
+                  <button
+                    className="px-3 py-1.5 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 flex items-center text-sm disabled:opacity-50"
+                    onClick={() => removeNotebookCell(cell.id)}
+                    disabled={notebookCells.length === 1 || runAllInProgress}
+                  >
+                    <IoTrashOutline className="mr-1" />
+                    削除
+                  </button>
+                </div>
+              </div>
+              <div className="p-4 space-y-4">
+                <textarea
+                  value={cell.query}
+                  onChange={(e) => updateNotebookCellQuery(cell.id, e.target.value)}
+                  className="w-full min-h-[120px] p-3 border border-gray-300 rounded font-mono text-sm"
+                  placeholder="SELECT * FROM combined LIMIT 100"
+                  spellCheck={false}
+                  disabled={isRunning}
+                />
+                <div className="border border-gray-200 rounded">
+                  {cell.status === 'running' ? (
+                    <div className="flex items-center justify-center py-10 text-blue-500">
+                      <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-500 mr-3"></div>
+                      <span>クエリを実行中...</span>
+                    </div>
+                  ) : cell.status === 'error' && cell.error ? (
+                    <div className="p-4 bg-red-50 text-red-600 text-sm">
+                      {cell.error}
+                    </div>
+                  ) : hasResult ? (
+                    <div className="max-h-[360px] overflow-auto">
+                      <QueryResultTable data={resultData} />
+                    </div>
+                  ) : (
+                    <div className="p-4 text-sm text-gray-500">
+                      実行済みの結果がありません。クエリを実行すると結果が表示されます。
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderStandardQueryResult = () => {
+    if (!queryResult || queryResult.length === 0) {
+      return (
+        <div className="border border-dashed border-gray-300 rounded p-6 text-center text-gray-500">
+          クエリ結果がありません。クエリを実行してください。
+        </div>
+      );
+    }
+
+    return (
+      <div className="border border-gray-200 rounded">
+        {isQueryEditing ? (
+          <EditableQueryResultTable 
+            data={editedQueryResult || queryResult} 
+            onDataChange={setEditedQueryResult}
+          />
+        ) : (
+          <QueryResultTable data={queryResult} />
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="h-full flex flex-col bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100">
       {/* ヘッダー */}
@@ -829,23 +1306,38 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         {/* SQLクエリ設定 */}
         {activeTab === 'query' && (
           <div>
-            <div className="mb-4">
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-medium text-gray-700">
-                  SQLクエリ
-                </label>
-                <button
-                  onClick={() => setShowQueryHelp(!showQueryHelp)}
-                  className="text-xs text-blue-600 hover:text-blue-800"
-                >
-                  {showQueryHelp ? 'ヘルプを隠す' : 'FROM句の書き方'}
-                </button>
+            <div className="mb-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    SQLクエリ
+                  </label>
+                  <button
+                    onClick={() => setShowQueryHelp(!showQueryHelp)}
+                    className="text-xs text-blue-600 hover:text-blue-800"
+                  >
+                    {showQueryHelp ? 'ヘルプを隠す' : 'FROM句の書き方'}
+                  </button>
+                </div>
+                <div className="inline-flex rounded overflow-hidden border border-gray-300 bg-white text-xs">
+                  <button
+                    className={`px-3 py-1 ${!isNotebookMode ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                    onClick={() => setIsNotebookMode(false)}
+                  >
+                    シングルクエリ
+                  </button>
+                  <button
+                    className={`px-3 py-1 ${isNotebookMode ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                    onClick={() => setIsNotebookMode(true)}
+                  >
+                    ノートブック
+                  </button>
+                </div>
               </div>
-              
+
               {showQueryHelp && (
-                <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded text-sm">
+                <div className="mb-1 p-3 bg-blue-50 border border-blue-200 rounded text-sm">
                   <h4 className="font-semibold mb-2">SQL構文の書き方：</h4>
-                  
                   <div className="mb-3">
                     <p className="font-medium text-gray-800 mb-1">基本的なFROM句:</p>
                     <ul className="space-y-1 text-gray-700">
@@ -853,7 +1345,6 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
                       <li><code className="bg-gray-100 px-1 rounded">FROM ファイル名</code> - 特定のファイルのみ（拡張子なし）</li>
                     </ul>
                   </div>
-                  
                   <div className="mb-3">
                     <p className="font-medium text-gray-800 mb-1">JOIN構文:</p>
                     <ul className="space-y-1 text-gray-700 text-xs">
@@ -863,7 +1354,6 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
                       <li><code className="bg-gray-100 px-1 rounded">FROM table1 RIGHT JOIN table2 ON table1.ref = table2.ref</code></li>
                     </ul>
                   </div>
-
                   <div className="mt-2 pt-2 border-t border-blue-200">
                     <p className="font-semibold mb-1">利用可能なファイル:</p>
                     <div className="flex flex-wrap gap-1">
@@ -878,7 +1368,6 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
                       })}
                     </div>
                   </div>
-                  
                   <div className="mt-2 pt-2 border-t border-blue-200">
                     <p className="font-semibold mb-1">クエリ例:</p>
                     <ul className="text-xs space-y-1">
@@ -890,70 +1379,127 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
                   </div>
                 </div>
               )}
-              
-              <textarea
-                value={sqlQuery}
-                onChange={(e) => setSqlQuery(e.target.value)}
-                rows={4}
-                className="w-full p-2 border border-gray-300 rounded font-mono text-sm"
-                placeholder="SELECT * FROM combined WHERE ..."
-                disabled={!combinedData || combinedData.length === 0}
-              />
-            </div>
-            
-            <div className="flex space-x-2">
-              <button
-                onClick={executeQueryAnalysis}
-                disabled={loading || !combinedData || combinedData.length === 0}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
-              >
-                <IoCodeSlash size={16} className="mr-2" />
-                クエリ実行
-              </button>
-              
-              {/* クエリサンプルボタン */}
-              <div className="flex flex-wrap gap-1">
-                <button
-                  onClick={() => setSqlQuery('SELECT * FROM combined')}
-                  className="px-2 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded"
-                >
-                  全データ
-                </button>
-                <button
-                  onClick={() => setSqlQuery('SELECT _sourceFile, COUNT(*) FROM combined GROUP BY _sourceFile')}
-                  className="px-2 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded"
-                >
-                  ファイル別件数
-                </button>
-                {Array.from(fileDataMap.keys()).length >= 2 && (
-                  <button
-                    onClick={() => {
-                      const fileNames = Array.from(fileDataMap.keys()).map(path => {
-                        const fileName = path.split('/').pop() || path;
-                        return fileName.replace(/\.[^/.]+$/, '');
-                      });
-                      setSqlQuery(`SELECT * FROM ${fileNames[0]} JOIN ${fileNames[1]} ON ${fileNames[0]}.id = ${fileNames[1]}.id`);
-                    }}
-                    className="px-2 py-1 text-xs bg-green-200 hover:bg-green-300 rounded"
-                  >
-                    JOIN例
-                  </button>
-                )}
-                {Array.from(fileDataMap.keys()).length >= 2 && (
-                  <button
-                    onClick={() => {
-                      const fileNames = Array.from(fileDataMap.keys()).map(path => {
-                        const fileName = path.split('/').pop() || path;
-                        return fileName.replace(/\.[^/.]+$/, '');
-                      });
-                      setSqlQuery(`SELECT a.*, b.* FROM ${fileNames[0]} a LEFT JOIN ${fileNames[1]} b ON a.key = b.key`);
-                    }}
-                    className="px-2 py-1 text-xs bg-green-200 hover:bg-green-300 rounded"
-                  >
-                    LEFT JOIN例
-                  </button>
-                )}
-              </div>
+
+              {!isNotebookMode ? (
+                <>
+                  <textarea
+                    value={sqlQuery}
+                    onChange={(e) => setSqlQuery(e.target.value)}
+                    rows={4}
+                    className="w-full p-2 border border-gray-300 rounded font-mono text-sm"
+                    placeholder="SELECT * FROM combined WHERE ..."
+                    disabled={!combinedData || combinedData.length === 0}
+                  />
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={executeQueryAnalysis}
+                      disabled={loading || !combinedData || combinedData.length === 0}
+                      className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
+                    >
+                      <IoCodeSlash size={16} className="mr-2" />
+                      クエリ実行
+                    </button>
+                    <div className="flex flex-wrap gap-1">
+                      <button
+                        onClick={() => setSqlQuery('SELECT * FROM combined')}
+                        className="px-2 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded"
+                      >
+                        全データ
+                      </button>
+                      <button
+                        onClick={() => setSqlQuery('SELECT _sourceFile, COUNT(*) FROM combined GROUP BY _sourceFile')}
+                        className="px-2 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded"
+                      >
+                        ファイル別件数
+                      </button>
+                      {Array.from(fileDataMap.keys()).length >= 2 && (
+                        <button
+                          onClick={() => {
+                            const fileNames = Array.from(fileDataMap.keys()).map(path => {
+                              const fileName = path.split('/').pop() || path;
+                              return fileName.replace(/\.[^/.]+$/, '');
+                            });
+                            setSqlQuery(`SELECT * FROM ${fileNames[0]} JOIN ${fileNames[1]} ON ${fileNames[0]}.id = ${fileNames[1]}.id`);
+                          }}
+                          className="px-2 py-1 text-xs bg-green-200 hover:bg-green-300 rounded"
+                        >
+                          JOIN例
+                        </button>
+                      )}
+                      {Array.from(fileDataMap.keys()).length >= 2 && (
+                        <button
+                          onClick={() => {
+                            const fileNames = Array.from(fileDataMap.keys()).map(path => {
+                              const fileName = path.split('/').pop() || path;
+                              return fileName.replace(/\.[^/.]+$/, '');
+                            });
+                            setSqlQuery(`SELECT a.*, b.* FROM ${fileNames[0]} a LEFT JOIN ${fileNames[1]} b ON a.key = b.key`);
+                          }}
+                          className="px-2 py-1 text-xs bg-green-200 hover:bg-green-300 rounded"
+                        >
+                          LEFT JOIN例
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-gray-600">
+                    <div className="flex items-center gap-2">
+                      <IoBookOutline size={16} />
+                      <span>Notebookモードで複数クエリを段階的に実行できます。</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center disabled:opacity-50"
+                        onClick={addNotebookCell}
+                      >
+                        <IoAddOutline className="mr-1" /> セル追加
+                      </button>
+                      <button
+                        className="px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700 flex items-center disabled:opacity-50"
+                        onClick={executeAllNotebookCells}
+                        disabled={!combinedData || combinedData.length === 0 || runAllInProgress || !hasNotebookCells}
+                      >
+                        {runAllInProgress ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
+                            実行中...
+                          </>
+                        ) : (
+                          <>
+                            <IoPlay className="mr-1" /> 全セル実行
+                          </>
+                        )}
+                      </button>
+                      <button
+                        className="px-3 py-1.5 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 flex items-center"
+                        onClick={triggerNotebookImport}
+                      >
+                        Notebookを読み込む
+                      </button>
+                      <button
+                        className="px-3 py-1.5 bg-gray-800 text-white rounded hover:bg-gray-700 flex items-center disabled:opacity-50"
+                        onClick={exportNotebook}
+                        disabled={!hasNotebookCells}
+                      >
+                        <IoDownloadOutline className="mr-1" /> Notebookを保存
+                      </button>
+                    </div>
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    セルごとに`combined`や個別ファイル名をFROM句に指定できます。最新データを反映する場合は再度データ統合・実行してください。
+                  </div>
+                  <input
+                    ref={notebookImportInputRef}
+                    type="file"
+                    accept=".sqlnb.json,application/json"
+                    className="hidden"
+                    onChange={handleNotebookImport}
+                  />
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1473,43 +2019,43 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         )}
 
         {/* クエリタブ */}
-        {activeTab === 'query' && queryResult && queryResult.length > 0 && (
-          <div className="p-4">
-            <div className="flex justify-between items-center mb-2">
-              <h3 className="text-lg font-semibold flex items-center">
-                <IoCodeSlash size={20} className="mr-2" />
-                クエリ結果 ({queryResult.length}件)
-              </h3>
-              <button
-                className="px-3 py-1 flex items-center text-sm text-gray-600 hover:text-blue-600"
-                onClick={toggleDisplayMode}
-                title={editorSettings.dataDisplayMode === 'flat' ? "階層表示に切替" : "フラット表示に切替"}
-              >
-                <IoLayersOutline className="mr-1" size={16} />
-                <span className="text-sm">
-                  {editorSettings.dataDisplayMode === 'flat' ? '階層表示' : 'フラット表示'}
-                </span>
-              </button>
-            </div>
-            <div className="border border-gray-200 rounded">
-              {isQueryEditing ? (
-                <EditableQueryResultTable 
-                  data={editedQueryResult || queryResult} 
-                  onDataChange={setEditedQueryResult}
-                />
-              ) : (
-                <QueryResultTable data={queryResult} />
-              )}
-            </div>
-            <div className="mt-2 flex space-x-2">
-              <button
-                onClick={() => setIsQueryEditing(!isQueryEditing)}
-                className="px-3 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded"
-              >
-                <IoEye size={14} className="inline mr-1" />
-                {isQueryEditing ? '表示モード' : '編集モード'}
-              </button>
-            </div>
+        {activeTab === 'query' && (
+          <div className="p-4 space-y-4">
+            {isNotebookMode ? (
+              renderNotebookWorkspace()
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <IoCodeSlash size={20} className="text-blue-600" />
+                    <span className="text-lg font-semibold">クエリ結果</span>
+                    {queryResult && (
+                      <span className="text-sm text-gray-500">({queryResult.length}件)</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      className="px-3 py-1 flex items-center text-sm text-gray-600 hover:text-blue-600 disabled:text-gray-400 disabled:hover:text-gray-400"
+                      onClick={toggleDisplayMode}
+                      disabled={!queryResult || queryResult.length === 0}
+                      title={editorSettings.dataDisplayMode === 'flat' ? '階層表示に切替' : 'フラット表示に切替'}
+                    >
+                      <IoLayersOutline className="mr-1" size={16} />
+                      <span>{editorSettings.dataDisplayMode === 'flat' ? '階層表示' : 'フラット表示'}</span>
+                    </button>
+                    <button
+                      onClick={() => setIsQueryEditing(!isQueryEditing)}
+                      className="px-3 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded disabled:bg-gray-200 disabled:text-gray-400"
+                      disabled={!queryResult || queryResult.length === 0}
+                    >
+                      <IoEye size={14} className="inline mr-1" />
+                      {isQueryEditing ? '表示モード' : '編集モード'}
+                    </button>
+                  </div>
+                </div>
+                {renderStandardQueryResult()}
+              </>
+            )}
           </div>
         )}
 

@@ -86,6 +86,12 @@ export interface SqlResult {
   error?: string;
 }
 
+// ノートブックスナップショット Meta
+export interface SqlNotebookSnapshotMeta {
+  name: string;
+  exportedAt?: string;
+}
+
 // チャート設定に関する型定義
 export interface ChartSettings {
   type: 'bar' | 'line' | 'pie' | 'scatter' | 'stacked-bar' | 'regression' | 'histogram' | 'gantt';

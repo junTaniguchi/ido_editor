@@ -106,6 +106,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
   const [activeTab, setActiveTab] = useState<'query' | 'stats' | 'chart' | 'relationship'>('query');
   const [isQueryEditing, setIsQueryEditing] = useState(false);
   const [editedQueryResult, setEditedQueryResult] = useState<any[] | null>(null);
+  const [notebookSnapshotMeta, setNotebookSnapshotMeta] = useState<{ name: string; exportedAt?: string } | null>(null);
   
   // 現在のテーマを取得する
   const [currentTheme, setCurrentTheme] = useState<string>('light');
@@ -193,10 +194,12 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
 
   // ノートブックの初期セルを準備
   useEffect(() => {
-    if (!sqlNotebook[tabId] || sqlNotebook[tabId].length === 0) {
+    if (isNotebookMode) return;
+    const existingCells = sqlNotebook[tabId];
+    if (!existingCells || existingCells.length === 0) {
       setSqlNotebook(tabId, [createNotebookCell(1)]);
     }
-  }, [createNotebookCell, setSqlNotebook, sqlNotebook, tabId]);
+  }, [createNotebookCell, isNotebookMode, setSqlNotebook, sqlNotebook, tabId]);
   
   // データを初期ロード
   useEffect(() => {
@@ -285,11 +288,83 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
     setQueryResult(null);
     setStatisticsResult(null);
     setChartData(null);
+    setOriginalData(null);
+    setOriginalQueryResult(null);
+    setInfoResult(null);
+    setNotebookSnapshotMeta(null);
+    setIsNotebookMode(false);
     
     try {
       let data: any[] = [];
       let cols: string[] = [];
-      
+
+      const currentTab = tabs.get(tabId);
+      const trimmedContent = typeof content === 'string' ? content.trim() : '';
+      const attemptNotebookImport =
+        trimmedContent.startsWith('{') &&
+        (type === 'json' || (currentTab?.name?.toLowerCase().includes('.sqlnb') ?? false));
+      if (attemptNotebookImport) {
+        try {
+          const snapshot = JSON.parse(trimmedContent);
+          if (
+            snapshot &&
+            typeof snapshot === 'object' &&
+            ((snapshot as any).version !== undefined || currentTab?.name?.toLowerCase().includes('.sqlnb') || (snapshot as any).type === 'sql-notebook') &&
+            Array.isArray((snapshot as any).cells)
+          ) {
+            const cellsSource = (snapshot as any).cells as any[];
+            const now = new Date().toISOString();
+            const mappedCells: SqlNotebookCell[] = cellsSource.map((rawCell, index) => {
+              const cellObj = rawCell && typeof rawCell === 'object' ? rawCell : {};
+              const previewRows = Array.isArray((cellObj as any).preview) ? (cellObj as any).preview.filter((row: unknown) => row && typeof row === 'object') : [];
+              const hasPreview = previewRows.length > 0;
+              const normalizedColumns = Array.isArray((cellObj as any).columns)
+                ? (cellObj as any).columns.filter((col: unknown): col is string => typeof col === 'string')
+                : hasPreview
+                  ? Object.keys(previewRows[0] as Record<string, unknown>)
+                  : [];
+
+              const createdAt = typeof (cellObj as any).createdAt === 'string' ? (cellObj as any).createdAt : now;
+              const updatedAt = typeof (cellObj as any).updatedAt === 'string' ? (cellObj as any).updatedAt : createdAt;
+
+              return {
+                id: typeof (cellObj as any).id === 'string' && (cellObj as any).id ? (cellObj as any).id : generateCellId(),
+                title: typeof (cellObj as any).title === 'string' && (cellObj as any).title ? (cellObj as any).title : `セル ${index + 1}`,
+                query: typeof (cellObj as any).query === 'string' && (cellObj as any).query ? (cellObj as any).query : 'SELECT * FROM ? LIMIT 10',
+                status: hasPreview ? 'success' : 'idle',
+                error: null,
+                result: hasPreview ? previewRows : null,
+                originalResult: hasPreview ? previewRows : null,
+                columns: normalizedColumns,
+                executedAt: typeof (cellObj as any).executedAt === 'string' ? (cellObj as any).executedAt : null,
+                createdAt,
+                updatedAt,
+              };
+            });
+
+            const cellsToUse = mappedCells.length > 0 ? mappedCells : [createNotebookCell(1)];
+            setSqlNotebook(tabId, cellsToUse);
+            setIsNotebookMode(true);
+            setNotebookSnapshotMeta({
+              name: currentTab?.name || 'SQL Notebook',
+              exportedAt: typeof (snapshot as any).exportedAt === 'string' ? (snapshot as any).exportedAt : undefined,
+            });
+            if (cellsToUse.length > 0) {
+              setSqlQuery(cellsToUse[0].query);
+            }
+
+            setOriginalData(null);
+            setOriginalQueryResult(null);
+            setInfoResult(null);
+            setAnalysisData({ columns: [], rows: [] });
+            setLoading(false);
+            return;
+          }
+        } catch (err) {
+          // JSON parse failed or snapshot format mismatch; continue with standard processing
+        }
+      }
+
       switch (type) {
         case 'csv':
           const csvResult = parseCSV(content);
@@ -1990,8 +2065,28 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
       error: { text: 'エラー', className: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200' },
     };
 
+    const exportedLabel = notebookSnapshotMeta?.exportedAt
+      ? (() => {
+          try {
+            return new Date(notebookSnapshotMeta.exportedAt).toLocaleString();
+          } catch {
+            return notebookSnapshotMeta.exportedAt;
+          }
+        })()
+      : null;
+
     return (
       <div className="space-y-6 p-4">
+        {notebookSnapshotMeta && (
+          <div className="rounded-md border border-blue-200 bg-blue-50/80 dark:border-blue-800 dark:bg-blue-900/20 p-4 text-sm text-blue-800 dark:text-blue-200">
+            <div className="font-medium">Notebookスナップショットを読み込みました。</div>
+            <div className="mt-1 text-xs sm:text-sm text-blue-700/80 dark:text-blue-200/90">
+              ファイル: {notebookSnapshotMeta.name}
+              {exportedLabel ? `（エクスポート: ${exportedLabel}）` : ''}
+              。保存時点のクエリと結果プレビューのみ復元されるため、データセットを再度読み込んで実行してください。
+            </div>
+          </div>
+        )}
         {notebookCells.map((cell, index) => {
           const statusInfo = statusStyles[cell.status];
           const isRunning = cell.status === 'running' || runAllInProgress;
