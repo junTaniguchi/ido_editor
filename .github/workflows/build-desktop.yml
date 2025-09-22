@@ -51,11 +51,11 @@ jobs:
 
       - name: Package macOS (no publish)
         if: runner.os == 'macOS' && !startsWith(github.ref, 'refs/tags/')
-        run: npx electron-builder --mac --publish=never
+        run: npx electron-builder --mac --x64 --arm64 --publish=never
 
       - name: Package macOS and publish
         if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/')
-        run: npx electron-builder --mac --publish=always
+        run: npx electron-builder --mac --x64 --arm64 --publish=always
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
