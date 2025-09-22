@@ -10,7 +10,7 @@
  */
 'use client';
 
-import React, { useEffect, useState, useRef, forwardRef } from 'react';
+import React, { useEffect, useState, useRef, forwardRef, useCallback } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { useEditorStore } from '@/store/editorStore';
 import { getLanguageByFileName, getTheme, getEditorExtensions } from '@/lib/editorUtils';
@@ -23,6 +23,7 @@ import HtmlPreview from '@/components/preview/HtmlPreview';
 import MarkdownEditorExtension from '@/components/markdown/MarkdownEditorExtension';
 import ExportModal from '@/components/preview/ExportModal';
 import { parseCSV, parseJSON, parseYAML, parseParquet } from '@/lib/dataPreviewUtils';
+import { writeFileContent } from '@/lib/fileSystemUtils';
 
 export interface EditorProps {
   tabId: string;
@@ -47,9 +48,10 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
     getViewMode,
     setViewMode,
     paneState,
-    updatePaneState
+    updatePaneState,
+    rootDirHandle
   } = useEditorStore();
-  
+
   const [currentTab, setCurrentTab] = useState<TabData | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -58,6 +60,7 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
   const editorRef = useRef(null);
   // CodeMirrorのscroller要素をrefで取得
   const codeMirrorScrollerRef = useRef<HTMLDivElement | null>(null);
+  const saveShortcutHandlerRef = useRef<() => void>(() => {});
   
   // テーマ切替時にCodeMirrorのscroller背景色も同期させる
   // 早期returnの前に配置し、フックの順序が変化しないようにする
@@ -142,22 +145,112 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
   };
 
   // ファイルの保存処理
-  const saveFile = () => {
-    if (!currentTab) return;
+  const saveFile = useCallback(async () => {
+    if (!currentTab || !currentTab.isDirty) {
+      return;
+    }
 
-    // タブの状態を更新して保存済みにする
-    updateTab(tabId, {
-      originalContent: currentTab.content,
-      isDirty: false
-    });
+    if (currentTab.isReadOnly) {
+      alert('このファイルは読み取り専用のため保存できません。');
+      return;
+    }
 
-    // ローカルの状態も更新
-    setIsDirty(false);
-    setCurrentTab((prev) => {
-      if (!prev) return null;
-      return { ...prev, originalContent: prev.content, isDirty: false };
-    });
-  };
+    if (typeof currentTab.content !== 'string') {
+      alert('このファイル形式の保存には現在対応していません。');
+      return;
+    }
+
+    const contentToSave = currentTab.content;
+    let fileHandle: FileSystemFileHandle | null = null;
+    const existingHandle = currentTab.file;
+
+    if (existingHandle && typeof (existingHandle as FileSystemFileHandle).createWritable === 'function') {
+      fileHandle = existingHandle as FileSystemFileHandle;
+    } else if (rootDirHandle) {
+      const candidatePath = currentTab.id && !currentTab.id.startsWith('temp_')
+        ? currentTab.id
+        : currentTab.name;
+
+      if (candidatePath) {
+        const segments = candidatePath.split('/').filter(Boolean);
+
+        if (segments.length > 0) {
+          try {
+            let directoryHandle: FileSystemDirectoryHandle = rootDirHandle;
+
+            for (let i = 0; i < segments.length - 1; i += 1) {
+              directoryHandle = await directoryHandle.getDirectoryHandle(segments[i]);
+            }
+
+            const targetFileName = segments[segments.length - 1];
+            fileHandle = await directoryHandle.getFileHandle(targetFileName, { create: true });
+          } catch (error) {
+            console.error('Failed to resolve file handle for saving:', error);
+          }
+        }
+      }
+    }
+
+    if (!fileHandle) {
+      alert('ファイルの保存先を特定できませんでした。フォルダを開き直してください。');
+      return;
+    }
+
+    try {
+      const didWrite = await writeFileContent(fileHandle, contentToSave);
+
+      if (!didWrite) {
+        throw new Error('ファイルの書き込みに失敗しました');
+      }
+
+      const latestTab = useEditorStore.getState().tabs.get(tabId);
+      const latestContent = latestTab?.content;
+      const hasPendingChanges = typeof latestContent === 'string' && latestContent !== contentToSave;
+
+      // タブの状態を更新して保存済みにする
+      updateTab(tabId, {
+        originalContent: contentToSave,
+        isDirty: hasPendingChanges,
+        file: fileHandle,
+      });
+
+      // ローカルの状態も更新
+      setIsDirty(hasPendingChanges);
+      setCurrentTab((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          originalContent: contentToSave,
+          isDirty: hasPendingChanges,
+          file: fileHandle || prev.file,
+        };
+      });
+    } catch (error) {
+      console.error('Failed to save file:', error);
+      alert(`ファイルの保存に失敗しました: ${error instanceof Error ? error.message : '不明なエラー'}`);
+    }
+  }, [currentTab, rootDirHandle, tabId, updateTab]);
+
+  useEffect(() => {
+    saveShortcutHandlerRef.current = () => {
+      void saveFile();
+    };
+  }, [saveFile]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && (event.key === 's' || event.key === 'S')) {
+        event.preventDefault();
+        saveShortcutHandlerRef.current();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   // エクスポート用のデータ解析処理
   const handleExportButtonClick = async () => {
@@ -273,9 +366,9 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
                 </button>
               </>
             )}
-            <button 
+            <button
               className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 mr-2"
-              onClick={saveFile}
+              onClick={() => void saveFile()}
               disabled={!isDirty}
             >
               <IoSave className="inline mr-1" /> 保存

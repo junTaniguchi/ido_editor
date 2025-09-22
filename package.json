@@ -33,7 +33,6 @@
     "chart.js": "^4.5.0",
     "chartjs-chart-matrix": "^3.0.0",
     "chartjs-plugin-datalabels": "^2.2.0",
-    "codex": "^0.2.3",
     "csv-parser": "^3.2.0",
     "csv-stringify": "^6.6.0",
     "docx": "^9.5.1",
@@ -91,6 +90,8 @@
   },
   "main": "electron/main.js",
   "build": {
+    "npmRebuild": false,
+    "nodeGypRebuild": false,
     "appId": "com.ido.editor",
     "productName": "IDO Editor",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
