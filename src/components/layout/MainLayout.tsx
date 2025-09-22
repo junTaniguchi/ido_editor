@@ -5,7 +5,7 @@
  */
 'use client';
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useEditorStore } from '@/store/editorStore';
 import TabBarDnD from '@/components/tabs/TabBarDnD';
 import InputDialog from '@/components/modals/InputDialog';
@@ -14,6 +14,7 @@ import ViewModeBanner from '@/components/layout/ViewModeBanner';
 import Workspace from '@/components/layout/Workspace';
 import { createNewFile } from '@/lib/fileSystemUtils';
 import { getFileType } from '@/lib/editorUtils';
+import { TabData } from '@/types';
 
 const MainLayout = () => {
   const {
@@ -31,6 +32,8 @@ const MainLayout = () => {
     selectedFiles,
     getViewMode,
     setViewMode,
+    setActiveTabId,
+    updateTab,
   } = useEditorStore();
 
   const [showNewFileDialog, setShowNewFileDialog] = useState(false);
@@ -133,6 +136,128 @@ const MainLayout = () => {
   const canToggleViewMode = useMemo(() => {
     return Boolean(activeTab && (fileTypeFlags.isPreviewableSpecialType || fileTypeFlags.isDataPreviewable));
   }, [activeTab, fileTypeFlags.isDataPreviewable, fileTypeFlags.isPreviewableSpecialType]);
+
+  const handleDroppedFiles = useCallback(
+    async (inputFiles: FileList | File[]) => {
+      const filesArray = Array.isArray(inputFiles) ? inputFiles : Array.from(inputFiles);
+
+      for (let index = 0; index < filesArray.length; index += 1) {
+        const file = filesArray[index];
+        if (!file) continue;
+
+        const lowerName = file.name.toLowerCase();
+        let fileType = getFileType(file.name) as TabData['type'];
+        if (lowerName.endsWith('.pdf')) {
+          fileType = 'pdf';
+        } else if (lowerName.endsWith('.ipynb')) {
+          fileType = 'ipynb';
+        }
+
+        let content = '';
+        try {
+          if (fileType === 'excel') {
+            content = '';
+          } else if (fileType === 'pdf') {
+            content = URL.createObjectURL(file);
+          } else {
+            content = await file.text();
+          }
+        } catch (error) {
+          console.error('Failed to read dropped file:', error);
+          alert(`ファイルの読み込みに失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          continue;
+        }
+
+        const state = useEditorStore.getState();
+        const existingEntry = Array.from(state.tabs.entries()).find(([, tab]) => {
+          if (tab.file instanceof File) {
+            return (
+              tab.file.name === file.name &&
+              tab.file.size === file.size &&
+              tab.file.lastModified === file.lastModified
+            );
+          }
+          return false;
+        });
+
+        if (existingEntry) {
+          const [existingId] = existingEntry;
+          setActiveTabId(existingId);
+          updateTab(existingId, {
+            content,
+            originalContent: content,
+            isDirty: false,
+            file,
+            type: fileType,
+          });
+          continue;
+        }
+
+        const tabId = `dropped_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 8)}`;
+
+        const newTab: TabData = {
+          id: tabId,
+          name: file.name,
+          content,
+          originalContent: content,
+          isDirty: false,
+          type: fileType,
+          isReadOnly: false,
+          file,
+        };
+
+        addTab(newTab);
+      }
+    },
+    [addTab, setActiveTabId, updateTab]
+  );
+
+  useEffect(() => {
+    const handleDragOver = (event: DragEvent) => {
+      if (!event.dataTransfer) return;
+      const hasFiles =
+        Array.from(event.dataTransfer.items || []).some(item => item.kind === 'file') ||
+        event.dataTransfer.files.length > 0;
+      if (!hasFiles) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+    };
+
+    const handleDrop = (event: DragEvent) => {
+      if (!event.dataTransfer) return;
+
+      const itemList = event.dataTransfer.items;
+      const files: File[] = [];
+
+      if (itemList && itemList.length > 0) {
+        for (const item of Array.from(itemList)) {
+          if (item.kind === 'file') {
+            const file = item.getAsFile();
+            if (file) {
+              files.push(file);
+            }
+          }
+        }
+      } else {
+        files.push(...Array.from(event.dataTransfer.files || []));
+      }
+
+      if (files.length === 0) {
+        return;
+      }
+
+      event.preventDefault();
+      void handleDroppedFiles(files);
+    };
+
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('drop', handleDrop);
+
+    return () => {
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('drop', handleDrop);
+    };
+  }, [handleDroppedFiles]);
 
   return (
     <div className="flex flex-col h-screen bg-white text-gray-900 dark:bg-[#0f172a] dark:text-gray-100">

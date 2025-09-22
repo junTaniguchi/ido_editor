@@ -7,7 +7,7 @@
  */
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState, forwardRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, forwardRef } from 'react';
 import { useEditorStore } from '@/store/editorStore';
 
 export interface HtmlPreviewProps {
@@ -46,7 +46,7 @@ const HtmlPreview = forwardRef<HTMLDivElement, HtmlPreviewProps>(({ tabId, onScr
   }, [content, isDark, fontSize]);
 
   // iframe の高さをコンテンツに合わせる
-  const updateIframeHeight = () => {
+  const updateIframeHeight = useCallback(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
     try {
@@ -61,18 +61,84 @@ const HtmlPreview = forwardRef<HTMLDivElement, HtmlPreviewProps>(({ tabId, onScr
         html?.scrollHeight || 0,
         html?.offsetHeight || 0
       );
-      if (height && Math.abs(height - iframeHeight) > 4) {
-        setIframeHeight(height);
+      if (height) {
+        setIframeHeight(prev => (Math.abs(prev - height) > 4 ? height : prev));
       }
     } catch (e) {
       // sandbox での制約などがあれば無視
     }
-  };
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(updateIframeHeight, 50);
     return () => clearTimeout(timer);
-  }, [srcDoc]);
+  }, [srcDoc, updateIframeHeight]);
+
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+
+    let cleanupCopyListener: (() => void) | null = null;
+
+    const attachCopyListener = () => {
+      try {
+        const doc = iframe.contentDocument || iframe.contentWindow?.document;
+        if (!doc) {
+          return () => {};
+        }
+
+        const handleCopy = (event: ClipboardEvent) => {
+          if (!event.clipboardData) return;
+          const selection = doc.getSelection();
+          if (!selection || selection.rangeCount === 0) return;
+
+          const container = doc.createElement('div');
+          for (let i = 0; i < selection.rangeCount; i += 1) {
+            const range = selection.getRangeAt(i);
+            const fragment = range.cloneContents();
+            container.appendChild(fragment);
+          }
+
+          const html = container.innerHTML;
+          const text = selection.toString();
+
+          if (!html.trim() && !text.trim()) {
+            return;
+          }
+
+          event.preventDefault();
+          if (html.trim()) {
+            event.clipboardData.setData('text/html', html);
+          }
+          if (text.trim()) {
+            event.clipboardData.setData('text/plain', text);
+          }
+        };
+
+        doc.addEventListener('copy', handleCopy);
+
+        return () => {
+          doc.removeEventListener('copy', handleCopy);
+        };
+      } catch (error) {
+        return () => {};
+      }
+    };
+
+    const handleLoad = () => {
+      cleanupCopyListener?.();
+      cleanupCopyListener = attachCopyListener();
+      updateIframeHeight();
+    };
+
+    iframe.addEventListener('load', handleLoad);
+    handleLoad();
+
+    return () => {
+      iframe.removeEventListener('load', handleLoad);
+      cleanupCopyListener?.();
+    };
+  }, [srcDoc, updateIframeHeight]);
 
   return (
     <div className="w-full h-full overflow-auto bg-white text-gray-900 dark:bg-[#0f172a] dark:text-gray-100" ref={ref} onScroll={onScroll}>
