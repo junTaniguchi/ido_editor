@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">IDO Editor Icon</title>
+  <defs>
+    <linearGradient id="idoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563eb" />
+      <stop offset="100%" stop-color="#7c3aed" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#idoGradient)" />
+  <circle cx="21" cy="20" r="4" fill="#ffffff" />
+  <rect x="18" y="24" width="6" height="24" rx="3" fill="#ffffff" />
+  <path
+    d="M32 24h7.2c8.8 0 13.8 5.86 13.8 12.96 0 8.38-5.66 13.04-13.96 13.04H32zm6 6v14h1.3c4.18 0 7.14-2.44 7.14-7.08 0-4.28-2.76-6.92-7.02-6.92z"
+    fill="#ffffff"
+  />
+</svg>

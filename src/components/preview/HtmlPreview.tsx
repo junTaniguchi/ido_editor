@@ -9,6 +9,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState, forwardRef } from 'react';
 import { useEditorStore } from '@/store/editorStore';
+import { convertContainerToRtf } from '@/utils/htmlToRtf';
 
 export interface HtmlPreviewProps {
   tabId: string;
@@ -92,23 +93,50 @@ const HtmlPreview = forwardRef<HTMLDivElement, HtmlPreviewProps>(({ tabId, onScr
           const selection = doc.getSelection();
           if (!selection || selection.rangeCount === 0) return;
 
-          const container = doc.createElement('div');
+          const htmlContainer = doc.createElement('div');
+          const rtfContainer = doc.createElement('div');
+          rtfContainer.style.cssText =
+            'position:fixed;left:-99999px;top:-99999px;opacity:0;pointer-events:none;z-index:-1;';
+
+          let hasContent = false;
           for (let i = 0; i < selection.rangeCount; i += 1) {
             const range = selection.getRangeAt(i);
             const fragment = range.cloneContents();
-            container.appendChild(fragment);
+            const htmlFragment = fragment.cloneNode(true);
+            htmlContainer.appendChild(htmlFragment);
+            rtfContainer.appendChild(fragment);
+            hasContent = true;
           }
 
-          const html = container.innerHTML;
+          const html = htmlContainer.innerHTML;
           const text = selection.toString();
 
-          if (!html.trim() && !text.trim()) {
+          if (!hasContent || (!html.trim() && !text.trim())) {
             return;
           }
 
           event.preventDefault();
-          if (html.trim()) {
-            event.clipboardData.setData('text/html', html);
+          let rtf: string | null = null;
+
+          if (rtfContainer.childNodes.length) {
+            try {
+              doc.body.appendChild(rtfContainer);
+              rtf = convertContainerToRtf(rtfContainer);
+            } catch (error) {
+              rtf = null;
+            } finally {
+              if (rtfContainer.parentElement) {
+                rtfContainer.parentElement.removeChild(rtfContainer);
+              }
+            }
+          }
+
+          const trimmedHtml = html.trim();
+          if (trimmedHtml) {
+            event.clipboardData.setData('text/html', trimmedHtml);
+          }
+          if (rtf && rtf.trim()) {
+            event.clipboardData.setData('text/rtf', rtf);
           }
           if (text.trim()) {
             event.clipboardData.setData('text/plain', text);
