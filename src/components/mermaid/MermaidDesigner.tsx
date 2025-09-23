@@ -50,7 +50,7 @@ import type {
 } from '@/lib/mermaid/types';
 import MermaidPreview from '@/components/preview/MermaidPreview';
 
-interface MermaidDesignerProps {
+export interface MermaidDesignerProps {
   tabId: string;
   fileName: string;
   content: string;
