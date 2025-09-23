@@ -2,8 +2,14 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
-import type { Data as PlotlyData, Layout as PlotlyLayout } from 'plotly.js';
-import { aggregateData, flattenObjectsWithDotNotation, calculateRegressionLine, getRegressionTypeLabel } from '@/lib/dataAnalysisUtils';
+import type { Config as PlotlyConfig, Data as PlotlyData, Layout as PlotlyLayout } from 'plotly.js';
+import {
+  aggregateData,
+  flattenObjectsWithDotNotation,
+  calculateRegressionLine,
+  getRegressionTypeLabel,
+  prepareChartData,
+} from '@/lib/dataAnalysisUtils';
 import { IoChevronDownOutline, IoChevronForwardOutline } from 'react-icons/io5';
 
 const Plot = dynamic(() => import('react-plotly.js'), { ssr: false });
@@ -39,7 +45,10 @@ export type ResultChartType =
   | 'regression'
   | 'bubble'
   | 'sunburst'
-  | 'gantt';
+  | 'gantt'
+  | 'treemap'
+  | 'streamgraph'
+  | 'venn';
 export type ResultAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
 
 interface ResultChartBuilderProps {
@@ -52,6 +61,7 @@ interface ResultChartBuilderProps {
 interface PlotState {
   data: PlotlyData[];
   layout: Partial<PlotlyLayout>;
+  config?: Partial<PlotlyConfig>;
 }
 
 const aggregationOptions: { value: ResultAggregation; label: string }[] = [
@@ -61,6 +71,14 @@ const aggregationOptions: { value: ResultAggregation; label: string }[] = [
   { value: 'min', label: '最小' },
   { value: 'max', label: '最大' },
 ];
+
+const defaultPlotlyConfig: Partial<PlotlyConfig> = {
+  responsive: true,
+  displayModeBar: true,
+  displaylogo: false,
+  modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+  doubleClickDelay: 1000,
+};
 
 const chartTypeLabels: Record<ResultChartType, string> = {
   bar: '棒グラフ',
@@ -73,6 +91,9 @@ const chartTypeLabels: Record<ResultChartType, string> = {
   bubble: 'バブルチャート',
   sunburst: 'サンバーストチャート',
   gantt: 'ガントチャート',
+  treemap: 'ツリーマップ',
+  streamgraph: 'ストリームグラフ',
+  venn: 'ベン図',
 };
 
 const buildPlotConfig = (
@@ -860,6 +881,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
   }, [availableColumns, flattened]);
 
   const [categoryField, setCategoryField] = useState<string>('');
+  const [vennFields, setVennFields] = useState<string[]>([]);
   const [bubbleSizeField, setBubbleSizeField] = useState<string>('');
   const [ganttTaskField, setGanttTaskField] = useState<string>('');
   const [ganttStartField, setGanttStartField] = useState<string>('');
@@ -872,6 +894,38 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
   const [aggregation, setAggregation] = useState<ResultAggregation>('sum');
   const [bins, setBins] = useState<number>(20);
   const [error, setError] = useState<string | null>(null);
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
+
+  const handleChartTypeChange = (newType: ResultChartType) => {
+    setChartType(newType);
+    setError(null);
+
+    if (newType === 'venn') {
+      setXField('');
+      setYField('');
+      setCategoryField('');
+      if (aggregation !== 'count') {
+        setAggregation('count');
+      }
+    } else {
+      if (!xField && availableColumns.length > 0) {
+        setXField(availableColumns[0]);
+      }
+      if (!yField && numericColumns.length > 0) {
+        setYField(numericColumns[0]);
+      }
+    }
+
+    if (newType !== 'bubble') {
+      setBubbleSizeField('');
+    }
+
+    if (newType !== 'gantt') {
+      setGanttTaskField('');
+      setGanttStartField('');
+      setGanttEndField('');
+    }
+  };
 
   useEffect(() => {
     if (availableColumns.length > 0) {
@@ -894,6 +948,17 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
       setCategoryField('');
     }
   }, [availableColumns, categoryField]);
+
+  useEffect(() => {
+    setVennFields(prev => {
+      const filtered = prev.filter(field => availableColumns.includes(field));
+      const limited = filtered.slice(0, 3);
+      if (limited.length === prev.length && limited.every((field, index) => field === prev[index])) {
+        return prev;
+      }
+      return limited;
+    });
+  }, [availableColumns]);
 
   useEffect(() => {
     if (bubbleSizeField && !numericColumns.includes(bubbleSizeField)) {
@@ -929,6 +994,32 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
   }, [ganttEndField, availableColumns]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const updateDarkMode = () => {
+      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const classDark = document.documentElement.classList.contains('dark');
+      setIsDarkMode(prefersDark || classDark);
+    };
+
+    updateDarkMode();
+
+    const mediaQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+    if (!mediaQuery) {
+      return;
+    }
+
+    const listener = (event: MediaQueryListEvent) => {
+      setIsDarkMode(event.matches || document.documentElement.classList.contains('dark'));
+    };
+
+    mediaQuery.addEventListener('change', listener);
+    return () => mediaQuery.removeEventListener('change', listener);
+  }, []);
+
+  useEffect(() => {
     if (chartType === 'gantt') {
       if (!ganttTaskField && availableColumns.length > 0) {
         setGanttTaskField(availableColumns[0]);
@@ -962,7 +1053,9 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     chartType === 'regression' ||
     chartType === 'bubble' ||
     chartType === 'histogram' ||
-    chartType === 'sunburst';
+    chartType === 'sunburst' ||
+    chartType === 'treemap' ||
+    chartType === 'streamgraph';
 
   useEffect(() => {
     if (!supportsCategory && categoryField) {
@@ -971,12 +1064,29 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
   }, [supportsCategory, categoryField]);
 
   useEffect(() => {
-    if ((chartType === 'bar' || chartType === 'line' || chartType === 'pie' || chartType === 'stacked-bar' || chartType === 'sunburst') && !yField && aggregation !== 'count') {
+    if (
+      (chartType === 'bar' ||
+        chartType === 'line' ||
+        chartType === 'pie' ||
+        chartType === 'stacked-bar' ||
+        chartType === 'sunburst' ||
+        chartType === 'treemap' ||
+        chartType === 'streamgraph') &&
+      !yField &&
+      aggregation !== 'count'
+    ) {
       setAggregation('count');
     }
   }, [chartType, yField, aggregation]);
 
-  const allowAggregation = chartType === 'bar' || chartType === 'line' || chartType === 'pie' || chartType === 'stacked-bar' || chartType === 'sunburst';
+  const allowAggregation =
+    chartType === 'bar' ||
+    chartType === 'line' ||
+    chartType === 'pie' ||
+    chartType === 'stacked-bar' ||
+    chartType === 'sunburst' ||
+    chartType === 'treemap' ||
+    chartType === 'streamgraph';
   const requiresNumericY =
     chartType === 'scatter' ||
     chartType === 'line' ||
@@ -985,11 +1095,111 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     chartType === 'regression' ||
     chartType === 'bubble' ||
     chartType === 'sunburst';
-  const canSelectYField = chartType !== 'histogram' && chartType !== 'gantt';
-  const showXField = chartType !== 'gantt';
+  const canSelectYField = chartType !== 'histogram' && chartType !== 'gantt' && chartType !== 'venn';
+  const showXField = chartType !== 'gantt' && chartType !== 'venn';
 
-  const { plot } = useMemo(() => {
-    if (!expanded) return { plot: undefined };
+  const chartComputation = useMemo(() => {
+    if (!expanded) {
+      return { plot: undefined, error: null };
+    }
+
+    if (chartType === 'treemap' || chartType === 'streamgraph' || chartType === 'venn') {
+      if (chartType !== 'venn' && !xField) {
+        return { plot: undefined, error: 'X軸に使用する列を選択してください' };
+      }
+
+      const cleanedVennFields =
+        chartType === 'venn'
+          ? Array.from(
+              new Set(
+                vennFields
+                  .filter(field => field && field.trim() !== '')
+                  .filter(field => availableColumns.includes(field))
+              )
+            ).slice(0, 3)
+          : [];
+
+      if (chartType === 'venn' && cleanedVennFields.length < 2) {
+        return { plot: undefined, error: 'ベン図を作成するには2つ以上（最大3つ）のフィールドを選択してください' };
+      }
+
+      const prepared = prepareChartData(
+        flattened,
+        chartType === 'venn' ? '' : xField,
+        chartType === 'venn' ? '' : (canSelectYField ? yField : ''),
+        chartType,
+        supportsCategory && chartType !== 'venn' && categoryField ? categoryField : undefined,
+        chartType === 'venn'
+          ? {
+              vennFields: cleanedVennFields,
+            }
+          : undefined
+      );
+
+      if (!prepared) {
+        return { plot: undefined, error: 'チャートを作成するデータがありません' };
+      }
+
+      if (prepared.metadata?.error) {
+        return { plot: undefined, error: prepared.metadata.error };
+      }
+
+      const plotlyMeta = prepared.metadata?.plotly;
+      if (!plotlyMeta || !plotlyMeta.data) {
+        return { plot: undefined, error: 'Plotlyデータが不足しています' };
+      }
+
+      const layout: Partial<PlotlyLayout> = { ...(plotlyMeta.layout || {}) };
+      if (isDarkMode) {
+        layout.paper_bgcolor = 'rgba(31, 41, 55, 0)';
+        layout.plot_bgcolor = 'rgba(31, 41, 55, 0)';
+        layout.font = {
+          ...(layout.font || {}),
+          color: '#e5e7eb',
+        };
+
+        if (layout.annotations) {
+          const annotations = Array.isArray(layout.annotations)
+            ? layout.annotations
+            : [layout.annotations];
+          layout.annotations = annotations.map(annotation => ({
+            ...annotation,
+            font: {
+              ...(annotation.font || {}),
+              color: '#e5e7eb',
+            },
+          }));
+        }
+      }
+
+      const adjustedData = (plotlyMeta.data as PlotlyData[]).map(trace => {
+        if (isDarkMode && chartType === 'venn' && (trace as any).textfont) {
+          return {
+            ...trace,
+            textfont: {
+              ...(trace as any).textfont,
+              color: '#e5e7eb',
+            },
+          } as PlotlyData;
+        }
+        return { ...trace } as PlotlyData;
+      });
+
+      const config: Partial<PlotlyConfig> = {
+        ...defaultPlotlyConfig,
+        ...(plotlyMeta.config || {}),
+      };
+
+      return {
+        plot: {
+          data: adjustedData,
+          layout,
+          config,
+        },
+        error: null,
+      };
+    }
+
     const { plot, error: plotError } = buildPlotConfig(
       rows,
       flattened,
@@ -1006,9 +1216,34 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
         ganttEndField: chartType === 'gantt' ? ganttEndField || undefined : undefined,
       }
     );
-    setError(plotError || null);
-    return { plot };
-  }, [rows, flattened, chartType, xField, yField, aggregation, bins, expanded, canSelectYField, supportsCategory, categoryField, bubbleSizeField, ganttTaskField, ganttStartField, ganttEndField]);
+
+    return { plot, error: plotError || null };
+  }, [
+    expanded,
+    chartType,
+    xField,
+    vennFields,
+    availableColumns,
+    flattened,
+    canSelectYField,
+    yField,
+    supportsCategory,
+    categoryField,
+    aggregation,
+    bins,
+    bubbleSizeField,
+    ganttTaskField,
+    ganttStartField,
+    ganttEndField,
+    rows,
+    isDarkMode,
+  ]);
+
+  useEffect(() => {
+    setError(chartComputation.error ?? null);
+  }, [chartComputation]);
+
+  const plot = chartComputation.plot;
 
   const aggregationDisabled = !allowAggregation || !xField || (requiresNumericY && !yField);
   const showYField = canSelectYField && (chartType !== 'pie' || numericColumns.length > 0);
@@ -1031,7 +1266,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
               チャートタイプ
               <select
                 value={chartType}
-                onChange={(e) => setChartType(e.target.value as ResultChartType)}
+                onChange={(e) => handleChartTypeChange(e.target.value as ResultChartType)}
                 className="p-2 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
               >
                 {(Object.keys(chartTypeLabels) as ResultChartType[]).map(type => (
@@ -1086,6 +1321,56 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
                   ))}
                 </select>
               </label>
+            )}
+
+            {chartType === 'venn' && (
+              <div className="md:col-span-3">
+                <div className="mb-1 text-xs font-medium text-gray-600 dark:text-gray-300">ベン図のフィールド</div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                  2〜3個のフィールドを選択してください（真偽値・有無を示す列が推奨です）。
+                </p>
+                <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">最大3フィールドまで選択できます。</div>
+                {availableColumns.length > 0 ? (
+                  <div className="max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded p-2 space-y-2 bg-white dark:bg-gray-900">
+                    {availableColumns.map(column => {
+                      const isSelected = vennFields.includes(column);
+                      const disableNewSelection = !isSelected && vennFields.length >= 3;
+                      return (
+                        <label
+                          key={column}
+                          className={`flex items-center gap-2 text-sm ${
+                            disableNewSelection && !isSelected
+                              ? 'text-gray-400 dark:text-gray-600'
+                              : 'text-gray-700 dark:text-gray-200'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                            checked={isSelected}
+                            disabled={disableNewSelection && !isSelected}
+                            onChange={(e) => {
+                              const { checked } = e.target;
+                              setVennFields(prev => {
+                                if (checked) {
+                                  if (prev.includes(column) || prev.length >= 3) {
+                                    return prev;
+                                  }
+                                  return [...prev, column];
+                                }
+                                return prev.filter(field => field !== column);
+                              });
+                            }}
+                          />
+                          <span>{column}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-xs text-gray-500 dark:text-gray-400">選択可能な列がありません。</div>
+                )}
+              </div>
             )}
 
             {supportsCategory && (
@@ -1187,7 +1472,12 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
             </div>
           ) : plot ? (
             <div className="border border-gray-200 dark:border-gray-800 rounded">
-              <Plot data={plot.data} layout={plot.layout} style={{ width: '100%', height: '100%' }} config={{ responsive: true }} />
+              <Plot
+                data={plot.data}
+                layout={plot.layout}
+                style={{ width: '100%', height: '100%' }}
+                config={plot.config ?? { responsive: true }}
+              />
             </div>
           ) : (
             <div className="p-4 text-sm text-gray-500 bg-gray-50 border border-dashed border-gray-300 rounded">
