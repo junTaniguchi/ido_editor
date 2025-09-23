@@ -141,6 +141,18 @@ const InteractiveMermaidCanvas: React.FC<InteractiveMermaidCanvasProps> = ({
   const renderCounterRef = useRef(0);
   const [error, setError] = useState<string | null>(null);
   const [isRendering, setIsRendering] = useState(false);
+  const svgClickHandlerRef = useRef<{
+    element: SVGSVGElement | null;
+    handler: ((event: MouseEvent) => void) | null;
+  }>({ element: null, handler: null });
+
+  const detachSvgHandler = useCallback(() => {
+    const current = svgClickHandlerRef.current;
+    if (current.element && current.handler) {
+      current.element.removeEventListener('click', current.handler);
+    }
+    svgClickHandlerRef.current = { element: null, handler: null };
+  }, []);
 
   const highlightSelection = useCallback((svgElement: SVGSVGElement | null) => {
     if (!svgElement) {
@@ -164,41 +176,77 @@ const InteractiveMermaidCanvas: React.FC<InteractiveMermaidCanvasProps> = ({
     }
   }, [selected]);
 
-  const annotateSvg = useCallback((svgElement: SVGSVGElement) => {
-    const handleElementClick = (event: MouseEvent) => {
-      event.stopPropagation();
-      const target = event.currentTarget as SVGGElement;
-      const type = target.getAttribute('data-ido-type');
-      const id = target.getAttribute('data-ido-id');
-      if (!type || !id) {
-        return;
-      }
-      onSelect({ type: type as 'node' | 'edge', id });
-    };
+  const annotateSvg = useCallback(
+    (svgElement: SVGSVGElement) => {
+      detachSvgHandler();
 
-    nodes.forEach((node) => {
-      const element = findNodeElement(svgElement, node.id);
-      if (element) {
-        element.setAttribute('data-ido-type', 'node');
-        element.setAttribute('data-ido-id', node.id);
-        element.style.cursor = 'pointer';
-        element.addEventListener('click', handleElementClick);
-      }
-    });
+      const annotatedElements = svgElement.querySelectorAll<SVGGElement>('[data-ido-type]');
+      annotatedElements.forEach((element) => {
+        restoreHighlight(element);
+        element.removeAttribute('data-ido-selected');
+        element.removeAttribute('data-ido-type');
+        element.removeAttribute('data-ido-id');
+        element.style.cursor = '';
+        element.style.pointerEvents = '';
+        const shapes = element.querySelectorAll<SVGElement>('rect, circle, ellipse, polygon, path, text, foreignObject, line, polyline');
+        shapes.forEach((shape) => {
+          shape.style.pointerEvents = '';
+        });
+      });
 
-    edges.forEach((edge) => {
-      const element = findEdgeElement(svgElement, edge);
-      if (element) {
-        element.setAttribute('data-ido-type', 'edge');
-        element.setAttribute('data-ido-id', edge.id);
-        element.style.cursor = 'pointer';
-        element.addEventListener('click', handleElementClick);
-      }
-    });
+      nodes.forEach((node) => {
+        const element = findNodeElement(svgElement, node.id);
+        if (element) {
+          element.setAttribute('data-ido-type', 'node');
+          element.setAttribute('data-ido-id', node.id);
+          element.style.cursor = 'pointer';
+          element.style.pointerEvents = 'auto';
+          const shapes = element.querySelectorAll<SVGElement>('rect, circle, ellipse, polygon, path, text, foreignObject');
+          shapes.forEach((shape) => {
+            shape.style.pointerEvents = 'auto';
+          });
+        }
+      });
 
-    svgElement.addEventListener('click', () => onSelect(null));
-    highlightSelection(svgElement);
-  }, [edges, nodes, onSelect, highlightSelection]);
+      edges.forEach((edge) => {
+        const element = findEdgeElement(svgElement, edge);
+        if (element) {
+          element.setAttribute('data-ido-type', 'edge');
+          element.setAttribute('data-ido-id', edge.id);
+          element.style.cursor = 'pointer';
+          element.style.pointerEvents = 'auto';
+          const shapes = element.querySelectorAll<SVGElement>('path, polygon, line, polyline, rect, circle, ellipse, text');
+          shapes.forEach((shape) => {
+            shape.style.pointerEvents = 'auto';
+          });
+        }
+      });
+
+      const handleSvgClick = (event: MouseEvent) => {
+        const eventTarget = event.target as Element | null;
+        const interactiveTarget = eventTarget?.closest('[data-ido-type]') as SVGGElement | null;
+        if (!interactiveTarget) {
+          onSelect(null);
+          return;
+        }
+
+        event.stopPropagation();
+        const type = interactiveTarget.getAttribute('data-ido-type');
+        const id = interactiveTarget.getAttribute('data-ido-id');
+        if (!type || !id) {
+          onSelect(null);
+          return;
+        }
+
+        onSelect({ type: type as 'node' | 'edge', id });
+      };
+
+      svgElement.addEventListener('click', handleSvgClick);
+      svgClickHandlerRef.current = { element: svgElement, handler: handleSvgClick };
+      highlightSelection(svgElement);
+    },
+    [detachSvgHandler, edges, nodes, onSelect, highlightSelection],
+  );
 
   const renderDiagram = useCallback(async () => {
     const container = containerRef.current;
@@ -206,6 +254,7 @@ const InteractiveMermaidCanvas: React.FC<InteractiveMermaidCanvasProps> = ({
       return;
     }
 
+    detachSvgHandler();
     if (!code.trim()) {
       container.innerHTML = '';
       setError(null);
@@ -239,11 +288,17 @@ const InteractiveMermaidCanvas: React.FC<InteractiveMermaidCanvasProps> = ({
     } finally {
       setIsRendering(false);
     }
-  }, [code, annotateSvg]);
+  }, [code, annotateSvg, detachSvgHandler]);
 
   useEffect(() => {
     renderDiagram();
   }, [renderDiagram]);
+
+  useEffect(() => {
+    return () => {
+      detachSvgHandler();
+    };
+  }, [detachSvgHandler]);
 
   useEffect(() => {
     const svgElement = containerRef.current?.querySelector('svg');

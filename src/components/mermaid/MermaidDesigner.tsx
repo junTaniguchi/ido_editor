@@ -160,6 +160,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     label: '',
   });
   const lastSerializedRef = useRef<string>('');
+  const lastHydratedTabIdRef = useRef<string | null>(null);
   const isHydrating = useRef<boolean>(false);
   const hasInitialized = useRef<boolean>(false);
 
@@ -194,7 +195,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   }, [diagramType, config, nodes, edges, getTab, tabId, updateTab]);
 
   useEffect(() => {
-    if (content === lastSerializedRef.current) {
+    if (content === lastSerializedRef.current && lastHydratedTabIdRef.current === tabId) {
       return;
     }
     isHydrating.current = true;
@@ -207,13 +208,14 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     const { code } = serializeMermaid(parsed);
     setGeneratedCode(code);
     lastSerializedRef.current = code;
+    lastHydratedTabIdRef.current = tabId;
     setInspector(null);
     setEdgeDraft({ source: '', target: '', variant: '', label: '' });
     hasInitialized.current = true;
     requestAnimationFrame(() => {
       isHydrating.current = false;
     });
-  }, [content]);
+  }, [content, tabId]);
 
   useEffect(() => {
     if (!hasInitialized.current) return;
