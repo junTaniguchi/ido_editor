@@ -443,28 +443,45 @@ const parseGantt = (source: string): MermaidGraphModel => {
       if (rest.length > 0 && knownStatus.has(rest[0] as any)) {
         status = rest.shift() as string;
       }
+
       if (rest.length > 0) {
-        taskId = sanitizeId(rest.shift() as string);
+        const candidate = rest[0];
+        const looksLikeStartOrDuration = /^(after\s+\S+|\d{4}-\d{2}-\d{2}|\d+\s*[dwmy])$/i.test(candidate);
+        if (!looksLikeStartOrDuration) {
+          taskId = sanitizeId(rest.shift() as string);
+        }
       }
+
       if (rest.length > 0) {
         metadata.start = rest.shift() as string;
       }
+
       if (rest.length > 0) {
         const value = rest.shift() as string;
-        if (/\d+[dwmy]/i.test(value) || value.includes('after')) {
+        if (/^\d+[dwmy]$/i.test(value)) {
           metadata.duration = value;
-        } else {
+        } else if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
           metadata.end = value;
+        } else if (/^after\s+/i.test(value)) {
+          if (!metadata.start) {
+            metadata.start = value;
+          } else {
+            metadata.dependsOn = value;
+          }
+        } else {
+          metadata.duration = value;
         }
       }
+
       if (rest.length > 0) {
         metadata.dependsOn = rest.shift() as string;
       }
 
       metadata.status = status;
-      metadata.taskId = taskId || sanitizeId(label);
+      const resolvedId = taskId || sanitizeId(label);
+      metadata.taskId = resolvedId;
 
-      ensureNode(model, metadata.taskId, status === 'milestone' ? 'milestone' : 'task', label, metadata);
+      ensureNode(model, resolvedId, status === 'milestone' ? 'milestone' : 'task', label, metadata);
     }
   });
 
