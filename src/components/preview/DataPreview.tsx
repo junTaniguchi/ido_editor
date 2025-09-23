@@ -9,7 +9,6 @@
  */
 'use client';
 
-
 /**
  * DataPreview.tsx
  * このファイルは、CSV/TSV/JSON/YAML/Parquet/Markdown/Mermaid/PDF/ipynbなど多様なデータを解析し、
@@ -20,16 +19,16 @@
  * - 分析モード切替
  * - エラー・ローディング表示
  */
-'use client';
 
 import React, { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useEditorStore } from '@/store/editorStore';
 import { parseCSV, parseJSON, parseYAML, parseParquet, flattenNestedObjects, parseMermaid } from '@/lib/dataPreviewUtils';
 import { formatData } from '@/lib/dataFormatUtils';
 import DataTable from './DataTable';
 import EditableDataTable from './EditableDataTable';
 import ObjectViewer from './ObjectViewer';
-import MermaidDesigner from '@/components/mermaid/MermaidDesigner';
+import type { MermaidDesignerProps } from '@/components/mermaid/MermaidDesigner';
 import IpynbPreview from './IpynbPreview';
 import PdfPreview from './PdfPreview';
 import ExcelPreview from './ExcelPreview';
@@ -37,6 +36,18 @@ import ExportModal from './ExportModal';
 import { IoAlertCircleOutline, IoCodeSlash, IoEye, IoAnalytics, IoLayers, IoGrid, IoSave, IoClose, IoDownload } from 'react-icons/io5';
 import * as XLSX from 'xlsx';
 import { Document, Packer, Paragraph } from 'docx';
+
+const MermaidDesigner = dynamic<MermaidDesignerProps>(
+  () => import('@/components/mermaid/MermaidDesigner'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full items-center justify-center rounded border border-dashed border-gray-300 p-4 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+        Mermaidデザイナーを読み込み中...
+      </div>
+    ),
+  },
+);
 
 interface DataPreviewProps {
   tabId: string;
