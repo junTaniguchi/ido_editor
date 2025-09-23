@@ -1,0 +1,642 @@
+'use client';
+
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import ReactFlow, {
+  Background,
+  Connection,
+  Controls,
+  EdgeChange,
+  MiniMap,
+  NodeChange,
+  ReactFlowProvider,
+  addEdge,
+  applyEdgeChanges,
+  applyNodeChanges,
+  useReactFlow,
+} from 'reactflow';
+import 'reactflow/dist/style.css';
+import {
+  IoAdd,
+  IoAlertCircleOutline,
+  IoCopy,
+  IoTrash,
+} from 'react-icons/io5';
+import { useEditorStore } from '@/store/editorStore';
+import {
+  diagramDefinitions,
+  diagramList,
+  type MermaidEdgeTemplate,
+  type MermaidFieldDefinition,
+  type MermaidNodeTemplate,
+} from '@/lib/mermaid/diagramDefinitions';
+import {
+  parseMermaidSource,
+} from '@/lib/mermaid/parser';
+import {
+  serializeMermaid,
+} from '@/lib/mermaid/serializer';
+import type {
+  MermaidDiagramConfig,
+  MermaidDiagramType,
+  MermaidEdge,
+  MermaidGraphModel,
+  MermaidNode,
+} from '@/lib/mermaid/types';
+import MermaidPreview from '@/components/preview/MermaidPreview';
+
+interface MermaidDesignerProps {
+  tabId: string;
+  fileName: string;
+  content: string;
+}
+
+interface InspectorState {
+  type: 'node' | 'edge';
+  id: string;
+}
+
+const getDefaultEdgeVariant = (type: MermaidDiagramType): string => {
+  const definition = diagramDefinitions[type];
+  return definition.edgeTemplates[0]?.variant || 'arrow';
+};
+
+const toBooleanString = (value: boolean): string => (value ? 'true' : 'false');
+
+const parseBoolean = (value: string | undefined): boolean => value === 'true';
+
+const useTabActions = () => {
+  const updateTab = useEditorStore((state) => state.updateTab);
+  const getTab = useEditorStore((state) => state.getTab);
+  return { updateTab, getTab };
+};
+
+const buildModel = (
+  type: MermaidDiagramType,
+  config: MermaidDiagramConfig,
+  nodes: MermaidNode[],
+  edges: MermaidEdge[],
+): MermaidGraphModel => ({
+  type,
+  config,
+  nodes,
+  edges,
+  warnings: [],
+});
+
+const FieldInput: React.FC<{
+  field: MermaidFieldDefinition;
+  value: string;
+  onChange: (value: string) => void;
+}> = ({ field, value, onChange }) => {
+  switch (field.type) {
+    case 'textarea':
+      return (
+        <textarea
+          className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+          rows={4}
+          value={value}
+          placeholder={field.placeholder}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      );
+    case 'select':
+      return (
+        <select
+          className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        >
+          {field.options?.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      );
+    case 'boolean':
+      return (
+        <label className="flex items-center space-x-2 text-sm">
+          <input
+            type="checkbox"
+            checked={parseBoolean(value)}
+            onChange={(event) => onChange(toBooleanString(event.target.checked))}
+          />
+          <span>{field.placeholder ?? '有効化'}</span>
+        </label>
+      );
+    case 'number':
+      return (
+        <input
+          type="number"
+          className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+          value={value}
+          placeholder={field.placeholder}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      );
+    case 'date':
+      return (
+        <input
+          type="date"
+          className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      );
+    case 'text':
+    default:
+      return (
+        <input
+          type="text"
+          className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+          value={value}
+          placeholder={field.placeholder}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      );
+  }
+};
+
+const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, content }) => {
+  const { updateTab, getTab } = useTabActions();
+  const [diagramType, setDiagramType] = useState<MermaidDiagramType>('flowchart');
+  const [config, setConfig] = useState<MermaidDiagramConfig>(diagramDefinitions.flowchart.defaultConfig);
+  const [nodes, setNodes] = useState<MermaidNode[]>([]);
+  const [edges, setEdges] = useState<MermaidEdge[]>([]);
+  const [generatedCode, setGeneratedCode] = useState<string>('');
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [inspector, setInspector] = useState<InspectorState | null>(null);
+  const [isPaletteCollapsed, setIsPaletteCollapsed] = useState<boolean>(false);
+  const lastSerializedRef = useRef<string>('');
+  const isHydrating = useRef<boolean>(false);
+  const hasInitialized = useRef<boolean>(false);
+  const reactFlow = useReactFlow();
+
+  const nodeTemplates = useMemo<MermaidNodeTemplate[]>(
+    () => diagramDefinitions[diagramType].nodeTemplates,
+    [diagramType],
+  );
+  const edgeTemplates = useMemo<MermaidEdgeTemplate[]>(
+    () => diagramDefinitions[diagramType].edgeTemplates,
+    [diagramType],
+  );
+  const configFields = useMemo<MermaidFieldDefinition[]>(
+    () => diagramDefinitions[diagramType].configFields ?? [],
+    [diagramType],
+  );
+
+  const refreshGeneratedCode = useCallback(() => {
+    const model = buildModel(diagramType, config, nodes, edges);
+    const { code, warnings: serializationWarnings } = serializeMermaid(model);
+    setGeneratedCode(code);
+    setWarnings(serializationWarnings);
+    lastSerializedRef.current = code;
+    const tab = getTab(tabId);
+    if (tab) {
+      const isDirty = tab.originalContent !== code;
+      if (tab.content !== code || tab.isDirty !== isDirty) {
+        updateTab(tabId, { content: code, isDirty });
+      }
+    }
+  }, [diagramType, config, nodes, edges, getTab, tabId, updateTab]);
+
+  useEffect(() => {
+    if (content === lastSerializedRef.current) {
+      return;
+    }
+    isHydrating.current = true;
+    const parsed = parseMermaidSource(content);
+    setDiagramType(parsed.type);
+    setConfig(parsed.config);
+    setNodes(parsed.nodes);
+    setEdges(parsed.edges.map((edge) => ({ ...edge, label: edge.data.label })));
+    setWarnings(parsed.warnings);
+    const { code } = serializeMermaid(parsed);
+    setGeneratedCode(code);
+    lastSerializedRef.current = code;
+    setInspector(null);
+    hasInitialized.current = true;
+    requestAnimationFrame(() => {
+      isHydrating.current = false;
+      reactFlow.fitView({ padding: 0.2, duration: 300 });
+    });
+  }, [content, reactFlow]);
+
+  useEffect(() => {
+    if (!hasInitialized.current) return;
+    if (isHydrating.current) return;
+    refreshGeneratedCode();
+  }, [diagramType, config, nodes, edges, refreshGeneratedCode]);
+
+  const handleNodesChange = useCallback((changes: NodeChange[]) => {
+    setNodes((current) => applyNodeChanges(changes, current));
+  }, []);
+
+  const handleEdgesChange = useCallback((changes: EdgeChange[]) => {
+    setEdges((current) => applyEdgeChanges(changes, current));
+  }, []);
+
+  const handleConnect = useCallback((connection: Connection) => {
+    if (!connection.source || !connection.target) return;
+    const template = edgeTemplates[0];
+    const newEdge: MermaidEdge = {
+      id: `edge_${Date.now()}`,
+      source: connection.source,
+      target: connection.target,
+      data: {
+        diagramType,
+        variant: template?.variant ?? getDefaultEdgeVariant(diagramType),
+        label: template?.defaultLabel,
+        metadata: template?.defaultMetadata ? { ...template.defaultMetadata } : {},
+      },
+      label: template?.defaultLabel,
+    };
+    setEdges((current) => addEdge(newEdge, current));
+  }, [diagramType, edgeTemplates]);
+
+  const handleSelectionChange = useCallback((params: { nodes: MermaidNode[]; edges: MermaidEdge[] }) => {
+    if (params.nodes.length > 0) {
+      setInspector({ type: 'node', id: params.nodes[0].id });
+    } else if (params.edges.length > 0) {
+      setInspector({ type: 'edge', id: params.edges[0].id });
+    } else {
+      setInspector(null);
+    }
+  }, []);
+
+  const handleAddNode = useCallback((template: MermaidNodeTemplate) => {
+    const definition = diagramDefinitions[diagramType];
+    const id = definition.createNodeId ? definition.createNodeId() : `node_${Date.now()}`;
+    const newNode: MermaidNode = {
+      id,
+      type: 'default',
+      position: {
+        x: (nodes.length % 4) * 200 + 50,
+        y: Math.floor(nodes.length / 4) * 150 + 40,
+      },
+      data: {
+        diagramType,
+        variant: template.variant,
+        label: template.defaultLabel,
+        metadata: template.defaultMetadata ? { ...template.defaultMetadata } : {},
+      },
+    };
+    setNodes((current) => [...current, newNode]);
+    setInspector({ type: 'node', id });
+  }, [diagramType, nodes.length]);
+
+  const updateNode = useCallback((nodeId: string, updater: (node: MermaidNode) => MermaidNode) => {
+    setNodes((current) => current.map((node) => (node.id === nodeId ? updater(node) : node)));
+  }, []);
+
+  const updateEdge = useCallback((edgeId: string, updater: (edge: MermaidEdge) => MermaidEdge) => {
+    setEdges((current) => current.map((edge) => (edge.id === edgeId ? updater(edge) : edge)));
+  }, []);
+
+  const handleDiagramTypeChange = useCallback((nextType: MermaidDiagramType) => {
+    if (nextType === diagramType) return;
+    let allowSwitch = true;
+    if ((nodes.length > 0 || edges.length > 0) && typeof window !== 'undefined') {
+      allowSwitch = window.confirm('図の種類を変更すると現在の要素はクリアされます。続行しますか？');
+    }
+    if (!allowSwitch) return;
+    const definition = diagramDefinitions[nextType];
+    setDiagramType(nextType);
+    setConfig(definition.defaultConfig);
+    setNodes([]);
+    setEdges([]);
+    setWarnings([]);
+    setInspector(null);
+  }, [diagramType, nodes.length, edges.length]);
+
+  const handleDeleteSelection = useCallback(() => {
+    if (!inspector) return;
+    if (inspector.type === 'node') {
+      setNodes((current) => current.filter((node) => node.id !== inspector.id));
+      setEdges((current) => current.filter((edge) => edge.source !== inspector.id && edge.target !== inspector.id));
+    } else {
+      setEdges((current) => current.filter((edge) => edge.id !== inspector.id));
+    }
+    setInspector(null);
+  }, [inspector]);
+
+  const handleCopyCode = useCallback(() => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(generatedCode).catch(() => {
+        // ignore copy failure
+      });
+    }
+  }, [generatedCode]);
+
+  const paletteClasses = isPaletteCollapsed ? 'w-12' : 'w-64';
+
+  const selectedNode = useMemo(() => nodes.find((node) => inspector?.type === 'node' && node.id === inspector.id), [inspector, nodes]);
+  const selectedEdge = useMemo(() => edges.find((edge) => inspector?.type === 'edge' && edge.id === inspector.id), [inspector, edges]);
+
+  const selectedNodeTemplate = useMemo(() => {
+    if (!selectedNode) return undefined;
+    return nodeTemplates.find((template) => template.variant === selectedNode.data.variant);
+  }, [selectedNode, nodeTemplates]);
+
+  const selectedEdgeTemplate = useMemo(() => {
+    if (!selectedEdge) return undefined;
+    return edgeTemplates.find((template) => template.variant === selectedEdge.data.variant);
+  }, [selectedEdge, edgeTemplates]);
+
+  const renderNodeInspector = () => {
+    if (!selectedNode) {
+      return <p className="text-sm text-gray-500">ノードを選択すると詳細を編集できます。</p>;
+    }
+    return (
+      <div className="space-y-3">
+        <div>
+          <label className="block text-xs text-gray-500">ノード種別</label>
+          <select
+            className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+            value={selectedNode.data.variant}
+            onChange={(event) => {
+              const nextVariant = event.target.value;
+              const template = nodeTemplates.find((item) => item.variant === nextVariant);
+              updateNode(selectedNode.id, (node) => ({
+                ...node,
+                data: {
+                  ...node.data,
+                  variant: nextVariant,
+                  label: template ? template.defaultLabel : node.data.label,
+                  metadata: template?.defaultMetadata ? { ...template.defaultMetadata } : {},
+                },
+              }));
+            }}
+          >
+            {nodeTemplates.map((template) => (
+              <option key={template.variant} value={template.variant}>
+                {template.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500">ラベル</label>
+          <input
+            type="text"
+            className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+            value={selectedNode.data.label}
+            onChange={(event) => {
+              const value = event.target.value;
+              updateNode(selectedNode.id, (node) => ({
+                ...node,
+                data: { ...node.data, label: value },
+              }));
+            }}
+          />
+        </div>
+        {selectedNodeTemplate?.fields?.map((field) => {
+          const value = selectedNode.data.metadata?.[field.key] ?? '';
+          return (
+            <div key={field.key}>
+              <label className="block text-xs text-gray-500">{field.label}</label>
+              <FieldInput
+                field={field}
+                value={value}
+                onChange={(newValue) => {
+                  updateNode(selectedNode.id, (node) => ({
+                    ...node,
+                    data: {
+                      ...node.data,
+                      metadata: { ...node.data.metadata, [field.key]: newValue },
+                    },
+                  }));
+                }}
+              />
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderEdgeInspector = () => {
+    if (!selectedEdge) {
+      return <p className="text-sm text-gray-500">エッジを選択すると詳細を編集できます。</p>;
+    }
+    return (
+      <div className="space-y-3">
+        <div>
+          <label className="block text-xs text-gray-500">エッジ種別</label>
+          <select
+            className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+            value={selectedEdge.data.variant}
+            onChange={(event) => {
+              const nextVariant = event.target.value;
+              const template = edgeTemplates.find((item) => item.variant === nextVariant);
+              updateEdge(selectedEdge.id, (edge) => ({
+                ...edge,
+                data: {
+                  ...edge.data,
+                  variant: nextVariant,
+                  label: template?.defaultLabel,
+                  metadata: template?.defaultMetadata ? { ...template.defaultMetadata } : {},
+                },
+                label: template?.defaultLabel,
+              }));
+            }}
+          >
+            {edgeTemplates.map((template) => (
+              <option key={template.variant} value={template.variant}>
+                {template.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        {selectedEdgeTemplate?.fields?.map((field) => {
+          const value = selectedEdge.data.metadata?.[field.key] ?? selectedEdge.data.label ?? '';
+          return (
+            <div key={field.key}>
+              <label className="block text-xs text-gray-500">{field.label}</label>
+              <FieldInput
+                field={field}
+                value={value}
+                onChange={(newValue) => {
+                  updateEdge(selectedEdge.id, (edge) => ({
+                    ...edge,
+                    data: {
+                      ...edge.data,
+                      label: field.key === 'label' ? newValue : edge.data.label,
+                      metadata: { ...edge.data.metadata, [field.key]: newValue },
+                    },
+                    label: field.key === 'label' ? newValue : edge.label,
+                  }));
+                }}
+              />
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  return (
+    <div className="h-full flex">
+      <aside className={`border-r border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 transition-all duration-200 ${paletteClasses}`}>
+        <div className="p-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <label className="text-xs text-gray-500">図の種類</label>
+            <button
+              type="button"
+              className="text-xs text-blue-600"
+              onClick={() => setIsPaletteCollapsed((prev) => !prev)}
+            >
+              {isPaletteCollapsed ? '展開' : '折りたたむ'}
+            </button>
+          </div>
+          {!isPaletteCollapsed && (
+            <select
+              className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+              value={diagramType}
+              onChange={(event) => handleDiagramTypeChange(event.target.value as MermaidDiagramType)}
+            >
+              {diagramList.map((item) => (
+                <option key={item.type} value={item.type}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          )}
+          {!isPaletteCollapsed && (
+            <div>
+              <p className="text-xs text-gray-500 mb-2">ノードを追加</p>
+              <div className="space-y-2">
+                {nodeTemplates.map((template) => (
+                  <button
+                    key={template.variant}
+                    type="button"
+                    className="w-full flex items-center justify-between px-2 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+                    onClick={() => handleAddNode(template)}
+                  >
+                    <span>{template.label}</span>
+                    <IoAdd />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {!isPaletteCollapsed && edgeTemplates.length > 0 && (
+            <div>
+              <p className="text-xs text-gray-500 mb-2">接続種別</p>
+              <ul className="space-y-1 text-xs text-gray-600 dark:text-gray-300">
+                {edgeTemplates.map((template) => (
+                  <li key={template.variant}>{template.label}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {!isPaletteCollapsed && configFields.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs text-gray-500">図の設定</p>
+              {configFields.map((field) => {
+                const value = (config as any)[field.key]?.toString?.() ?? '';
+                return (
+                  <div key={field.key}>
+                    <label className="block text-xs text-gray-500">{field.label}</label>
+                    <FieldInput
+                      field={field}
+                      value={value}
+                      onChange={(newValue) => {
+                        setConfig((current) => ({
+                          ...(current as any),
+                          [field.key]: field.type === 'boolean' ? newValue === 'true' : field.type === 'number' ? Number(newValue) : newValue,
+                        }));
+                      }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </aside>
+      <main className="flex-1 flex flex-col">
+        <div className="flex-1">
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={handleNodesChange}
+            onEdgesChange={handleEdgesChange}
+            onConnect={handleConnect}
+            onSelectionChange={handleSelectionChange}
+            fitView
+            fitViewOptions={{ padding: 0.2 }}
+          >
+            <Background />
+            <MiniMap />
+            <Controls />
+          </ReactFlow>
+        </div>
+      </main>
+      <aside className="w-96 border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex flex-col">
+        <div className="p-4 space-y-3 overflow-y-auto flex-1">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold">プロパティ</h3>
+            <button
+              type="button"
+              className="flex items-center text-xs text-red-600"
+              onClick={handleDeleteSelection}
+              disabled={!inspector}
+            >
+              <IoTrash className="mr-1" /> 削除
+            </button>
+          </div>
+          {inspector?.type === 'node' ? renderNodeInspector() : inspector?.type === 'edge' ? renderEdgeInspector() : (
+            <p className="text-sm text-gray-500">ノードまたはエッジを選択してください。</p>
+          )}
+          {warnings.length > 0 && (
+            <div className="bg-yellow-50 border border-yellow-300 text-yellow-700 rounded p-2 text-xs space-y-1">
+              <div className="flex items-center font-semibold">
+                <IoAlertCircleOutline className="mr-1" /> Mermaid変換警告
+              </div>
+              <ul className="list-disc list-inside space-y-1">
+                {warnings.map((warning, index) => (
+                  <li key={`warning-${index}`}>{warning}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold">Mermaid記法</h3>
+              <button
+                type="button"
+                className="flex items-center text-xs text-blue-600"
+                onClick={handleCopyCode}
+              >
+                <IoCopy className="mr-1" /> コピー
+              </button>
+            </div>
+            <textarea
+              className="w-full h-40 border border-gray-300 dark:border-gray-700 rounded p-2 text-xs font-mono bg-gray-50 dark:bg-gray-800 text-gray-800 dark:text-gray-100"
+              value={generatedCode}
+              readOnly
+            />
+          </div>
+          <div className="border border-gray-200 dark:border-gray-800 rounded overflow-hidden">
+            <MermaidPreview content={generatedCode} fileName={fileName} />
+          </div>
+        </div>
+      </aside>
+    </div>
+  );
+};
+
+const MermaidDesigner: React.FC<MermaidDesignerProps> = (props) => (
+  <ReactFlowProvider>
+    <MermaidDesignerInner {...props} />
+  </ReactFlowProvider>
+);
+
+export default MermaidDesigner;

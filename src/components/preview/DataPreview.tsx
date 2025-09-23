@@ -29,7 +29,7 @@ import { formatData } from '@/lib/dataFormatUtils';
 import DataTable from './DataTable';
 import EditableDataTable from './EditableDataTable';
 import ObjectViewer from './ObjectViewer';
-import MermaidPreview from './MermaidPreview';
+import MermaidDesigner from '@/components/mermaid/MermaidDesigner';
 import IpynbPreview from './IpynbPreview';
 import PdfPreview from './PdfPreview';
 import ExcelPreview from './ExcelPreview';
@@ -870,7 +870,11 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
         <div className="flex-1 overflow-auto">
           {/* Mermaid図式の場合 */}
           {type === 'mermaid' && (
-            <MermaidPreview content={content} fileName={tabs.get(tabId)?.name || 'mermaid-diagram.mmd'} />
+            <MermaidDesigner
+              tabId={tabId}
+              fileName={tabs.get(tabId)?.name || 'mermaid-diagram.mmd'}
+              content={content}
+            />
           )}
           {/* Jupyter Notebookプレビュー */}
           {type === 'ipynb' && parsedData && (
