@@ -55,6 +55,7 @@ import {
 import { Bar, Line, Pie, Scatter } from 'react-chartjs-2';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
 import dynamic from 'next/dynamic';
+import * as PlotlyTypes from 'plotly.js';
 
 // Chart.jsコンポーネントを登録
 ChartJS.register(
@@ -72,6 +73,7 @@ ChartJS.register(
 
 // 関係グラフコンポーネントを動的インポート（SSR回避）
 const RelationshipGraph = dynamic(() => import('./RelationshipGraph'), { ssr: false });
+const Plot = dynamic(() => import('react-plotly.js'), { ssr: false });
 
 interface MultiFileAnalysisProps {
   onClose: () => void;
@@ -795,6 +797,26 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         オプション: chartSettings.options
       });
 
+      const applyPreparedChartData = (preparedData: any, fallbackError?: string) => {
+        if (!preparedData) {
+          setError(fallbackError || 'チャートデータの生成に失敗しました');
+          setChartData(null);
+          setLoading(false);
+          return false;
+        }
+
+        if (preparedData.metadata?.error) {
+          setError(preparedData.metadata.error);
+          setChartData(null);
+          setLoading(false);
+          return false;
+        }
+
+        setChartData(preparedData);
+        setError(null);
+        return true;
+      };
+
       let dataSource: any[] | null = null;
       if (chartSettings.dataSource === 'queryResult') {
         dataSource = queryResult;
@@ -806,6 +828,16 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         }
       } else {
         dataSource = combinedData;
+      }
+
+      if (chartSettings.type === 'venn') {
+        const vennFields = chartSettings.options?.vennFields?.filter(field => field && field.trim() !== '') || [];
+        if (vennFields.length < 2) {
+          setError('ベン図を作成するには2つ以上（最大3つ）のフィールドを選択してください');
+          setChartData(null);
+          setLoading(false);
+          return;
+        }
       }
 
       // 散布図の場合、X軸とY軸が必須
@@ -843,7 +875,7 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
       }
 
       // 基本的なチャートの場合、X軸は必須
-      if (!chartSettings.xAxis && chartSettings.type !== 'pie' && chartSettings.type !== 'gantt') {
+      if (!chartSettings.xAxis && chartSettings.type !== 'pie' && chartSettings.type !== 'gantt' && chartSettings.type !== 'venn') {
         setError('X軸の設定が必要です');
         setLoading(false);
         return;
@@ -860,9 +892,10 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
 
       // ヒストグラムと散布図以外で集計処理を行う
       // ただし、カウント集計やグループ分け（カテゴリフィールド）が指定されている場合は集計をスキップ
-      if (chartSettings.type !== 'histogram' && 
-          chartSettings.type !== 'scatter' && 
-          chartSettings.aggregation && 
+      if (chartSettings.type !== 'histogram' &&
+          chartSettings.type !== 'scatter' &&
+          chartSettings.type !== 'venn' &&
+          chartSettings.aggregation &&
           chartSettings.aggregation !== 'none' &&
           chartSettings.aggregation !== 'count' &&
           !(chartSettings.categoryField && chartSettings.categoryField.trim() !== '')) {
@@ -888,9 +921,9 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         }
 
         processedData = aggregatedData || [];
-      } else if (chartSettings.aggregation === 'count' && chartSettings.type !== 'histogram') {
+      } else if (chartSettings.aggregation === 'count' && chartSettings.type !== 'histogram' && chartSettings.type !== 'venn') {
         // カウント集計の場合の特別処理
-        
+
         // グループ分け（カテゴリフィールド）が指定されている場合は、
         // prepareChartData内でカウント処理を行うため、ここでは集計しない
         if (chartSettings.categoryField && chartSettings.categoryField.trim() !== '') {
@@ -927,14 +960,35 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         valueField: chartSettings.yAxis,
         chartType: chartSettings.type,
         categoryField: chartSettings.categoryField,
-        正規化後categoryField: chartSettings.categoryField && chartSettings.categoryField.trim() !== '' 
-          ? chartSettings.categoryField 
+        正規化後categoryField: chartSettings.categoryField && chartSettings.categoryField.trim() !== ''
+          ? chartSettings.categoryField
           : undefined
       });
 
+      if (chartSettings.type === 'venn') {
+        const vennFields = chartSettings.options?.vennFields?.filter(field => field && field.trim() !== '') || [];
+        const preparedData = prepareChartData(
+          processedData,
+          '',
+          '',
+          'venn',
+          undefined,
+          {
+            ...chartSettings.options,
+            vennFields
+          }
+        );
+
+        if (!applyPreparedChartData(preparedData, 'ベン図を作成できませんでした')) {
+          return;
+        }
+
+        return;
+      }
+
       // ガントチャートの場合のlabelField調整
-      const labelField = chartSettings.type === 'gantt' 
-        ? chartSettings.options?.taskNameField 
+      const labelField = chartSettings.type === 'gantt'
+        ? chartSettings.options?.taskNameField
         : chartSettings.xAxis;
 
       const chartDataResult = prepareChartData(
@@ -948,11 +1002,8 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         chartSettings.options
       );
 
-      if (chartDataResult) {
-        setChartData(chartDataResult);
-        setError(null);
-      } else {
-        setError('チャートデータの生成に失敗しました');
+      if (!applyPreparedChartData(chartDataResult, 'チャートデータの生成に失敗しました')) {
+        return;
       }
     } catch (err) {
       console.error('Chart generation error:', err);
@@ -1522,12 +1573,21 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
                   value={chartSettings.type}
                   onChange={(e) => {
                     const newType = e.target.value as any;
-                    updateChartSettings({ 
+                    updateChartSettings({
                       type: newType,
-                      // 散布図かヒストグラムかガントチャートの場合は集計なしに設定
-                      aggregation: (newType === 'scatter' || newType === 'histogram' || newType === 'gantt') 
-                        ? undefined 
-                        : chartSettings.aggregation
+                      aggregation:
+                        newType === 'venn'
+                          ? 'count'
+                          : (newType === 'scatter' || newType === 'histogram' || newType === 'gantt')
+                            ? undefined
+                            : chartSettings.aggregation,
+                      xAxis: newType === 'venn' ? '' : chartSettings.xAxis,
+                      yAxis: newType === 'venn' ? '' : chartSettings.yAxis,
+                      categoryField: newType === 'venn' ? '' : chartSettings.categoryField,
+                      options: {
+                        ...chartSettings.options,
+                        vennFields: newType === 'venn' ? [] : chartSettings.options?.vennFields || []
+                      }
                     });
                     // グラフタイプが変更されたらすぐにチャートを更新
                     setTimeout(() => generateChartData(), 50);
@@ -1542,10 +1602,13 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
                   <option value="regression">線形回帰グラフ</option>
                   <option value="histogram">ヒストグラム</option>
                   <option value="gantt">ガントチャート</option>
+                  <option value="treemap">ツリーマップ</option>
+                  <option value="streamgraph">ストリームグラフ</option>
+                  <option value="venn">ベン図</option>
                 </select>
               </div>
-              
-              {chartSettings.type !== 'histogram' && chartSettings.type !== 'regression' && chartSettings.type !== 'gantt' && (
+
+              {chartSettings.type !== 'histogram' && chartSettings.type !== 'regression' && chartSettings.type !== 'gantt' && chartSettings.type !== 'venn' && (
                 <div className="w-36">
                   <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">
                     集計方法 <span title="単一項目の出現頻度分析: X軸に分析したい項目、集計方法に「カウント」を選択、Y軸は空でOK&#10;各区分ごとの合計値: 例）部門別売上合計&#10;各区分ごとの平均値: 例）地域別平均気温&#10;各区分ごとの最大値: 例）月別最高気温&#10;各区分ごとの最小値: 例）製品別最低価格" className="text-red-500 cursor-help">*</span>
@@ -1675,25 +1738,27 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
             
             
             <div className="flex flex-wrap gap-2 mt-4 mb-2">
-              <div className="w-48">
-                <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">X軸（カテゴリ）</div>
-                <select
-                  value={chartSettings.xAxis}
-                  onChange={(e) => {
-                    updateChartSettings({ xAxis: e.target.value });
-                    // X軸が変更されたらすぐにチャートを更新
-                    setTimeout(() => generateChartData(), 50);
-                  }}
-                  className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                >
-                  <option value="">X軸を選択</option>
-                  {availableColumns.map(col => (
-                    <option key={col} value={col}>{col}</option>
-                  ))}
-                </select>
-              </div>
+              {chartSettings.type !== 'venn' && (
+                <div className="w-48">
+                  <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">X軸（カテゴリ）</div>
+                  <select
+                    value={chartSettings.xAxis}
+                    onChange={(e) => {
+                      updateChartSettings({ xAxis: e.target.value });
+                      // X軸が変更されたらすぐにチャートを更新
+                      setTimeout(() => generateChartData(), 50);
+                    }}
+                    className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="">X軸を選択</option>
+                    {availableColumns.map(col => (
+                      <option key={col} value={col}>{col}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               {/* ヒストグラムの場合はY軸選択を表示しない */}
-              {chartSettings.type !== 'histogram' && (
+              {chartSettings.type !== 'histogram' && chartSettings.type !== 'venn' && (
                 <div className="w-48">
                   <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">
                     Y軸（値）{chartSettings.aggregation === 'count' ? <span className="text-xs text-gray-500">（省略可）</span> : ''}
@@ -1716,25 +1781,79 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
                   </select>
                 </div>
               )}
-              <div className="w-48">
-                <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-                  グループ分け <span title="グループ分けの使い方：&#10;・単一項目の頻度分析時は空白のままにします&#10;・X軸の各カテゴリごとに複数の棒/線を表示する場合に使用します&#10;・例：「地域別、製品カテゴリ別の売上」ではX軸に地域、グループ分けに製品カテゴリを指定" className="text-red-500 cursor-help">*</span>
+              {chartSettings.type !== 'venn' && (
+                <div className="w-48">
+                  <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+                    グループ分け <span title="グループ分けの使い方：&#10;・単一項目の頻度分析時は空白のままにします&#10;・X軸の各カテゴリごとに複数の棒/線を表示する場合に使用します&#10;・例：「地域別、製品カテゴリ別の売上」ではX軸に地域、グループ分けに製品カテゴリを指定" className="text-red-500 cursor-help">*</span>
+                  </div>
+                  <select
+                    value={chartSettings.categoryField || ''}
+                    onChange={(e) => {
+                      updateChartSettings({ categoryField: e.target.value || undefined });
+                      // カテゴリフィールドが変更されたらすぐにチャートを更新
+                      setTimeout(() => generateChartData(), 50);
+                    }}
+                    className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="">カテゴリなし</option>
+                    {availableColumns.map(col => (
+                      <option key={col} value={col}>{col}</option>
+                    ))}
+                  </select>
                 </div>
-                <select
-                  value={chartSettings.categoryField || ''}
-                  onChange={(e) => {
-                    updateChartSettings({ categoryField: e.target.value || undefined });
-                    // カテゴリフィールドが変更されたらすぐにチャートを更新
-                    setTimeout(() => generateChartData(), 50);
-                  }}
-                  className="w-full p-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                >
-                  <option value="">カテゴリなし</option>
-                  {availableColumns.map(col => (
-                    <option key={col} value={col}>{col}</option>
-                  ))}
-                </select>
-              </div>
+              )}
+
+              {chartSettings.type === 'venn' && (() => {
+                const selectedFields = chartSettings.options?.vennFields || [];
+
+                return (
+                  <div className="w-full">
+                    <div className="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">ベン図のフィールド</div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">2〜3個のフィールドを選択してください（真偽値・有無を示す列が推奨です）。</p>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">最大3フィールドまで選択できます。</div>
+                    <div className="max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded p-2 space-y-2 bg-white dark:bg-gray-800">
+                      {availableColumns.length > 0 ? (
+                        availableColumns.map(col => {
+                          const isSelected = selectedFields.includes(col);
+                          return (
+                            <label key={col} className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+                              <input
+                                type="checkbox"
+                                className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                                checked={isSelected}
+                                onChange={(e) => {
+                                  const checked = e.target.checked;
+                                  const current = chartSettings.options?.vennFields || [];
+                                  let nextFields = current;
+
+                                  if (checked) {
+                                    if (!current.includes(col) && current.length < 3) {
+                                      nextFields = [...current, col];
+                                    }
+                                  } else {
+                                    nextFields = current.filter(field => field !== col);
+                                  }
+
+                                  updateChartSettings({
+                                    options: {
+                                      ...chartSettings.options,
+                                      vennFields: nextFields
+                                    }
+                                  });
+                                  setTimeout(() => generateChartData(), 50);
+                                }}
+                              />
+                              <span>{col}</span>
+                            </label>
+                          );
+                        })
+                      ) : (
+                        <div className="text-xs text-gray-500 dark:text-gray-400">選択可能な列がありません。</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
               
               {chartSettings.type === 'regression' && (
                 <div className="w-48">
@@ -2105,9 +2224,49 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
             </h3>
             <div className="border border-gray-200 rounded p-4 bg-white">
               <div className="flex justify-center h-96">
+                {(chartSettings.type === 'treemap' || chartSettings.type === 'streamgraph' || chartSettings.type === 'venn') && (() => {
+                  const plotlyMeta = chartData.metadata?.plotly;
+                  if (!plotlyMeta) {
+                    return <div className="flex items-center justify-center text-gray-500">チャートデータが不足しています</div>;
+                  }
+
+                  const defaultPlotlyConfig: Partial<PlotlyTypes.Config> = {
+                    responsive: true,
+                    displayModeBar: true,
+                    displaylogo: false,
+                    modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+                    doubleClickDelay: 1000
+                  };
+
+                  const mergedLayout: Partial<PlotlyTypes.Layout> = { ...(plotlyMeta.layout || {}) };
+                  const isDarkMode = document.documentElement.classList.contains('dark');
+
+                  if (isDarkMode) {
+                    mergedLayout.paper_bgcolor = 'rgba(31, 41, 55, 0)';
+                    mergedLayout.plot_bgcolor = 'rgba(31, 41, 55, 0)';
+                    mergedLayout.font = {
+                      ...(mergedLayout.font || {}),
+                      color: '#e5e7eb'
+                    };
+                  }
+
+                  const mergedConfig: Partial<PlotlyTypes.Config> = {
+                    ...defaultPlotlyConfig,
+                    ...(plotlyMeta.config || {})
+                  };
+
+                  return (
+                    <Plot
+                      data={(plotlyMeta.data as PlotlyTypes.Data[]) || []}
+                      layout={mergedLayout}
+                      config={mergedConfig}
+                      style={{ width: '100%', height: '100%' }}
+                    />
+                  );
+                })()}
                 {chartSettings.type === 'bar' && (
-                  <Bar 
-                    data={chartData} 
+                  <Bar
+                    data={chartData}
                     options={{
                       responsive: true,
                       maintainAspectRatio: false,

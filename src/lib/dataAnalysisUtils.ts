@@ -1319,10 +1319,21 @@ export const aggregateData = (
  * @param options 追加のオプション（ヒストグラムのビン数など）
  */
 export const prepareChartData = (
-  data: any[], 
-  labelField: string, 
-  valueField: string, 
-  chartType: 'bar' | 'line' | 'pie' | 'scatter' | 'stacked-bar' | 'regression' | 'histogram' | 'gantt' = 'bar',
+  data: any[],
+  labelField: string,
+  valueField: string,
+  chartType:
+    | 'bar'
+    | 'line'
+    | 'pie'
+    | 'scatter'
+    | 'stacked-bar'
+    | 'regression'
+    | 'histogram'
+    | 'gantt'
+    | 'treemap'
+    | 'streamgraph'
+    | 'venn' = 'bar',
   categoryField?: string,
   options?: {
     bins?: number;  // ヒストグラム用のビン数
@@ -1368,7 +1379,7 @@ export const prepareChartData = (
   });
 
   // データの妥当性チェック
-  if (!labelField) {
+  if (!labelField && chartType !== 'venn') {
     console.error('X軸フィールドが指定されていません');
     return null;
   }
@@ -2600,7 +2611,7 @@ export const prepareChartData = (
           datasets,
         };
       }
-      
+
       // カテゴリがない場合は単一のデータセット
       return {
         labels,
@@ -2615,8 +2626,582 @@ export const prepareChartData = (
         ],
       };
     }
+
+    case 'treemap': {
+      const rootLabel = '全体';
+      const hasNumericValues = data.some(item => {
+        const raw = item[actualValueField];
+        if (raw === undefined || raw === null) return false;
+        if (typeof raw === 'number') return !isNaN(raw);
+        const parsed = parseFloat(String(raw));
+        return !isNaN(parsed);
+      });
+
+      const childMap = new Map<string, { label: string; parent: string; value: number }>();
+      const parentTotals = new Map<string, number>();
+      let totalValue = 0;
+
+      data.forEach(item => {
+        const rawLabel = item[labelField];
+        if (rawLabel === undefined || rawLabel === null) {
+          return;
+        }
+        const label = String(rawLabel);
+        if (label.trim() === '') {
+          return;
+        }
+
+        let parentLabel = rootLabel;
+        if (normalizedCategoryField) {
+          const rawParent = item[normalizedCategoryField];
+          parentLabel =
+            rawParent === undefined || rawParent === null || String(rawParent).trim() === ''
+              ? '未分類'
+              : String(rawParent);
+        }
+
+        let numericValue = 1;
+        if (hasNumericValues) {
+          const rawValue = item[actualValueField];
+          if (rawValue === undefined || rawValue === null) {
+            return;
+          }
+          if (typeof rawValue === 'number' && !isNaN(rawValue)) {
+            numericValue = rawValue;
+          } else {
+            const parsed = parseFloat(String(rawValue));
+            if (isNaN(parsed)) {
+              return;
+            }
+            numericValue = parsed;
+          }
+        }
+
+        const key = `${parentLabel}||${label}`;
+        if (!childMap.has(key)) {
+          childMap.set(key, { label, parent: parentLabel, value: 0 });
+        }
+        childMap.get(key)!.value += numericValue;
+
+        if (normalizedCategoryField) {
+          parentTotals.set(parentLabel, (parentTotals.get(parentLabel) ?? 0) + numericValue);
+        }
+
+        totalValue += numericValue;
+      });
+
+      if (childMap.size === 0) {
+        return {
+          labels: [],
+          datasets: [],
+          metadata: {
+            error: 'ツリーマップを作成できるデータがありません',
+          },
+        };
+      }
+
+      const labels: string[] = [];
+      const parents: string[] = [];
+      const values: number[] = [];
+
+      labels.push(rootLabel);
+      parents.push('');
+      values.push(totalValue);
+
+      if (normalizedCategoryField) {
+        parentTotals.forEach((value, parentLabel) => {
+          labels.push(parentLabel);
+          parents.push(rootLabel);
+          values.push(value);
+        });
+      }
+
+      childMap.forEach(entry => {
+        labels.push(entry.label);
+        parents.push(normalizedCategoryField ? entry.parent : rootLabel);
+        values.push(entry.value);
+      });
+
+      const plotlyData = [
+        {
+          type: 'treemap',
+          labels,
+          parents,
+          values,
+          branchvalues: 'total',
+          textinfo: 'label+value+percent parent',
+          hovertemplate: '%{label}<br>値: %{value}<extra></extra>',
+        },
+      ];
+
+      const layout = {
+        margin: { t: 40, r: 0, l: 0, b: 0 },
+      };
+
+      return {
+        labels,
+        datasets: [],
+        metadata: {
+          plotly: {
+            data: plotlyData,
+            layout,
+          },
+        },
+      };
+    }
+
+    case 'streamgraph': {
+      const parseXEntry = (
+        value: any,
+      ): { label: string; sort: number | string; type: 'date' | 'number' | 'string' } => {
+        if (value instanceof Date && !isNaN(value.getTime())) {
+          return { label: value.toISOString().split('T')[0], sort: value.getTime(), type: 'date' };
+        }
+        if (typeof value === 'number' && !isNaN(value)) {
+          return { label: String(value), sort: value, type: 'number' };
+        }
+        if (typeof value === 'string') {
+          const trimmed = value.trim();
+          if (trimmed === '') {
+            return { label: trimmed, sort: trimmed, type: 'string' };
+          }
+          const parsedDate = Date.parse(trimmed);
+          if (!isNaN(parsedDate)) {
+            return { label: trimmed, sort: parsedDate, type: 'date' };
+          }
+          const parsedNumber = parseFloat(trimmed);
+          if (!isNaN(parsedNumber)) {
+            return { label: trimmed, sort: parsedNumber, type: 'number' };
+          }
+          return { label: trimmed, sort: trimmed, type: 'string' };
+        }
+        return { label: String(value ?? ''), sort: String(value ?? ''), type: 'string' };
+      };
+
+      const xEntryMap = new Map<
+        string,
+        { label: string; sort: number | string; type: 'date' | 'number' | 'string' }
+      >();
+      const categorySet = new Set<string>();
+      const missingCategoryLabel = '未分類';
+      const defaultCategoryLabel = '全体';
+
+      data.forEach(item => {
+        const rawLabel = item[labelField];
+        if (rawLabel === undefined || rawLabel === null) {
+          return;
+        }
+        const entry = parseXEntry(rawLabel);
+        if (!xEntryMap.has(entry.label)) {
+          xEntryMap.set(entry.label, entry);
+        }
+
+        const categoryLabel = normalizedCategoryField
+          ? (() => {
+              const rawCategory = item[normalizedCategoryField];
+              if (rawCategory === undefined || rawCategory === null || String(rawCategory).trim() === '') {
+                return missingCategoryLabel;
+              }
+              return String(rawCategory);
+            })()
+          : defaultCategoryLabel;
+
+        categorySet.add(categoryLabel);
+      });
+
+      if (xEntryMap.size === 0) {
+        return {
+          labels: [],
+          datasets: [],
+          metadata: {
+            error: 'ストリームグラフを作成できるX軸データが見つかりません',
+          },
+        };
+      }
+
+      const xEntries = Array.from(xEntryMap.values());
+      xEntries.sort((a, b) => {
+        if (a.type === 'date' && b.type === 'date') {
+          return (a.sort as number) - (b.sort as number);
+        }
+        if (a.type === 'number' && b.type === 'number') {
+          return (a.sort as number) - (b.sort as number);
+        }
+        if (typeof a.sort === 'number' && typeof b.sort === 'number') {
+          return (a.sort as number) - (b.sort as number);
+        }
+        return String(a.sort).localeCompare(String(b.sort), 'ja');
+      });
+
+      const xLabels = xEntries.map(entry => entry.label);
+      const xIndexMap = new Map<string, number>();
+      xLabels.forEach((label, index) => xIndexMap.set(label, index));
+
+      let categories = Array.from(categorySet);
+      if (categories.length === 0) {
+        categories = [defaultCategoryLabel];
+      }
+      const categoryIndexMap = new Map<string, number>();
+      categories.forEach((category, index) => categoryIndexMap.set(category, index));
+
+      const series = categories.map(() => new Array(xLabels.length).fill(0));
+
+      const hasNumericValues = data.some(item => {
+        const raw = item[actualValueField];
+        if (raw === undefined || raw === null) return false;
+        if (typeof raw === 'number') return !isNaN(raw);
+        const parsed = parseFloat(String(raw));
+        return !isNaN(parsed);
+      });
+
+      data.forEach(item => {
+        const rawLabel = item[labelField];
+        if (rawLabel === undefined || rawLabel === null) {
+          return;
+        }
+        const parsedEntry = parseXEntry(rawLabel);
+        const label = parsedEntry.label;
+        const xIndex = xIndexMap.get(label);
+        if (xIndex === undefined) {
+          return;
+        }
+
+        const categoryLabel = normalizedCategoryField
+          ? (() => {
+              const rawCategory = item[normalizedCategoryField];
+              if (rawCategory === undefined || rawCategory === null || String(rawCategory).trim() === '') {
+                return missingCategoryLabel;
+              }
+              return String(rawCategory);
+            })()
+          : defaultCategoryLabel;
+
+        const catIndex = categoryIndexMap.get(categoryLabel);
+        if (catIndex === undefined) {
+          return;
+        }
+
+        let numericValue: number | null = null;
+        if (hasNumericValues) {
+          const rawValue = item[actualValueField];
+          if (typeof rawValue === 'number' && !isNaN(rawValue)) {
+            numericValue = rawValue;
+          } else if (rawValue !== undefined && rawValue !== null) {
+            const parsed = parseFloat(String(rawValue));
+            if (!isNaN(parsed)) {
+              numericValue = parsed;
+            }
+          }
+          if (numericValue === null) {
+            return;
+          }
+        } else {
+          numericValue = 1;
+        }
+
+        series[catIndex][xIndex] += numericValue;
+      });
+
+      const hasValues = series.some(values => values.some(value => Math.abs(value) > 0));
+      if (!hasValues) {
+        return {
+          labels: xLabels,
+          datasets: [],
+          metadata: {
+            error: 'ストリームグラフを作成できる数値データが見つかりません',
+          },
+        };
+      }
+
+      const axisType = xEntries.every(entry => entry.type === 'date')
+        ? 'date'
+        : xEntries.every(entry => entry.type === 'number')
+          ? 'linear'
+          : 'category';
+
+      const streamColors = [
+        { fill: 'rgba(37, 99, 235, 0.6)', line: 'rgba(37, 99, 235, 1)' },
+        { fill: 'rgba(16, 185, 129, 0.6)', line: 'rgba(16, 185, 129, 1)' },
+        { fill: 'rgba(239, 68, 68, 0.6)', line: 'rgba(239, 68, 68, 1)' },
+        { fill: 'rgba(245, 158, 11, 0.6)', line: 'rgba(245, 158, 11, 1)' },
+        { fill: 'rgba(139, 92, 246, 0.6)', line: 'rgba(139, 92, 246, 1)' },
+        { fill: 'rgba(236, 72, 153, 0.6)', line: 'rgba(236, 72, 153, 1)' },
+        { fill: 'rgba(20, 184, 166, 0.6)', line: 'rgba(20, 184, 166, 1)' },
+        { fill: 'rgba(59, 130, 246, 0.6)', line: 'rgba(59, 130, 246, 1)' },
+      ];
+
+      const traces = categories.map((category, index) => ({
+        type: 'scatter',
+        mode: 'lines',
+        x: xLabels,
+        y: series[index],
+        name: category,
+        stackgroup: 'stream',
+        line: {
+          color: streamColors[index % streamColors.length].line,
+          width: 1.5,
+          shape: 'spline',
+          smoothing: 0.4,
+        },
+        fill: index === 0 ? 'tozeroy' : 'tonexty',
+        fillcolor: streamColors[index % streamColors.length].fill,
+        hoverinfo: 'x+y+name',
+        opacity: 0.9,
+      }));
+
+      const layout = {
+        showlegend: true,
+        hovermode: 'x unified',
+        margin: { t: 40, r: 30, b: 40, l: 50 },
+        xaxis: {
+          title: labelField,
+          type: axisType === 'category' ? 'category' : axisType,
+          tickangle: xLabels.length > 10 ? -45 : 0,
+        },
+        yaxis: {
+          title: hasNumericValues ? (valueField || actualValueField) : '件数',
+          zeroline: false,
+        },
+      };
+
+      return {
+        labels: xLabels,
+        datasets: [],
+        metadata: {
+          plotly: {
+            data: traces,
+            layout,
+          },
+        },
+      };
+    }
+
+    case 'venn': {
+      const rawFields = options?.vennFields?.filter(field => field && field.trim() !== '') || [];
+      const vennFields = Array.from(new Set(rawFields.map(field => field.trim()))).slice(0, 3);
+
+      if (vennFields.length < 2) {
+        return {
+          labels: [],
+          datasets: [],
+          metadata: {
+            error: 'ベン図を作成するには2つ以上（最大3つ）のフィールドを選択してください',
+          },
+        };
+      }
+
+      const truthyValues = new Set([
+        'true',
+        '1',
+        'yes',
+        'y',
+        'on',
+        't',
+        'ok',
+        'はい',
+        '有',
+        'あり',
+        '○',
+        '◯',
+        '〇',
+        '✔',
+        '✓',
+      ]);
+      const falsyValues = new Set(['false', '0', 'no', 'n', 'off', 'f', 'いいえ', '無', 'なし', '×', '✗']);
+
+      const isTruthy = (value: any): boolean => {
+        if (value === undefined || value === null) return false;
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'number') return value !== 0;
+        if (Array.isArray(value)) return value.length > 0;
+        if (typeof value === 'object') return Object.keys(value).length > 0;
+        const normalized = String(value).trim().toLowerCase();
+        if (normalized === '') return false;
+        if (truthyValues.has(normalized)) return true;
+        if (falsyValues.has(normalized)) return false;
+        const numeric = Number(normalized);
+        if (!isNaN(numeric)) {
+          return numeric !== 0;
+        }
+        return normalized.length > 0;
+      };
+
+      const combinationCounts = new Map<string, number>();
+      data.forEach(item => {
+        const membership: number[] = [];
+        vennFields.forEach((field, index) => {
+          if (isTruthy(item[field])) {
+            membership.push(index);
+          }
+        });
+        if (membership.length === 0) {
+          return;
+        }
+        const key = membership.join('');
+        combinationCounts.set(key, (combinationCounts.get(key) ?? 0) + 1);
+      });
+
+      const totalMembers = Array.from(combinationCounts.values()).reduce((sum, val) => sum + val, 0);
+      if (totalMembers === 0) {
+        return {
+          labels: [],
+          datasets: [],
+          metadata: {
+            error: 'ベン図を作成できるデータが見つかりません',
+          },
+        };
+      }
+
+      const ensureKey = (key: string) => {
+        if (!combinationCounts.has(key)) {
+          combinationCounts.set(key, 0);
+        }
+      };
+
+      if (vennFields.length === 2) {
+        ['0', '1', '01'].forEach(ensureKey);
+      } else if (vennFields.length === 3) {
+        ['0', '1', '2', '01', '02', '12', '012'].forEach(ensureKey);
+      }
+
+      const countsByKey: Record<string, number> = {};
+      combinationCounts.forEach((value, key) => {
+        countsByKey[key] = value;
+      });
+
+      const setTotals = vennFields.map((_, index) => {
+        let total = 0;
+        combinationCounts.forEach((count, key) => {
+          if (key.includes(String(index))) {
+            total += count;
+          }
+        });
+        return total;
+      });
+
+      const vennColors = [
+        { fill: 'rgba(99, 102, 241, 0.35)', line: 'rgba(99, 102, 241, 0.85)' },
+        { fill: 'rgba(16, 185, 129, 0.35)', line: 'rgba(16, 185, 129, 0.85)' },
+        { fill: 'rgba(239, 68, 68, 0.35)', line: 'rgba(239, 68, 68, 0.85)' },
+      ];
+
+      const circleDefs = vennFields.length === 2
+        ? [
+            { cx: -1.4, cy: 0, r: 1.8 },
+            { cx: 1.4, cy: 0, r: 1.8 },
+          ]
+        : [
+            { cx: -1.3, cy: -0.7, r: 1.9 },
+            { cx: 1.3, cy: -0.7, r: 1.9 },
+            { cx: 0, cy: 1.2, r: 1.9 },
+          ];
+
+      const shapes = circleDefs.map((circle, index) => ({
+        type: 'circle' as const,
+        xref: 'x',
+        yref: 'y',
+        x0: circle.cx - circle.r,
+        y0: circle.cy - circle.r,
+        x1: circle.cx + circle.r,
+        y1: circle.cy + circle.r,
+        line: { color: vennColors[index].line, width: 2 },
+        fillcolor: vennColors[index].fill,
+      }));
+
+      const regionPositions: Record<string, { x: number; y: number }> =
+        vennFields.length === 2
+          ? {
+              '0': { x: circleDefs[0].cx - 0.65, y: circleDefs[0].cy },
+              '1': { x: circleDefs[1].cx + 0.65, y: circleDefs[1].cy },
+              '01': { x: 0, y: 0 },
+            }
+          : {
+              '0': { x: circleDefs[0].cx - 0.55, y: circleDefs[0].cy - 0.2 },
+              '1': { x: circleDefs[1].cx + 0.55, y: circleDefs[1].cy - 0.2 },
+              '2': { x: circleDefs[2].cx, y: circleDefs[2].cy + circleDefs[2].r - 0.2 },
+              '01': { x: 0, y: circleDefs[0].cy - 0.35 },
+              '02': { x: (circleDefs[0].cx + circleDefs[2].cx) / 2 - 0.2, y: (circleDefs[0].cy + circleDefs[2].cy) / 2 + 0.35 },
+              '12': { x: (circleDefs[1].cx + circleDefs[2].cx) / 2 + 0.2, y: (circleDefs[1].cy + circleDefs[2].cy) / 2 + 0.35 },
+              '012': { x: 0, y: circleDefs[0].cy + 0.2 },
+            };
+
+      const regionKeys = vennFields.length === 2
+        ? ['0', '1', '01']
+        : ['0', '1', '2', '01', '02', '12', '012'];
+
+      const textPoints = regionKeys.map(key => {
+        const position = regionPositions[key];
+        return {
+          x: position.x,
+          y: position.y,
+          text: String(countsByKey[key] ?? 0),
+        };
+      });
+
+      const textTrace = {
+        type: 'scatter' as const,
+        x: textPoints.map(point => point.x),
+        y: textPoints.map(point => point.y),
+        mode: 'text' as const,
+        text: textPoints.map(point => point.text),
+        textfont: { size: 18, color: '#111827' },
+        hoverinfo: 'skip',
+      };
+
+      const labelAnnotations = vennFields.map((field, index) => ({
+        x: circleDefs[index].cx,
+        y: circleDefs[index].cy + circleDefs[index].r + 0.35,
+        text: `${field} (${setTotals[index]})`,
+        showarrow: false,
+        font: { size: 14, color: '#111827' },
+      }));
+
+      const xRange: [number, number] = [
+        Math.min(...circleDefs.map(circle => circle.cx - circle.r)) - 0.6,
+        Math.max(...circleDefs.map(circle => circle.cx + circle.r)) + 0.6,
+      ];
+      const yRange: [number, number] = [
+        Math.min(...circleDefs.map(circle => circle.cy - circle.r)) - 0.6,
+        Math.max(...circleDefs.map(circle => circle.cy + circle.r)) + 0.6,
+      ];
+
+      const layout = {
+        showlegend: false,
+        margin: { t: 80, r: 40, l: 40, b: 40 },
+        xaxis: { visible: false, range: xRange },
+        yaxis: { visible: false, range: yRange },
+        shapes,
+        annotations: [
+          ...labelAnnotations,
+          {
+            x: xRange[0] + (xRange[1] - xRange[0]) * 0.02,
+            y: yRange[0] + (yRange[1] - yRange[0]) * 0.05,
+            text: `対象レコード数: ${totalMembers}`,
+            showarrow: false,
+            font: { size: 12, color: '#4b5563' },
+            align: 'left' as const,
+          },
+        ],
+      };
+
+      return {
+        labels: vennFields,
+        datasets: [],
+        metadata: {
+          plotly: {
+            data: [textTrace],
+            layout,
+          },
+          venn: {
+            fields: vennFields,
+            counts: countsByKey,
+            totals: setTotals,
+          },
+        },
+      };
+    }
   }
-  
+
   } catch (error) {
     console.error('prepareChartData エラー:', error);
     console.error('エラー発生時のパラメータ:', {

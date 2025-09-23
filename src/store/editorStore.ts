@@ -248,7 +248,8 @@ export const useEditorStore = create<EditorStore>()(
           regressionOrder: 2,
           startDateField: '',
           endDateField: '',
-          taskNameField: ''
+          taskNameField: '',
+          vennFields: []
         }
       },
       updateChartSettings: (settings) => set((state) => ({
