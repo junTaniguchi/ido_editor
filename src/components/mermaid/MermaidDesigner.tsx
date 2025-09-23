@@ -7,26 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import ReactFlow, {
-  Background,
-  Connection,
-  Controls,
-  EdgeChange,
-  MiniMap,
-  NodeChange,
-  ReactFlowProvider,
-  addEdge,
-  applyEdgeChanges,
-  applyNodeChanges,
-  useReactFlow,
-} from 'reactflow';
-import 'reactflow/dist/style.css';
-import {
-  IoAdd,
-  IoAlertCircleOutline,
-  IoCopy,
-  IoTrash,
-} from 'react-icons/io5';
+import { IoAdd, IoAlertCircleOutline, IoCopy, IoTrash } from 'react-icons/io5';
 import { useEditorStore } from '@/store/editorStore';
 import {
   diagramDefinitions,
@@ -35,12 +16,8 @@ import {
   type MermaidFieldDefinition,
   type MermaidNodeTemplate,
 } from '@/lib/mermaid/diagramDefinitions';
-import {
-  parseMermaidSource,
-} from '@/lib/mermaid/parser';
-import {
-  serializeMermaid,
-} from '@/lib/mermaid/serializer';
+import { parseMermaidSource } from '@/lib/mermaid/parser';
+import { serializeMermaid } from '@/lib/mermaid/serializer';
 import type {
   MermaidDiagramConfig,
   MermaidDiagramType,
@@ -49,6 +26,7 @@ import type {
   MermaidNode,
 } from '@/lib/mermaid/types';
 import MermaidPreview from '@/components/preview/MermaidPreview';
+import InteractiveMermaidCanvas from './InteractiveMermaidCanvas';
 
 export interface MermaidDesignerProps {
   tabId: string;
@@ -69,6 +47,8 @@ const getDefaultEdgeVariant = (type: MermaidDiagramType): string => {
 const toBooleanString = (value: boolean): string => (value ? 'true' : 'false');
 
 const parseBoolean = (value: string | undefined): boolean => value === 'true';
+
+const createEdgeId = (): string => `edge_${Date.now().toString(36)}`;
 
 const useTabActions = () => {
   const updateTab = useEditorStore((state) => state.updateTab);
@@ -163,7 +143,7 @@ const FieldInput: React.FC<{
   }
 };
 
-const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, content }) => {
+const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, content }) => {
   const { updateTab, getTab } = useTabActions();
   const [diagramType, setDiagramType] = useState<MermaidDiagramType>('flowchart');
   const [config, setConfig] = useState<MermaidDiagramConfig>(diagramDefinitions.flowchart.defaultConfig);
@@ -173,19 +153,26 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
   const [warnings, setWarnings] = useState<string[]>([]);
   const [inspector, setInspector] = useState<InspectorState | null>(null);
   const [isPaletteCollapsed, setIsPaletteCollapsed] = useState<boolean>(false);
+  const [edgeDraft, setEdgeDraft] = useState<{ source: string; target: string; variant: string; label: string }>({
+    source: '',
+    target: '',
+    variant: '',
+    label: '',
+  });
   const lastSerializedRef = useRef<string>('');
   const isHydrating = useRef<boolean>(false);
   const hasInitialized = useRef<boolean>(false);
-  const reactFlow = useReactFlow();
 
   const nodeTemplates = useMemo<MermaidNodeTemplate[]>(
     () => diagramDefinitions[diagramType].nodeTemplates,
     [diagramType],
   );
+
   const edgeTemplates = useMemo<MermaidEdgeTemplate[]>(
     () => diagramDefinitions[diagramType].edgeTemplates,
     [diagramType],
   );
+
   const configFields = useMemo<MermaidFieldDefinition[]>(
     () => diagramDefinitions[diagramType].configFields ?? [],
     [diagramType],
@@ -221,12 +208,12 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
     setGeneratedCode(code);
     lastSerializedRef.current = code;
     setInspector(null);
+    setEdgeDraft({ source: '', target: '', variant: '', label: '' });
     hasInitialized.current = true;
     requestAnimationFrame(() => {
       isHydrating.current = false;
-      reactFlow.fitView({ padding: 0.2, duration: 300 });
     });
-  }, [content, reactFlow]);
+  }, [content]);
 
   useEffect(() => {
     if (!hasInitialized.current) return;
@@ -234,41 +221,25 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
     refreshGeneratedCode();
   }, [diagramType, config, nodes, edges, refreshGeneratedCode]);
 
-  const handleNodesChange = useCallback((changes: NodeChange[]) => {
-    setNodes((current) => applyNodeChanges(changes, current));
-  }, []);
-
-  const handleEdgesChange = useCallback((changes: EdgeChange[]) => {
-    setEdges((current) => applyEdgeChanges(changes, current));
-  }, []);
-
-  const handleConnect = useCallback((connection: Connection) => {
-    if (!connection.source || !connection.target) return;
-    const template = edgeTemplates[0];
-    const newEdge: MermaidEdge = {
-      id: `edge_${Date.now()}`,
-      source: connection.source,
-      target: connection.target,
-      data: {
-        diagramType,
-        variant: template?.variant ?? getDefaultEdgeVariant(diagramType),
-        label: template?.defaultLabel,
-        metadata: template?.defaultMetadata ? { ...template.defaultMetadata } : {},
-      },
-      label: template?.defaultLabel,
-    };
-    setEdges((current) => addEdge(newEdge, current));
+  useEffect(() => {
+    const defaultVariant = edgeTemplates[0]?.variant ?? getDefaultEdgeVariant(diagramType);
+    setEdgeDraft((current) => ({
+      source: current.source,
+      target: current.target,
+      variant: current.variant || defaultVariant,
+      label: current.label,
+    }));
   }, [diagramType, edgeTemplates]);
 
-  const handleSelectionChange = useCallback((params: { nodes: MermaidNode[]; edges: MermaidEdge[] }) => {
-    if (params.nodes.length > 0) {
-      setInspector({ type: 'node', id: params.nodes[0].id });
-    } else if (params.edges.length > 0) {
-      setInspector({ type: 'edge', id: params.edges[0].id });
-    } else {
-      setInspector(null);
-    }
-  }, []);
+  useEffect(() => {
+    const nodeIds = new Set(nodes.map((node) => node.id));
+    setEdgeDraft((current) => ({
+      source: nodeIds.has(current.source) ? current.source : '',
+      target: nodeIds.has(current.target) ? current.target : '',
+      variant: current.variant,
+      label: current.label,
+    }));
+  }, [nodes]);
 
   const handleAddNode = useCallback((template: MermaidNodeTemplate) => {
     const definition = diagramDefinitions[diagramType];
@@ -303,7 +274,7 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
     if (nextType === diagramType) return;
     let allowSwitch = true;
     if ((nodes.length > 0 || edges.length > 0) && typeof window !== 'undefined') {
-      allowSwitch = window.confirm('図の種類を変更すると現在の要素はクリアされます。続行しますか？');
+      allowSwitch = window.confirm('図の種類を変更すると現在の図はクリアされます。続行しますか？');
     }
     if (!allowSwitch) return;
     const definition = diagramDefinitions[nextType];
@@ -313,6 +284,7 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
     setEdges([]);
     setWarnings([]);
     setInspector(null);
+    setEdgeDraft({ source: '', target: '', variant: '', label: '' });
   }, [diagramType, nodes.length, edges.length]);
 
   const handleDeleteSelection = useCallback(() => {
@@ -320,6 +292,12 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
     if (inspector.type === 'node') {
       setNodes((current) => current.filter((node) => node.id !== inspector.id));
       setEdges((current) => current.filter((edge) => edge.source !== inspector.id && edge.target !== inspector.id));
+      setEdgeDraft((current) => ({
+        source: current.source === inspector.id ? '' : current.source,
+        target: current.target === inspector.id ? '' : current.target,
+        variant: current.variant,
+        label: current.label,
+      }));
     } else {
       setEdges((current) => current.filter((edge) => edge.id !== inspector.id));
     }
@@ -334,7 +312,40 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
     }
   }, [generatedCode]);
 
-  const paletteClasses = isPaletteCollapsed ? 'w-12' : 'w-64';
+  const handleAddEdge = useCallback(() => {
+    if (!edgeDraft.source || !edgeDraft.target) {
+      if (typeof window !== 'undefined') {
+        window.alert('接続元と接続先を選択してください。');
+      }
+      return;
+    }
+    const variant = edgeDraft.variant || getDefaultEdgeVariant(diagramType);
+    const id = createEdgeId();
+    const newEdge: MermaidEdge = {
+      id,
+      source: edgeDraft.source,
+      target: edgeDraft.target,
+      data: {
+        diagramType,
+        variant,
+        label: edgeDraft.label || undefined,
+        metadata: {},
+      },
+      label: edgeDraft.label || undefined,
+    };
+    setEdges((current) => [...current, newEdge]);
+    setInspector({ type: 'edge', id });
+    setEdgeDraft((current) => ({
+      source: current.source,
+      target: current.target,
+      variant: current.variant || variant,
+      label: '',
+    }));
+  }, [diagramType, edgeDraft]);
+
+  const handleSelectFromCanvas = useCallback((selection: InspectorState | null) => {
+    setInspector(selection);
+  }, []);
 
   const selectedNode = useMemo(() => nodes.find((node) => inspector?.type === 'node' && node.id === inspector.id), [inspector, nodes]);
   const selectedEdge = useMemo(() => edges.find((edge) => inspector?.type === 'edge' && edge.id === inspector.id), [inspector, edges]);
@@ -348,6 +359,9 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
     if (!selectedEdge) return undefined;
     return edgeTemplates.find((template) => template.variant === selectedEdge.data.variant);
   }, [selectedEdge, edgeTemplates]);
+
+  const paletteClasses = isPaletteCollapsed ? 'w-12' : 'w-72';
+  const canAddEdge = nodes.length >= 2;
 
   const renderNodeInspector = () => {
     if (!selectedNode) {
@@ -527,11 +541,69 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
             </div>
           )}
           {!isPaletteCollapsed && edgeTemplates.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs text-gray-500">接続を追加</p>
+              <select
+                className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+                value={edgeDraft.source}
+                onChange={(event) => setEdgeDraft((current) => ({ ...current, source: event.target.value }))}
+              >
+                <option value="">接続元を選択</option>
+                {nodes.map((node) => (
+                  <option key={`source-${node.id}`} value={node.id}>
+                    {node.data.label || node.id}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+                value={edgeDraft.target}
+                onChange={(event) => setEdgeDraft((current) => ({ ...current, target: event.target.value }))}
+              >
+                <option value="">接続先を選択</option>
+                {nodes.map((node) => (
+                  <option key={`target-${node.id}`} value={node.id}>
+                    {node.data.label || node.id}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+                value={edgeDraft.variant}
+                onChange={(event) => setEdgeDraft((current) => ({ ...current, variant: event.target.value }))}
+              >
+                {edgeTemplates.map((template) => (
+                  <option key={template.variant} value={template.variant}>
+                    {template.label}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="text"
+                className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+                placeholder="ラベル (任意)"
+                value={edgeDraft.label}
+                onChange={(event) => setEdgeDraft((current) => ({ ...current, label: event.target.value }))}
+              />
+              <button
+                type="button"
+                className={`w-full flex items-center justify-center px-2 py-1 rounded text-sm ${canAddEdge ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-500 cursor-not-allowed'}`}
+                onClick={handleAddEdge}
+                disabled={!canAddEdge}
+              >
+                <IoAdd className="mr-1" /> 接続を追加
+              </button>
+              {!canAddEdge && (
+                <p className="text-[11px] text-gray-500">接続を作成するには2つ以上のノードが必要です。</p>
+              )}
+            </div>
+          )}
+          {!isPaletteCollapsed && edgeTemplates.length > 0 && (
             <div>
-              <p className="text-xs text-gray-500 mb-2">接続種別</p>
+              <p className="text-xs text-gray-500 mb-2">接続種別一覧</p>
               <ul className="space-y-1 text-xs text-gray-600 dark:text-gray-300">
                 {edgeTemplates.map((template) => (
-                  <li key={template.variant}>{template.label}</li>
+                  <li key={`summary-${template.variant}`}>{template.label}</li>
                 ))}
               </ul>
             </div>
@@ -561,22 +633,15 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
           )}
         </div>
       </aside>
-      <main className="flex-1 flex flex-col">
-        <div className="flex-1">
-          <ReactFlow
+      <main className="flex-1 flex flex-col bg-white dark:bg-gray-950">
+        <div className="flex-1 border-b border-gray-200 dark:border-gray-800">
+          <InteractiveMermaidCanvas
+            code={generatedCode}
             nodes={nodes}
             edges={edges}
-            onNodesChange={handleNodesChange}
-            onEdgesChange={handleEdgesChange}
-            onConnect={handleConnect}
-            onSelectionChange={handleSelectionChange}
-            fitView
-            fitViewOptions={{ padding: 0.2 }}
-          >
-            <Background />
-            <MiniMap />
-            <Controls />
-          </ReactFlow>
+            selected={inspector}
+            onSelect={handleSelectFromCanvas}
+          />
         </div>
       </main>
       <aside className="w-96 border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex flex-col">
@@ -585,7 +650,7 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
             <h3 className="text-sm font-semibold">プロパティ</h3>
             <button
               type="button"
-              className="flex items-center text-xs text-red-600"
+              className="flex items-center text-xs text-red-600 disabled:text-gray-400"
               onClick={handleDeleteSelection}
               disabled={!inspector}
             >
@@ -632,11 +697,5 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
     </div>
   );
 };
-
-const MermaidDesigner: React.FC<MermaidDesignerProps> = (props) => (
-  <ReactFlowProvider>
-    <MermaidDesignerInner {...props} />
-  </ReactFlowProvider>
-);
 
 export default MermaidDesigner;
