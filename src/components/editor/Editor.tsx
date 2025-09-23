@@ -17,7 +17,6 @@ import { getLanguageByFileName, getTheme, getEditorExtensions } from '@/lib/edit
 import { TabData } from '@/types';
 import { IoCodeSlash, IoEye, IoAnalytics, IoSave, IoGrid, IoDownload } from 'react-icons/io5';
 import DataPreview from '@/components/preview/DataPreview';
-import MermaidPreview from '@/components/preview/MermaidPreview';
 import MarkdownPreview from '@/components/preview/MarkdownPreview';
 import HtmlPreview from '@/components/preview/HtmlPreview';
 import MarkdownEditorExtension from '@/components/markdown/MarkdownEditorExtension';
@@ -430,9 +429,7 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
         {/* プレビューモードの場合のみプレビュー表示（分割表示はMainLayoutで処理） */}
         {isPreviewable && viewMode === 'preview' && (
           <div className="h-full">
-            {currentTab.type === 'mermaid' || currentTab.type === 'mmd' ? (
-              <MermaidPreview content={currentTab.content} fileName={currentTab.name} />
-            ) : currentTab.type === 'markdown' || currentTab.type === 'md' ? (
+            {currentTab.type === 'markdown' || currentTab.type === 'md' ? (
               <div className="h-full">
                 <MarkdownPreview tabId={tabId} />
               </div>
