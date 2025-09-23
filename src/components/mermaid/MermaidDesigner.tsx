@@ -499,7 +499,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
 
   return (
     <div className="h-full flex">
-      <aside className={`border-r border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 transition-all duration-200 ${paletteClasses}`}>
+      <aside className={`flex-shrink-0 border-r border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 transition-all duration-200 ${paletteClasses}`}>
         <div className="p-3 space-y-3">
           <div className="flex items-center justify-between">
             <label className="text-xs text-gray-500">図の種類</label>
@@ -635,8 +635,8 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           )}
         </div>
       </aside>
-      <main className="flex-1 flex flex-col bg-white dark:bg-gray-950">
-        <div className="flex-1 border-b border-gray-200 dark:border-gray-800">
+      <main className="flex-1 min-w-0 flex flex-col bg-white dark:bg-gray-950">
+        <div className="flex-1 min-h-0 border-b border-gray-200 dark:border-gray-800">
           <InteractiveMermaidCanvas
             code={generatedCode}
             nodes={nodes}
@@ -646,7 +646,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           />
         </div>
       </main>
-      <aside className="w-96 border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex flex-col">
+      <aside className="w-96 flex-shrink-0 border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex flex-col">
         <div className="p-4 space-y-3 overflow-y-auto flex-1">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold">プロパティ</h3>

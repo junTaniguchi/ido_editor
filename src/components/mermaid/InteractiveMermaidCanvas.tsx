@@ -66,7 +66,9 @@ const applyHighlight = (element: SVGGElement) => {
   });
 };
 
-const findNodeElement = (svgElement: SVGSVGElement, nodeId: string): SVGGElement | null => {
+const findNodeElement = (svgElement: SVGSVGElement, node: MermaidNode): SVGGElement | null => {
+  const nodeId = node.id;
+  const label = node.data.label?.trim();
   const escaped = escapeCss(nodeId);
   const selectors = [
     `g#${escaped}`,
@@ -88,11 +90,18 @@ const findNodeElement = (svgElement: SVGSVGElement, nodeId: string): SVGGElement
   const groups = svgElement.querySelectorAll<SVGGElement>('g');
   for (const group of groups) {
     const title = group.querySelector('title');
-    if (title?.textContent?.trim() === nodeId) {
+    const titleText = title?.textContent?.trim();
+    if (titleText === nodeId || (label && titleText === label)) {
       return group;
     }
     const dataId = group.getAttribute('data-id') ?? group.getAttribute('data-element-id');
-    if (dataId === nodeId) {
+    if (dataId === nodeId || (label && dataId === label)) {
+      return group;
+    }
+    const textNodes = Array.from(group.querySelectorAll('text'))
+      .map((text) => text.textContent?.trim())
+      .filter((text): text is string => Boolean(text));
+    if (textNodes.some((text) => text === nodeId || (label && text === label))) {
       return group;
     }
   }
@@ -121,8 +130,16 @@ const findEdgeElement = (svgElement: SVGSVGElement, edge: MermaidEdge): SVGGElem
       }
     }
     const path = candidate.querySelector('path');
-    const idAttr = path?.getAttribute('id') ?? candidate.getAttribute('id');
+    const idAttr =
+      path?.getAttribute('id') || candidate.getAttribute('id') || candidate.getAttribute('class') || '';
     if (idAttr && idAttr.includes(source) && idAttr.includes(target)) {
+      return candidate;
+    }
+    if (edge.id && idAttr && idAttr.includes(edge.id)) {
+      return candidate;
+    }
+    const textContent = candidate.textContent?.trim();
+    if (edge.data.label && textContent && textContent.includes(edge.data.label)) {
       return candidate;
     }
   }
@@ -195,7 +212,7 @@ const InteractiveMermaidCanvas: React.FC<InteractiveMermaidCanvasProps> = ({
       });
 
       nodes.forEach((node) => {
-        const element = findNodeElement(svgElement, node.id);
+        const element = findNodeElement(svgElement, node);
         if (element) {
           element.setAttribute('data-ido-type', 'node');
           element.setAttribute('data-ido-id', node.id);
@@ -325,8 +342,8 @@ const InteractiveMermaidCanvas: React.FC<InteractiveMermaidCanvasProps> = ({
   }, [onSelect]);
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-white dark:bg-gray-950">
-      <div ref={containerRef} className="h-full w-full overflow-auto p-4" />
+    <div className="relative h-full w-full min-h-0 min-w-0 bg-white dark:bg-gray-950">
+      <div ref={containerRef} className="h-full w-full min-h-0 min-w-0 overflow-auto p-4" />
       {!code.trim() && !isRendering && !error && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">
           Mermaidコードを入力すると図が表示されます。
