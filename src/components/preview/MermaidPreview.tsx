@@ -6,24 +6,30 @@ import { IoDownload, IoCopy, IoAdd, IoRemove, IoExpand } from 'react-icons/io5';
 // mermaidの設定を一度だけ初期化
 let mermaidInitialized = false;
 let mermaidInstance: any = null;
+let mermaidInitializationPromise: Promise<any> | null = null;
 
 const initializeMermaid = async (retryCount = 0): Promise<any> => {
-  if (typeof window !== 'undefined' && !mermaidInitialized) {
-    mermaidInitialized = true;
-    
-    try {
-      // 動的にmermaidをインポート（リトライ機能付き）
-      const { default: mermaid } = await import('mermaid');
-      mermaidInstance = mermaid;
-      
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  if (mermaidInstance) {
+    return mermaidInstance;
+  }
+
+  if (!mermaidInitializationPromise) {
+    mermaidInitializationPromise = (async () => {
+      const mermaidModule = await import('mermaid');
+      const mermaid = (mermaidModule as any).default ?? mermaidModule;
+
       mermaid.initialize({
         startOnLoad: false,
         theme: 'default',
         securityLevel: 'loose',
         fontFamily: 'ui-sans-serif, system-ui, sans-serif',
         logLevel: 'error',
-        flowchart: { 
-          useMaxWidth: false, 
+        flowchart: {
+          useMaxWidth: false,
           htmlLabels: true,
           curve: 'basis'
         },
@@ -56,24 +62,29 @@ const initializeMermaid = async (retryCount = 0): Promise<any> => {
         },
         suppressErrorRendering: true
       });
-      
+
+      mermaidInitialized = true;
+      mermaidInstance = mermaid;
+
       return mermaid;
-    } catch (error) {
-      console.error('Mermaid initialization failed:', error);
-      
-      // 最大3回までリトライ
-      if (retryCount < 3) {
-        // リトライ時は初期化フラグをリセット
-        mermaidInitialized = false;
-        await new Promise(resolve => setTimeout(resolve, 1000)); // 1秒待機
-        return initializeMermaid(retryCount + 1);
-      }
-      
-      throw error;
-    }
+    })();
   }
-  
-  return mermaidInstance;
+
+  try {
+    return await mermaidInitializationPromise;
+  } catch (error) {
+    console.error('Mermaid initialization failed:', error);
+
+    if (retryCount < 3) {
+      mermaidInitialized = false;
+      mermaidInitializationPromise = null;
+      await new Promise(resolve => setTimeout(resolve, 1000)); // 1秒待機
+      return initializeMermaid(retryCount + 1);
+    }
+
+    mermaidInitializationPromise = null;
+    throw error;
+  }
 };
 
 // SVGにパディングを追加して描画範囲を広げる関数
