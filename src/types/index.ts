@@ -94,7 +94,20 @@ export interface SqlNotebookSnapshotMeta {
 
 // チャート設定に関する型定義
 export interface ChartSettings {
-  type: 'bar' | 'line' | 'pie' | 'scatter' | 'stacked-bar' | 'regression' | 'histogram' | 'bubble' | 'sunburst' | 'gantt';
+  type:
+    | 'bar'
+    | 'line'
+    | 'pie'
+    | 'scatter'
+    | 'stacked-bar'
+    | 'regression'
+    | 'histogram'
+    | 'bubble'
+    | 'sunburst'
+    | 'gantt'
+    | 'treemap'
+    | 'streamgraph'
+    | 'venn';
   xAxis: string;
   yAxis: string;
   aggregation: 'sum' | 'avg' | 'count' | 'min' | 'max' | 'none';
@@ -107,6 +120,7 @@ export interface ChartSettings {
     startDateField?: string;
     endDateField?: string;
     taskNameField?: string;
+    vennFields?: string[];
   }
 }
 
