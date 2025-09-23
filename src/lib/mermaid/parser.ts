@@ -27,7 +27,20 @@ const createBaseModel = (type: MermaidDiagramType): MermaidGraphModel => {
   };
 };
 
-const sanitizeId = (id: string): string => id.replace(/[^A-Za-z0-9_]/g, '_');
+let generatedIdCounter = 0;
+const generateFallbackId = (): string => {
+  generatedIdCounter += 1;
+  return `node_${generatedIdCounter.toString(36)}`;
+};
+
+const sanitizeId = (id: string): string => {
+  const normalized = id.normalize('NFKC').trim();
+  if (!normalized) {
+    return generateFallbackId();
+  }
+  const sanitized = normalized.replace(/[^\p{L}\p{N}_-]/gu, '_');
+  return sanitized.length > 0 ? sanitized : generateFallbackId();
+};
 const sanitizeLabel = (value: string): string => value.replace(/^"|"$/g, '').trim();
 
 export const detectDiagramType = (source: string): MermaidDiagramType => {
@@ -93,14 +106,14 @@ const parseFlowchart = (source: string): MermaidGraphModel => {
   const lines = source.split(/\r?\n/);
   const orientationPattern = /^(?:flowchart|graph)\s+([A-Za-z]{2})/i;
   const nodePatterns: { variant: string; regex: RegExp }[] = [
-    { variant: 'subroutine', regex: /([A-Za-z0-9_]+)\s*\[\[([^\]]+)\]\]/g },
-    { variant: 'process', regex: /([A-Za-z0-9_]+)\s*\[([^\]]+)\]/g },
-    { variant: 'decision', regex: /([A-Za-z0-9_]+)\s*\{([^}]+)\}/g },
-    { variant: 'startEnd', regex: /([A-Za-z0-9_]+)\s*\(\(([^)]+)\)\)/g },
-    { variant: 'startEnd', regex: /([A-Za-z0-9_]+)\s*\(([^)]+)\)/g },
-    { variant: 'inputOutput', regex: /([A-Za-z0-9_]+)\s*\[\/([^/]+)\/\]/g },
+    { variant: 'subroutine', regex: /([\p{L}\p{N}_-]+)\s*\[\[([^\]]+)\]\]/gu },
+    { variant: 'process', regex: /([\p{L}\p{N}_-]+)\s*\[([^\]]+)\]/gu },
+    { variant: 'decision', regex: /([\p{L}\p{N}_-]+)\s*\{([^}]+)\}/gu },
+    { variant: 'startEnd', regex: /([\p{L}\p{N}_-]+)\s*\(\(([^)]+)\)\)/gu },
+    { variant: 'startEnd', regex: /([\p{L}\p{N}_-]+)\s*\(([^)]+)\)/gu },
+    { variant: 'inputOutput', regex: /([\p{L}\p{N}_-]+)\s*\[\/([^/]+)\/\]/gu },
   ];
-  const edgePattern = /([A-Za-z0-9_]+)\s*([-\.=>ox]+)\s*(?:\|([^|]+)\|)?\s*([A-Za-z0-9_]+)/g;
+  const edgePattern = /([\p{L}\p{N}_-]+)\s*([-\.=>ox]+)\s*(?:\|([^|]+)\|)?\s*([\p{L}\p{N}_-]+)/gu;
 
   lines.forEach((line) => {
     const trimmed = line.trim();
@@ -169,7 +182,7 @@ const parseSequence = (source: string): MermaidGraphModel => {
       ensureNode(model, alias, variant, label, { alias });
       return;
     }
-    const messageMatch = trimmed.match(/^([A-Za-z0-9_]+)\s*([-.]*>>|[-.]*>)\s*([A-Za-z0-9_]+)(?:\s*:\s*(.+))?/);
+    const messageMatch = trimmed.match(/^([\p{L}\p{N}_-]+)\s*([-.]*>>|[-.]*>)\s*([\p{L}\p{N}_-]+)(?:\s*:\s*(.+))?/u);
     if (messageMatch) {
       const source = sanitizeId(messageMatch[1]);
       const arrow = messageMatch[2];
@@ -198,7 +211,7 @@ const parseClass = (source: string): MermaidGraphModel => {
   const model = createBaseModel('class');
   const lines = source.split(/\r?\n/);
   const directionPattern = /^direction\s+(TB|LR)/i;
-  const relationshipPattern = /([A-Za-z0-9_]+)\s+([<:o*]{0,2}[-.]+[>:o*]{0,2})\s+([A-Za-z0-9_]+)(?:\s*:\s*(.+))?/g;
+  const relationshipPattern = /([\p{L}\p{N}_-]+)\s+([<:o*]{0,2}[-.]+[>:o*]{0,2})\s+([\p{L}\p{N}_-]+)(?:\s*:\s*(.+))?/gu;
 
   let buffer = '';
   let inClass = false;
@@ -294,9 +307,9 @@ const parseState = (source: string): MermaidGraphModel => {
   const model = createBaseModel('state');
   const lines = source.split(/\r?\n/);
   const directionPattern = /^direction\s+(TB|LR)/i;
-  const aliasPattern = /^state\s+"(.+?)"\s+as\s+([A-Za-z0-9_]+)/i;
-  const choicePattern = /^state\s+([A-Za-z0-9_]+)\s+<<choice>>/i;
-  const transitionPattern = /([A-Za-z0-9_\[\]*]+)\s*-->\s*([A-Za-z0-9_\[\]*]+)(?:\s*:\s*(.+))?/g;
+  const aliasPattern = /^state\s+"(.+?)"\s+as\s+([\p{L}\p{N}_-]+)/iu;
+  const choicePattern = /^state\s+([\p{L}\p{N}_-]+)\s+<<choice>>/iu;
+  const transitionPattern = /([\p{L}\p{N}_\[\]\*-]+)\s*-->\s*([\p{L}\p{N}_\[\]\*-]+)(?:\s*:\s*(.+))?/gu;
 
   const resolveStateId = (raw: string, role: 'source' | 'target'): { id: string; variant: 'start' | 'end' | 'state' } => {
     const normalized = raw.replace(/\s+/g, '');
@@ -377,7 +390,7 @@ const parseEr = (source: string): MermaidGraphModel => {
       flush();
       return;
     }
-    const relMatch = trimmed.match(/([A-Za-z0-9_]+)\s+([|}o]{1,2}[-]{2}[|{o]{1,2})\s+([A-Za-z0-9_]+)(?:\s*:\s*(.+))?/);
+    const relMatch = trimmed.match(/([\p{L}\p{N}_-]+)\s+([|}o]{1,2}[-]{2}[|{o]{1,2})\s+([\p{L}\p{N}_-]+)(?:\s*:\s*(.+))?/u);
     if (relMatch) {
       flush();
       const left = sanitizeId(relMatch[1]);
@@ -443,28 +456,45 @@ const parseGantt = (source: string): MermaidGraphModel => {
       if (rest.length > 0 && knownStatus.has(rest[0] as any)) {
         status = rest.shift() as string;
       }
+
       if (rest.length > 0) {
-        taskId = sanitizeId(rest.shift() as string);
+        const candidate = rest[0];
+        const looksLikeStartOrDuration = /^(after\s+\S+|\d{4}-\d{2}-\d{2}|\d+\s*[dwmy])$/i.test(candidate);
+        if (!looksLikeStartOrDuration) {
+          taskId = sanitizeId(rest.shift() as string);
+        }
       }
+
       if (rest.length > 0) {
         metadata.start = rest.shift() as string;
       }
+
       if (rest.length > 0) {
         const value = rest.shift() as string;
-        if (/\d+[dwmy]/i.test(value) || value.includes('after')) {
+        if (/^\d+[dwmy]$/i.test(value)) {
           metadata.duration = value;
-        } else {
+        } else if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
           metadata.end = value;
+        } else if (/^after\s+/i.test(value)) {
+          if (!metadata.start) {
+            metadata.start = value;
+          } else {
+            metadata.dependsOn = value;
+          }
+        } else {
+          metadata.duration = value;
         }
       }
+
       if (rest.length > 0) {
         metadata.dependsOn = rest.shift() as string;
       }
 
       metadata.status = status;
-      metadata.taskId = taskId || sanitizeId(label);
+      const resolvedId = taskId || sanitizeId(label);
+      metadata.taskId = resolvedId;
 
-      ensureNode(model, metadata.taskId, status === 'milestone' ? 'milestone' : 'task', label, metadata);
+      ensureNode(model, resolvedId, status === 'milestone' ? 'milestone' : 'task', label, metadata);
     }
   });
 
@@ -473,6 +503,7 @@ const parseGantt = (source: string): MermaidGraphModel => {
 };
 
 export const parseMermaidSource = (source: string): MermaidGraphModel => {
+  generatedIdCounter = 0;
   const trimmed = source.trim();
   if (!trimmed) {
     return createBaseModel('flowchart');
