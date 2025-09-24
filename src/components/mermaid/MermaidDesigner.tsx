@@ -113,6 +113,38 @@ const sanitizeColorValue = (value: string): string => {
   return value;
 };
 
+const cloneNodeList = (nodes: MermaidNode[]): MermaidNode[] =>
+  nodes.map(node => ({
+    ...node,
+    position: node.position ? { ...node.position } : node.position,
+    positionAbsolute: node.positionAbsolute ? { ...node.positionAbsolute } : node.positionAbsolute,
+    style: node.style ? { ...node.style } : node.style,
+    data: {
+      ...node.data,
+      metadata: node.data.metadata ? { ...node.data.metadata } : undefined,
+    },
+  }));
+
+const cloneEdgeList = (edges: MermaidEdge[]): MermaidEdge[] =>
+  edges.map(edge => ({
+    ...edge,
+    style: edge.style ? { ...edge.style } : edge.style,
+    markerEnd: edge.markerEnd ? { ...edge.markerEnd } : edge.markerEnd,
+    data: {
+      ...edge.data,
+      metadata: edge.data.metadata ? { ...edge.data.metadata } : undefined,
+    },
+  }));
+
+interface Snapshot {
+  diagramType: MermaidDiagramType;
+  config: MermaidDiagramConfig;
+  nodes: MermaidNode[];
+  edges: MermaidEdge[];
+  subgraphs: MermaidSubgraph[];
+  ganttSections: string[];
+}
+
 const getNodeTemplateDefaults = (diagramType: MermaidDiagramType, variant: string) => {
   const templates = diagramDefinitions[diagramType]?.nodeTemplates;
   const template = templates?.find((item) => item.variant === variant);
@@ -346,6 +378,54 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const lastHydratedTabIdRef = useRef<string | null>(null);
   const isHydrating = useRef<boolean>(false);
   const hasInitialized = useRef<boolean>(false);
+  const isRestoring = useRef<boolean>(false);
+  const historyRef = useRef<Snapshot[]>([]);
+  const futureRef = useRef<Snapshot[]>([]);
+
+  const createSnapshot = useCallback((): Snapshot => ({
+    diagramType,
+    config: JSON.parse(JSON.stringify(config)) as MermaidDiagramConfig,
+    nodes: cloneNodeList(nodes),
+    edges: cloneEdgeList(edges),
+    subgraphs: subgraphs.map(subgraph => ({ ...subgraph, nodes: [...subgraph.nodes] })),
+    ganttSections: [...ganttSections],
+  }), [diagramType, config, nodes, edges, subgraphs, ganttSections]);
+
+  const recordHistory = useCallback(() => {
+    if (isRestoring.current) return;
+    historyRef.current.push(createSnapshot());
+    if (historyRef.current.length > 100) {
+      historyRef.current.shift();
+    }
+    futureRef.current = [];
+  }, [createSnapshot]);
+
+  const restoreSnapshot = useCallback((snapshot: Snapshot) => {
+    isRestoring.current = true;
+    setDiagramType(snapshot.diagramType);
+    setConfig(snapshot.config);
+    setNodes(snapshot.nodes);
+    setEdgesState(snapshot.edges);
+    setSubgraphs(snapshot.subgraphs);
+    setGanttSections(snapshot.ganttSections);
+    requestAnimationFrame(() => {
+      isRestoring.current = false;
+    });
+  }, []);
+
+  const undo = useCallback(() => {
+    if (!historyRef.current.length) return;
+    const previous = historyRef.current.pop()!;
+    futureRef.current.push(createSnapshot());
+    restoreSnapshot(previous);
+  }, [createSnapshot, restoreSnapshot]);
+
+  const redo = useCallback(() => {
+    if (!futureRef.current.length) return;
+    const next = futureRef.current.pop()!;
+    historyRef.current.push(createSnapshot());
+    restoreSnapshot(next);
+  }, [createSnapshot, restoreSnapshot]);
 
   const updateEdges = useCallback(
     (updater: React.SetStateAction<MermaidEdge[]>) => {
@@ -443,8 +523,13 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     requestAnimationFrame(() => {
       isHydrating.current = false;
       fitViewToDiagram({ duration: 300 });
+      requestAnimationFrame(() => {
+        historyRef.current = [];
+        futureRef.current = [];
+        historyRef.current.push(createSnapshot());
+      });
     });
-  }, [content, tabId, fitViewToDiagram, updateEdges]);
+  }, [content, tabId, fitViewToDiagram, updateEdges, createSnapshot]);
 
   useEffect(() => {
     if (!hasInitialized.current) return;
@@ -472,15 +557,38 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     };
   }, []);
 
-  const handleNodesChange = useCallback((changes: NodeChange[]) => {
-    setNodes((current) => applyNodeChanges(changes, current));
-  }, []);
+  const handleNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      const shouldRecord = changes.some(change => {
+        switch (change.type) {
+          case 'add':
+          case 'remove':
+            return true;
+          case 'position':
+            return !(change as any).dragging;
+          default:
+            return false;
+        }
+      });
+      if (shouldRecord) {
+        recordHistory();
+      }
+      setNodes((current) =>
+        applyNodeChanges(changes, current).map(node => applyNodeDefaults(node, diagramType)),
+      );
+    },
+    [diagramType, recordHistory],
+  );
 
   const handleEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
+      const shouldRecord = changes.some(change => change.type === 'remove' || change.type === 'add');
+      if (shouldRecord) {
+        recordHistory();
+      }
       updateEdges((current) => applyEdgeChanges(changes, current));
     },
-    [updateEdges],
+    [recordHistory, updateEdges],
   );
 
   const handleEdgeUpdate = useCallback(
@@ -488,6 +596,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       if (!newConnection.source || !newConnection.target) {
         return;
       }
+      recordHistory();
       updateEdges((current) =>
         current.map((edge) =>
           edge.id === oldEdge.id
@@ -500,13 +609,14 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         ),
       );
     },
-    [updateEdges],
+    [recordHistory, updateEdges],
   );
 
   const handleConnect = useCallback(
     (connection: Connection) => {
       if (!supportsEdges || edgeTemplates.length === 0) return;
       if (!connection.source || !connection.target) return;
+      recordHistory();
       const variant = getDefaultEdgeVariant(diagramType);
       const template = edgeTemplates.find((item) => item.variant === variant) ?? edgeTemplates[0];
       const id = createEdgeId();
@@ -539,7 +649,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       });
       setInspector({ type: 'edge', id });
     },
-    [diagramType, edgeTemplates, supportsEdges, updateEdges],
+    [diagramType, edgeTemplates, recordHistory, supportsEdges, updateEdges],
   );
 
   const handleSelectionChange = useCallback((params: { nodes: MermaidNode[]; edges: MermaidEdge[] }) => {
@@ -554,6 +664,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
 
   const handleAddNode = useCallback(
     (template: MermaidNodeTemplate, position?: XYPosition) => {
+      recordHistory();
       const definition = diagramDefinitions[diagramType];
       const id = definition.createNodeId ? definition.createNodeId() : `node_${Date.now()}`;
       setNodes((current) => {
@@ -591,11 +702,11 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           },
         };
 
-        return [...current, applyNodeDefaults(newNode, diagramType)];
+      return [...current, applyNodeDefaults(newNode, diagramType)];
       });
       setInspector({ type: 'node', id });
     },
-    [diagramType, ganttSections],
+    [diagramType, ganttSections, recordHistory],
   );
 
   const handleContextMenuAddNode = useCallback(
@@ -632,18 +743,24 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
 
   const updateNode = useCallback(
     (nodeId: string, updater: (node: MermaidNode) => MermaidNode) => {
+      recordHistory();
       setNodes((current) =>
         current.map((node) => (node.id === nodeId ? applyNodeDefaults(updater(node), diagramType) : node)),
       );
     },
-    [diagramType],
+    [diagramType, recordHistory],
   );
 
-  const updateEdge = useCallback((edgeId: string, updater: (edge: MermaidEdge) => MermaidEdge) => {
-    updateEdges((current) => current.map((edge) => (edge.id === edgeId ? updater(edge) : edge)));
-  }, [updateEdges]);
+  const updateEdge = useCallback(
+    (edgeId: string, updater: (edge: MermaidEdge) => MermaidEdge) => {
+      recordHistory();
+      updateEdges((current) => current.map((edge) => (edge.id === edgeId ? updater(edge) : edge)));
+    },
+    [recordHistory, updateEdges],
+  );
 
   const addSubgraph = useCallback(() => {
+    recordHistory();
     const newId = `subgraph_${Date.now().toString(36)}`;
     setSubgraphs((current) => [
       ...current,
@@ -653,16 +770,28 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         nodes: [],
       },
     ]);
-  }, []);
+  }, [recordHistory]);
 
-  const updateSubgraphTitle = useCallback((subgraphId: string, title: string) => {
-    setSubgraphs((current) =>
-      current.map((subgraph) => (subgraph.id === subgraphId ? { ...subgraph, title } : subgraph)),
-    );
-  }, []);
+  const updateSubgraphTitle = useCallback(
+    (subgraphId: string, title: string) => {
+      const trimmed = title.trim();
+      const target = subgraphs.find((subgraph) => subgraph.id === subgraphId);
+      if (!target || target.title === trimmed) {
+        return;
+      }
+      recordHistory();
+      setSubgraphs((current) =>
+        current.map((subgraph) => (subgraph.id === subgraphId ? { ...subgraph, title: trimmed } : subgraph)),
+      );
+    },
+    [recordHistory, subgraphs],
+  );
 
   const removeSubgraph = useCallback(
     (subgraphId: string) => {
+      const exists = subgraphs.some((subgraph) => subgraph.id === subgraphId);
+      if (!exists) return;
+      recordHistory();
       setSubgraphs((current) => current.filter((subgraph) => subgraph.id !== subgraphId));
       setNodes((current) =>
         current.map((node) => {
@@ -684,11 +813,17 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         }),
       );
     },
-    [diagramType],
+    [diagramType, recordHistory, subgraphs],
   );
 
   const assignNodeToSubgraph = useCallback(
     (nodeId: string, subgraphId: string | null) => {
+      const targetNode = nodes.find((node) => node.id === nodeId);
+      const currentId = targetNode?.data.metadata?.subgraphId ?? null;
+      if (!targetNode || currentId === subgraphId) {
+        return;
+      }
+      recordHistory();
       setNodes((current) =>
         current.map((node) => {
           if (node.id !== nodeId) {
@@ -729,10 +864,11 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         }),
       );
     },
-    [diagramType],
+    [diagramType, nodes, recordHistory],
   );
 
   const addGanttSection = useCallback(() => {
+    recordHistory();
     setGanttSections((current) => {
       const baseName = `Section ${current.length + 1}`;
       let candidate = baseName;
@@ -743,29 +879,31 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       }
       return [...current, candidate];
     });
-  }, []);
+  }, [recordHistory]);
 
   const updateGanttSection = useCallback(
     (index: number, name: string) => {
+      if (index < 0 || index >= ganttSections.length) return;
+      const trimmed = name.trim();
+      const currentName = ganttSections[index];
+      const nextName = trimmed || currentName;
+      if (currentName === nextName) {
+        return;
+      }
+      if (ganttSections.includes(nextName) && nextName !== currentName) {
+        return;
+      }
+      recordHistory();
       setGanttSections((current) => {
-        if (index < 0 || index >= current.length) return current;
-        const trimmed = name.trim() || current[index];
-        if (current.includes(trimmed) && trimmed !== current[index]) {
-          return current;
-        }
-        const previous = current[index];
-        if (previous === trimmed) {
-          return current;
-        }
-        const nextSections = current.map((section, i) => (i === index ? trimmed : section));
+        const nextSections = current.map((section, i) => (i === index ? nextName : section));
         setNodes((nodesList) =>
           nodesList.map((node) => {
             if (node.data.diagramType !== 'gantt') {
               return node;
             }
             const metadata = { ...(node.data.metadata || {}) };
-            if (metadata.section === previous) {
-              metadata.section = trimmed;
+            if (metadata.section === currentName) {
+              metadata.section = nextName;
               return applyNodeDefaults(
                 {
                   ...node,
@@ -780,12 +918,13 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         return nextSections;
       });
     },
-    [],
+    [ganttSections, recordHistory],
   );
 
   const removeGanttSection = useCallback((index: number) => {
+    if (index < 0 || index >= ganttSections.length) return;
+    recordHistory();
     setGanttSections((current) => {
-      if (index < 0 || index >= current.length) return current;
       const removed = current[index];
       const remaining = current.filter((_, i) => i !== index);
       const nextSections = remaining.length > 0 ? remaining : ['General'];
@@ -811,7 +950,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       );
       return nextSections;
     });
-  }, []);
+  }, [ganttSections, recordHistory]);
 
   useEffect(() => {
     setSubgraphs((current) =>
@@ -848,7 +987,27 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     );
   }, [diagramType, ganttSections]);
 
+  useEffect(() => {
+    const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+    const handleKey = (event: KeyboardEvent) => {
+      const metaPressed = isMac ? event.metaKey : event.ctrlKey;
+      if (!metaPressed) return;
+      const key = event.key.toLowerCase();
+      if (key === 'z' && !event.shiftKey) {
+        event.preventDefault();
+        undo();
+      } else if ((isMac && key === 'z' && event.shiftKey) || (!isMac && (key === 'y' || (key === 'z' && event.shiftKey)))) {
+        event.preventDefault();
+        redo();
+      }
+    };
+
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [redo, undo]);
+
   const handleAutoLayout = useCallback(() => {
+    recordHistory();
     setNodes((currentNodes) => {
       if (currentNodes.length === 0) {
         return currentNodes;
@@ -997,7 +1156,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     setTimeout(() => {
       fitViewToDiagram({ duration: 400 });
     }, 50);
-  }, [edges, fitViewToDiagram]);
+  }, [edges, fitViewToDiagram, recordHistory]);
 
   const handleDiagramTypeChange = useCallback(
     (nextType: MermaidDiagramType) => {
@@ -1007,6 +1166,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         allowSwitch = window.confirm('図の種類を変更すると現在の図はクリアされます。続行しますか？');
       }
       if (!allowSwitch) return;
+      recordHistory();
       const definition = diagramDefinitions[nextType];
       setDiagramType(nextType);
       setConfig(definition.defaultConfig);
@@ -1024,11 +1184,12 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         label: firstEdgeTemplate?.defaultLabel ?? '',
       });
     },
-    [diagramType, edges.length, nodes.length],
+    [diagramType, edges.length, nodes.length, recordHistory],
   );
 
   const handleDeleteSelection = useCallback(() => {
     if (!inspector) return;
+    recordHistory();
     if (inspector.type === 'node') {
       setNodes((current) => current.filter((node) => node.id !== inspector.id));
       updateEdges((current) => current.filter((edge) => edge.source !== inspector.id && edge.target !== inspector.id));
@@ -1048,7 +1209,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       updateEdges((current) => current.filter((edge) => edge.id !== inspector.id));
     }
     setInspector(null);
-  }, [inspector]);
+  }, [inspector, recordHistory, updateEdges]);
 
   const selectedNode = useMemo(
     () => nodes.find((node) => inspector?.type === 'node' && node.id === inspector.id),

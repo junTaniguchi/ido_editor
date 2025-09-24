@@ -1,7 +1,7 @@
 
 /**
  * EditableDataTable.tsx
- * 編集可能なテーブルデータプレビューReactコンポーネント。
+ * 編集可能なテーブルGUIデザインモードReactコンポーネント。
  * 対応フォーマット: CSV, TSV, JSON, YAML, Parquet
  * 主な機能:
  * - セル編集（インライン）

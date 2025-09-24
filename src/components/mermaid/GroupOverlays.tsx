@@ -112,13 +112,14 @@ const GroupOverlays: React.FC<GroupOverlaysProps> = ({ diagramType, subgraphs, g
   const [translateX, translateY, zoom] = transform;
 
   return (
-    <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 1 }}>
+    <div className="absolute inset-0" style={{ zIndex: 1, pointerEvents: 'none' }}>
       <div
         style={{
           position: 'absolute',
           inset: 0,
           transform: `translate(${translateX}px, ${translateY}px) scale(${zoom})`,
           transformOrigin: '0 0',
+          pointerEvents: 'none',
         }}
       >
         {overlays.map(overlay => (
@@ -137,6 +138,7 @@ const GroupOverlays: React.FC<GroupOverlaysProps> = ({ diagramType, subgraphs, g
               padding: 12,
               display: 'flex',
               alignItems: 'flex-start',
+              pointerEvents: 'none',
             }}
           >
             <span
@@ -147,6 +149,7 @@ const GroupOverlays: React.FC<GroupOverlaysProps> = ({ diagramType, subgraphs, g
                 fontWeight: 600,
                 padding: '2px 10px',
                 borderRadius: 9999,
+                pointerEvents: 'none',
               }}
             >
               {overlay.label}

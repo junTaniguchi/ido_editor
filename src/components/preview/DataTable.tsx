@@ -1,7 +1,7 @@
 
 /**
  * DataTable.tsx
- * 汎用テーブルデータプレビューReactコンポーネント。
+ * 汎用テーブルGUIデザインモードReactコンポーネント。
  * 対応フォーマット: CSV, TSV, JSON, YAML, Parquet
  * 主な機能:
  * - 列選択・表示/非表示切り替え

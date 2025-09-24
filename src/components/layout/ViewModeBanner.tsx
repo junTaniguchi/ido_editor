@@ -26,7 +26,7 @@ const ViewModeBanner: React.FC<ViewModeBannerProps> = ({
       : activeTabViewMode === 'preview'
         ? 'プレビュー'
         : activeTabViewMode === 'data-preview'
-          ? 'データプレビュー'
+          ? 'GUIデザインモード'
           : '分割表示';
 
   const modeClassName =
@@ -35,7 +35,7 @@ const ViewModeBanner: React.FC<ViewModeBannerProps> = ({
       : activeTabViewMode === 'preview'
         ? 'bg-green-100 text-green-800'
         : activeTabViewMode === 'data-preview'
-          ? 'bg-teal-100 text-teal-800'
+          ? 'bg-indigo-100 text-indigo-800'
           : 'bg-purple-100 text-purple-800';
 
   return (
