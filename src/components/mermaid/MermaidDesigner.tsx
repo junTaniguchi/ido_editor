@@ -350,6 +350,120 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     setEdges((current) => current.map((edge) => (edge.id === edgeId ? updater(edge) : edge)));
   }, []);
 
+  const handleAutoLayout = useCallback(() => {
+    setNodes((currentNodes) => {
+      if (currentNodes.length === 0) {
+        return currentNodes;
+      }
+
+      const adjacency = new Map<string, Set<string>>();
+      const indegree = new Map<string, number>();
+
+      currentNodes.forEach((node) => {
+        adjacency.set(node.id, new Set<string>());
+        indegree.set(node.id, 0);
+      });
+
+      edges.forEach((edge) => {
+        if (!adjacency.has(edge.source)) {
+          adjacency.set(edge.source, new Set<string>());
+        }
+        adjacency.get(edge.source)?.add(edge.target);
+        if (indegree.has(edge.target)) {
+          indegree.set(edge.target, (indegree.get(edge.target) ?? 0) + 1);
+        }
+      });
+
+      const levels = new Map<string, number>();
+      currentNodes.forEach((node) => {
+        levels.set(node.id, 0);
+      });
+
+      const queue: string[] = [];
+      const indegreeSnapshot = new Map(indegree);
+      indegreeSnapshot.forEach((value, nodeId) => {
+        if (value === 0) {
+          queue.push(nodeId);
+        }
+      });
+
+      const visited = new Set<string>();
+      while (queue.length > 0) {
+        const nodeId = queue.shift()!;
+        visited.add(nodeId);
+        const baseLevel = levels.get(nodeId) ?? 0;
+        const neighbors = adjacency.get(nodeId);
+        neighbors?.forEach((targetId) => {
+          const nextLevel = Math.max(levels.get(targetId) ?? 0, baseLevel + 1);
+          levels.set(targetId, nextLevel);
+          const nextIndegree = (indegreeSnapshot.get(targetId) ?? 0) - 1;
+          indegreeSnapshot.set(targetId, nextIndegree);
+          if (nextIndegree <= 0 && !visited.has(targetId)) {
+            queue.push(targetId);
+          }
+        });
+      }
+
+      if (visited.size === 0) {
+        currentNodes.forEach((node, index) => {
+          levels.set(node.id, Math.floor(index / 4));
+        });
+      } else if (visited.size < currentNodes.length) {
+        let maxLevel = 0;
+        levels.forEach((value) => {
+          maxLevel = Math.max(maxLevel, value);
+        });
+        const remaining = currentNodes.filter((node) => !visited.has(node.id));
+        remaining.forEach((node, index) => {
+          const additionalLevel = maxLevel + 1 + Math.floor(index / 4);
+          levels.set(node.id, additionalLevel);
+        });
+      }
+
+      const layerMap = new Map<number, string[]>();
+      currentNodes.forEach((node) => {
+        const level = levels.get(node.id) ?? 0;
+        const entry = layerMap.get(level) ?? [];
+        entry.push(node.id);
+        layerMap.set(level, entry);
+      });
+
+      const horizontalSpacing = 220;
+      const verticalSpacing = 180;
+      const startX = 80;
+      const startY = 40;
+
+      const positionMap = new Map<string, { x: number; y: number }>();
+      Array.from(layerMap.entries())
+        .sort((a, b) => a[0] - b[0])
+        .forEach(([layerIndex, nodeIds]) => {
+          nodeIds.forEach((nodeId, index) => {
+            positionMap.set(nodeId, {
+              x: startX + index * horizontalSpacing,
+              y: startY + layerIndex * verticalSpacing,
+            });
+          });
+        });
+
+      return currentNodes.map((node, index) => {
+        const fallbackRow = Math.floor(index / 4);
+        const fallbackPosition = {
+          x: startX + (index % 4) * horizontalSpacing,
+          y: startY + fallbackRow * verticalSpacing,
+        };
+        const target = positionMap.get(node.id) ?? fallbackPosition;
+        return {
+          ...node,
+          position: target,
+        };
+      });
+    });
+
+    setTimeout(() => {
+      fitViewToDiagram({ duration: 400 });
+    }, 50);
+  }, [edges, fitViewToDiagram]);
+
   const handleDiagramTypeChange = useCallback(
     (nextType: MermaidDiagramType) => {
       if (nextType === diagramType) return;
@@ -720,6 +834,25 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         </div>
       </aside>
       <main className="flex-1 min-w-0 flex flex-col bg-white dark:bg-gray-950">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-800">
+          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">キャンバス</h3>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="px-3 py-1 text-xs rounded border border-blue-500 text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-300 dark:hover:bg-blue-950"
+              onClick={handleAutoLayout}
+            >
+              自動整列
+            </button>
+            <button
+              type="button"
+              className="px-3 py-1 text-xs rounded border border-gray-400 text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+              onClick={() => fitViewToDiagram({ duration: 300 })}
+            >
+              全体表示
+            </button>
+          </div>
+        </div>
         <div className="flex-1 min-h-0 border-b border-gray-200 dark:border-gray-800">
           <ReactFlow
             nodes={nodes}

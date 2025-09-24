@@ -10,12 +10,13 @@ import Editor from '@/components/editor/Editor';
 import MarkdownPreview from '@/components/preview/MarkdownPreview';
 import DataPreview from '@/components/preview/DataPreview';
 import HtmlPreview from '@/components/preview/HtmlPreview';
+import MermaidPreview from '@/components/preview/MermaidPreview';
 
 interface WorkspaceProps {
   paneState: PaneState;
   activeTab: TabData | null;
   activeTabId: string | null;
-  activeTabViewMode: 'editor' | 'preview' | 'split';
+  activeTabViewMode: 'editor' | 'preview' | 'data-preview' | 'split';
   multiFileAnalysisEnabled: boolean;
   onCloseMultiFileAnalysis: () => void;
 }
@@ -173,9 +174,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
           {isMarkdown ? (
             <MarkdownPreview tabId={activeTabId} />
           ) : isMermaid ? (
-            <div className="h-full">
-              <DataPreview tabId={activeTabId} />
-            </div>
+            <MermaidPreview content={activeTab.content} fileName={activeTab.name} />
           ) : isHtml ? (
             <HtmlPreview tabId={activeTabId} />
           ) : (
@@ -183,6 +182,14 @@ const Workspace: React.FC<WorkspaceProps> = ({
               <DataPreview tabId={activeTabId} />
             </div>
           )}
+        </div>
+      );
+    }
+
+    if (activeTabViewMode === 'data-preview') {
+      return (
+        <div className="w-full h-full overflow-hidden">
+          <DataPreview tabId={activeTabId} />
         </div>
       );
     }
@@ -213,9 +220,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
           {isMarkdown ? (
             <MarkdownPreview tabId={activeTabId} onScroll={handlePreviewScroll} />
           ) : isMermaid ? (
-            <div className="h-full">
-              <DataPreview tabId={activeTabId} />
-            </div>
+            <MermaidPreview content={activeTab.content} fileName={activeTab.name} />
           ) : isHtml ? (
             <HtmlPreview tabId={activeTabId} onScroll={handlePreviewScroll} />
           ) : (
@@ -237,7 +242,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
       );
     }
 
-    if (activeTabViewMode === 'preview') {
+    if (activeTabViewMode === 'preview' || activeTabViewMode === 'data-preview') {
       return (
         <div className="w-full h-full overflow-hidden">
           <DataPreview tabId={activeTabId} />
