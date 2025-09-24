@@ -381,6 +381,26 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const isRestoring = useRef<boolean>(false);
   const historyRef = useRef<Snapshot[]>([]);
   const futureRef = useRef<Snapshot[]>([]);
+  const suppressHistoryRef = useRef<number>(0);
+
+  const beginSuppressHistory = () => {
+    suppressHistoryRef.current += 1;
+  };
+
+  const endSuppressHistory = () => {
+    suppressHistoryRef.current = Math.max(0, suppressHistoryRef.current - 1);
+  };
+
+  const runWithSuppressedHistory = (action: () => void) => {
+    beginSuppressHistory();
+    try {
+      action();
+    } finally {
+      queueMicrotask(() => {
+        endSuppressHistory();
+      });
+    }
+  };
 
   const createSnapshot = useCallback((): Snapshot => ({
     diagramType,
@@ -559,6 +579,9 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
 
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
+      if (isRestoring.current) {
+        return;
+      }
       const shouldRecord = changes.some(change => {
         switch (change.type) {
           case 'add':
@@ -570,7 +593,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
             return false;
         }
       });
-      if (shouldRecord) {
+      if (suppressHistoryRef.current <= 0 && shouldRecord) {
         recordHistory();
       }
       setNodes((current) =>
@@ -582,8 +605,11 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
 
   const handleEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
+      if (isRestoring.current) {
+        return;
+      }
       const shouldRecord = changes.some(change => change.type === 'remove' || change.type === 'add');
-      if (shouldRecord) {
+      if (suppressHistoryRef.current <= 0 && shouldRecord) {
         recordHistory();
       }
       updateEdges((current) => applyEdgeChanges(changes, current));
@@ -597,17 +623,19 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         return;
       }
       recordHistory();
-      updateEdges((current) =>
-        current.map((edge) =>
-          edge.id === oldEdge.id
-            ? {
-                ...edge,
-                source: newConnection.source,
-                target: newConnection.target,
-              }
-            : edge,
-        ),
-      );
+      runWithSuppressedHistory(() => {
+        updateEdges((current) =>
+          current.map((edge) =>
+            edge.id === oldEdge.id
+              ? {
+                  ...edge,
+                  source: newConnection.source,
+                  target: newConnection.target,
+                }
+              : edge,
+          ),
+        );
+      });
     },
     [recordHistory, updateEdges],
   );
@@ -620,7 +648,8 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       const variant = getDefaultEdgeVariant(diagramType);
       const template = edgeTemplates.find((item) => item.variant === variant) ?? edgeTemplates[0];
       const id = createEdgeId();
-      updateEdges((current) => {
+      runWithSuppressedHistory(() => {
+        updateEdges((current) => {
         const existing = current.filter(
           (edge) => edge.source === connection.source && edge.target === connection.target,
         );
@@ -646,6 +675,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         };
 
         return [...current, newEdge];
+        });
       });
       setInspector({ type: 'edge', id });
     },
@@ -667,42 +697,44 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       recordHistory();
       const definition = diagramDefinitions[diagramType];
       const id = definition.createNodeId ? definition.createNodeId() : `node_${Date.now()}`;
-      setNodes((current) => {
-        const baseMetadata = template.defaultMetadata ? { ...template.defaultMetadata } : {};
-        if (diagramType === 'gitGraph') {
-          const sequenceValues = current
-            .map((node) => Number(node.data.metadata?.sequence))
-            .filter((value) => Number.isFinite(value));
-          const nextSequence = sequenceValues.length > 0 ? Math.max(...sequenceValues) + 1 : 0;
-          baseMetadata.sequence = nextSequence.toString();
-          if ((template.variant === 'commit' || template.variant === 'merge') && !baseMetadata.type) {
-            baseMetadata.type = 'NORMAL';
+      runWithSuppressedHistory(() => {
+        setNodes((current) => {
+          const baseMetadata = template.defaultMetadata ? { ...template.defaultMetadata } : {};
+          if (diagramType === 'gitGraph') {
+            const sequenceValues = current
+              .map((node) => Number(node.data.metadata?.sequence))
+              .filter((value) => Number.isFinite(value));
+            const nextSequence = sequenceValues.length > 0 ? Math.max(...sequenceValues) + 1 : 0;
+            baseMetadata.sequence = nextSequence.toString();
+            if ((template.variant === 'commit' || template.variant === 'merge') && !baseMetadata.type) {
+              baseMetadata.type = 'NORMAL';
+            }
           }
-        }
-        if (diagramType === 'gantt') {
-          const fallbackSection = ganttSections[0] ?? 'General';
-          baseMetadata.section = fallbackSection;
-        }
+          if (diagramType === 'gantt') {
+            const fallbackSection = ganttSections[0] ?? 'General';
+            baseMetadata.section = fallbackSection;
+          }
 
-        const defaultPosition =
-          position ?? {
-            x: (current.length % 4) * 200 + 50,
-            y: Math.floor(current.length / 4) * 150 + 40,
+          const defaultPosition =
+            position ?? {
+              x: (current.length % 4) * 200 + 50,
+              y: Math.floor(current.length / 4) * 150 + 40,
+            };
+
+          const newNode: MermaidNode = {
+            id,
+            type: 'default',
+            position: defaultPosition,
+            data: {
+              diagramType,
+              variant: template.variant,
+              label: template.defaultLabel,
+              metadata: baseMetadata,
+            },
           };
 
-        const newNode: MermaidNode = {
-          id,
-          type: 'default',
-          position: defaultPosition,
-          data: {
-            diagramType,
-            variant: template.variant,
-            label: template.defaultLabel,
-            metadata: baseMetadata,
-          },
-        };
-
-      return [...current, applyNodeDefaults(newNode, diagramType)];
+          return [...current, applyNodeDefaults(newNode, diagramType)];
+        });
       });
       setInspector({ type: 'node', id });
     },
@@ -744,9 +776,11 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const updateNode = useCallback(
     (nodeId: string, updater: (node: MermaidNode) => MermaidNode) => {
       recordHistory();
-      setNodes((current) =>
-        current.map((node) => (node.id === nodeId ? applyNodeDefaults(updater(node), diagramType) : node)),
-      );
+      runWithSuppressedHistory(() => {
+        setNodes((current) =>
+          current.map((node) => (node.id === nodeId ? applyNodeDefaults(updater(node), diagramType) : node)),
+        );
+      });
     },
     [diagramType, recordHistory],
   );
@@ -754,7 +788,9 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const updateEdge = useCallback(
     (edgeId: string, updater: (edge: MermaidEdge) => MermaidEdge) => {
       recordHistory();
-      updateEdges((current) => current.map((edge) => (edge.id === edgeId ? updater(edge) : edge)));
+      runWithSuppressedHistory(() => {
+        updateEdges((current) => current.map((edge) => (edge.id === edgeId ? updater(edge) : edge)));
+      });
     },
     [recordHistory, updateEdges],
   );
@@ -793,25 +829,27 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       if (!exists) return;
       recordHistory();
       setSubgraphs((current) => current.filter((subgraph) => subgraph.id !== subgraphId));
-      setNodes((current) =>
-        current.map((node) => {
-          if (node.data.metadata?.subgraphId !== subgraphId) {
-            return node;
-          }
-          const nextMetadata = { ...(node.data.metadata || {}) };
-          delete nextMetadata.subgraphId;
-          return applyNodeDefaults(
-            {
-              ...node,
-              data: {
-                ...node.data,
-                metadata: nextMetadata,
+      runWithSuppressedHistory(() => {
+        setNodes((current) =>
+          current.map((node) => {
+            if (node.data.metadata?.subgraphId !== subgraphId) {
+              return node;
+            }
+            const nextMetadata = { ...(node.data.metadata || {}) };
+            delete nextMetadata.subgraphId;
+            return applyNodeDefaults(
+              {
+                ...node,
+                data: {
+                  ...node.data,
+                  metadata: nextMetadata,
+                },
               },
-            },
-            diagramType,
-          );
-        }),
-      );
+              diagramType,
+            );
+          }),
+        );
+      });
     },
     [diagramType, recordHistory, subgraphs],
   );
@@ -824,29 +862,31 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         return;
       }
       recordHistory();
-      setNodes((current) =>
-        current.map((node) => {
-          if (node.id !== nodeId) {
-            return node;
-          }
-          const nextMetadata = { ...(node.data.metadata || {}) };
-          if (subgraphId) {
-            nextMetadata.subgraphId = subgraphId;
-          } else {
-            delete nextMetadata.subgraphId;
-          }
-          return applyNodeDefaults(
-            {
-              ...node,
-              data: {
-                ...node.data,
-                metadata: nextMetadata,
+      runWithSuppressedHistory(() => {
+        setNodes((current) =>
+          current.map((node) => {
+            if (node.id !== nodeId) {
+              return node;
+            }
+            const nextMetadata = { ...(node.data.metadata || {}) };
+            if (subgraphId) {
+              nextMetadata.subgraphId = subgraphId;
+            } else {
+              delete nextMetadata.subgraphId;
+            }
+            return applyNodeDefaults(
+              {
+                ...node,
+                data: {
+                  ...node.data,
+                  metadata: nextMetadata,
+                },
               },
-            },
-            diagramType,
-          );
-        }),
-      );
+              diagramType,
+            );
+          }),
+        );
+      });
 
       setSubgraphs((current) =>
         current.map((subgraph) => {
@@ -896,25 +936,27 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       recordHistory();
       setGanttSections((current) => {
         const nextSections = current.map((section, i) => (i === index ? nextName : section));
-        setNodes((nodesList) =>
-          nodesList.map((node) => {
-            if (node.data.diagramType !== 'gantt') {
+        runWithSuppressedHistory(() => {
+          setNodes((nodesList) =>
+            nodesList.map((node) => {
+              if (node.data.diagramType !== 'gantt') {
+                return node;
+              }
+              const metadata = { ...(node.data.metadata || {}) };
+              if (metadata.section === currentName) {
+                metadata.section = nextName;
+                return applyNodeDefaults(
+                  {
+                    ...node,
+                    data: { ...node.data, metadata },
+                  },
+                  'gantt',
+                );
+              }
               return node;
-            }
-            const metadata = { ...(node.data.metadata || {}) };
-            if (metadata.section === currentName) {
-              metadata.section = nextName;
-              return applyNodeDefaults(
-                {
-                  ...node,
-                  data: { ...node.data, metadata },
-                },
-                'gantt',
-              );
-            }
-            return node;
-          }),
-        );
+            }),
+          );
+        });
         return nextSections;
       });
     },
@@ -929,25 +971,27 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       const remaining = current.filter((_, i) => i !== index);
       const nextSections = remaining.length > 0 ? remaining : ['General'];
       const fallback = nextSections[0];
-      setNodes((nodesList) =>
-        nodesList.map((node) => {
-          if (node.data.diagramType !== 'gantt') {
+      runWithSuppressedHistory(() => {
+        setNodes((nodesList) =>
+          nodesList.map((node) => {
+            if (node.data.diagramType !== 'gantt') {
+              return node;
+            }
+            const metadata = { ...(node.data.metadata || {}) };
+            if (metadata.section === removed) {
+              metadata.section = fallback;
+              return applyNodeDefaults(
+                {
+                  ...node,
+                  data: { ...node.data, metadata },
+                },
+                'gantt',
+              );
+            }
             return node;
-          }
-          const metadata = { ...(node.data.metadata || {}) };
-          if (metadata.section === removed) {
-            metadata.section = fallback;
-            return applyNodeDefaults(
-              {
-                ...node,
-                data: { ...node.data, metadata },
-              },
-              'gantt',
-            );
-          }
-          return node;
-        }),
-      );
+          }),
+        );
+      });
       return nextSections;
     });
   }, [ganttSections, recordHistory]);
@@ -965,26 +1009,32 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     if (diagramType !== 'gantt') {
       return;
     }
-    setNodes((current) =>
-      current.map((node) => {
-        if (node.data.diagramType !== 'gantt') {
+    const fallbackSection = ganttSections[0] ?? 'General';
+    runWithSuppressedHistory(() => {
+      setNodes((current) => {
+        let hasChanges = false;
+        const nextNodes = current.map((node) => {
+          if (node.data.diagramType !== 'gantt') {
+            return node;
+          }
+          const metadata = { ...(node.data.metadata || {}) };
+          const currentSection = metadata.section;
+          if (!currentSection || !ganttSections.includes(currentSection)) {
+            metadata.section = fallbackSection;
+            hasChanges = true;
+            return applyNodeDefaults(
+              {
+                ...node,
+                data: { ...node.data, metadata },
+              },
+              'gantt',
+            );
+          }
           return node;
-        }
-        const metadata = { ...(node.data.metadata || {}) };
-        const fallbackSection = ganttSections[0] ?? 'General';
-        if (!metadata.section || !ganttSections.includes(metadata.section)) {
-          metadata.section = fallbackSection;
-          return applyNodeDefaults(
-            {
-              ...node,
-              data: { ...node.data, metadata },
-            },
-            'gantt',
-          );
-        }
-        return node;
-      }),
-    );
+        });
+        return hasChanges ? nextNodes : current;
+      });
+    });
   }, [diagramType, ganttSections]);
 
   useEffect(() => {
@@ -1008,10 +1058,11 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
 
   const handleAutoLayout = useCallback(() => {
     recordHistory();
-    setNodes((currentNodes) => {
-      if (currentNodes.length === 0) {
-        return currentNodes;
-      }
+    runWithSuppressedHistory(() => {
+      setNodes((currentNodes) => {
+        if (currentNodes.length === 0) {
+          return currentNodes;
+        }
 
       const adjacency = new Map<string, Set<string>>();
       const indegree = new Map<string, number>();
@@ -1151,6 +1202,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           diagramType,
         );
       });
+      });
     });
 
     setTimeout(() => {
@@ -1191,8 +1243,12 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     if (!inspector) return;
     recordHistory();
     if (inspector.type === 'node') {
-      setNodes((current) => current.filter((node) => node.id !== inspector.id));
-      updateEdges((current) => current.filter((edge) => edge.source !== inspector.id && edge.target !== inspector.id));
+      runWithSuppressedHistory(() => {
+        setNodes((current) => current.filter((node) => node.id !== inspector.id));
+      });
+      runWithSuppressedHistory(() => {
+        updateEdges((current) => current.filter((edge) => edge.source !== inspector.id && edge.target !== inspector.id));
+      });
       setSubgraphs((current) =>
         current.map((subgraph) => ({
           ...subgraph,
@@ -1206,7 +1262,9 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         label: current.label,
       }));
     } else {
-      updateEdges((current) => current.filter((edge) => edge.id !== inspector.id));
+      runWithSuppressedHistory(() => {
+        updateEdges((current) => current.filter((edge) => edge.id !== inspector.id));
+      });
     }
     setInspector(null);
   }, [inspector, recordHistory, updateEdges]);
