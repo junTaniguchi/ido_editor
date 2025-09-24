@@ -157,14 +157,6 @@ const serializeSequence = (model: MermaidGraphModel): MermaidSerializationResult
     }
   });
 
-  const nodeStyleLines: string[] = [];
-  model.nodes.forEach((node) => {
-    const parts = buildStyleParts(node.data.metadata as Record<string, string | undefined>);
-    if (parts.length > 0) {
-      nodeStyleLines.push(`style ${node.id} ${parts.join(',')}`);
-    }
-  });
-
   model.edges.forEach((edge) => {
     let connector = '->>';
     if (edge.data.variant === 'dashed') connector = '-->>';
@@ -173,17 +165,6 @@ const serializeSequence = (model: MermaidGraphModel): MermaidSerializationResult
     const labelText = label ? `: ${label}` : '';
     lines.push(`${edge.source} ${connector} ${edge.target}${labelText}`);
   });
-
-  const edgeStyleLines: string[] = [];
-  model.edges.forEach((edge, index) => {
-    const parts = buildStyleParts(edge.data.metadata as Record<string, string | undefined>);
-    if (parts.length > 0) {
-      edgeStyleLines.push(`linkStyle ${index} ${parts.join(',')}`);
-    }
-  });
-
-  lines.push(...nodeStyleLines);
-  lines.push(...edgeStyleLines);
 
   return { code: lines.join('\n'), warnings };
 };
@@ -236,23 +217,6 @@ const serializeClass = (model: MermaidGraphModel): MermaidSerializationResult =>
     lines.push(`${edge.source} ${symbol} ${edge.target}${labelText}`);
   });
 
-  const nodeStyleLines: string[] = [];
-  model.nodes.forEach((node) => {
-    const parts = buildStyleParts(node.data.metadata as Record<string, string | undefined>);
-    if (parts.length > 0) {
-      nodeStyleLines.push(`style ${node.id} ${parts.join(',')}`);
-    }
-  });
-  const edgeStyleLines: string[] = [];
-  model.edges.forEach((edge, index) => {
-    const parts = buildStyleParts(edge.data.metadata as Record<string, string | undefined>);
-    if (parts.length > 0) {
-      edgeStyleLines.push(`linkStyle ${index} ${parts.join(',')}`);
-    }
-  });
-  lines.push(...nodeStyleLines);
-  lines.push(...edgeStyleLines);
-
   return { code: lines.join('\n'), warnings };
 };
 
@@ -289,23 +253,6 @@ const serializeState = (model: MermaidGraphModel): MermaidSerializationResult =>
     lines.push(`${source} --> ${target}${labelText}`);
   });
 
-  const nodeStyleLines: string[] = [];
-  model.nodes.forEach((node) => {
-    const parts = buildStyleParts(node.data.metadata as Record<string, string | undefined>);
-    if (parts.length > 0) {
-      nodeStyleLines.push(`style ${node.id} ${parts.join(',')}`);
-    }
-  });
-  const edgeStyleLines: string[] = [];
-  model.edges.forEach((edge, index) => {
-    const parts = buildStyleParts(edge.data.metadata as Record<string, string | undefined>);
-    if (parts.length > 0) {
-      edgeStyleLines.push(`linkStyle ${index} ${parts.join(',')}`);
-    }
-  });
-  lines.push(...nodeStyleLines);
-  lines.push(...edgeStyleLines);
-
   return { code: lines.join('\n'), warnings };
 };
 
@@ -338,23 +285,6 @@ const serializeEr = (model: MermaidGraphModel): MermaidSerializationResult => {
     const labelText = label ? ` : ${label}` : '';
     lines.push(`${edge.source} ${symbol} ${edge.target}${labelText}`);
   });
-
-  const nodeStyleLines: string[] = [];
-  model.nodes.forEach((node) => {
-    const parts = buildStyleParts(node.data.metadata as Record<string, string | undefined>);
-    if (parts.length > 0) {
-      nodeStyleLines.push(`style ${node.id} ${parts.join(',')}`);
-    }
-  });
-  const edgeStyleLines: string[] = [];
-  model.edges.forEach((edge, index) => {
-    const parts = buildStyleParts(edge.data.metadata as Record<string, string | undefined>);
-    if (parts.length > 0) {
-      edgeStyleLines.push(`linkStyle ${index} ${parts.join(',')}`);
-    }
-  });
-  lines.push(...nodeStyleLines);
-  lines.push(...edgeStyleLines);
 
   return { code: lines.join('\n'), warnings };
 };
@@ -403,15 +333,6 @@ const serializeGantt = (model: MermaidGraphModel): MermaidSerializationResult =>
       lines.push(`${node.data.label} :${status}${taskId}${timing}`);
     });
   });
-
-  const styleLines: string[] = [];
-  model.nodes.forEach((node) => {
-    const parts = buildStyleParts(node.data.metadata as Record<string, string | undefined>);
-    if (parts.length > 0) {
-      styleLines.push(`style ${node.id} ${parts.join(',')}`);
-    }
-  });
-  lines.push(...styleLines);
 
   return { code: lines.join('\n'), warnings };
 };
