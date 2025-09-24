@@ -42,6 +42,7 @@ import type {
 } from '@/lib/mermaid/types';
 import MermaidPreview from '@/components/preview/MermaidPreview';
 import InteractiveMermaidCanvas from './InteractiveMermaidCanvas';
+import GroupOverlays from './GroupOverlays';
 import MermaidEdgeComponent from './MermaidEdge';
 
 export interface MermaidDesignerProps {
@@ -1412,7 +1413,8 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   };
 
   return (
-    <div className="h-full flex">
+    <ReactFlowProvider>
+      <div className="h-full flex">
       <aside className={`flex-shrink-0 border-r border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 transition-all duration-200 ${paletteClasses}`}>
         <div className="p-3 space-y-3">
           <div className="flex items-center justify-between">
@@ -1602,6 +1604,11 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
             <MiniMap />
             <Controls />
           </ReactFlow>
+          <GroupOverlays
+            diagramType={diagramType}
+            subgraphs={subgraphs}
+            ganttSections={ganttSections}
+          />
           {contextMenu && (
             <div
               className="absolute z-50 min-w-[160px] rounded border border-gray-200 bg-white py-1 text-sm shadow-lg dark:border-gray-700 dark:bg-gray-800"
@@ -1660,7 +1667,8 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           </div>
         </div>
       </aside>
-    </div>
+      </div>
+    </ReactFlowProvider>
   );
 };
 
