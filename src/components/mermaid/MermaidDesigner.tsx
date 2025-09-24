@@ -21,7 +21,7 @@ import ReactFlow, {
 } from 'reactflow';
 import type { FitViewOptions, ReactFlowInstance, XYPosition } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { IoAdd, IoAlertCircleOutline, IoCopy, IoTrash } from 'react-icons/io5';
+import { IoAlertCircleOutline, IoCopy, IoTrash } from 'react-icons/io5';
 import { useEditorStore } from '@/store/editorStore';
 import {
   diagramDefinitions,
@@ -176,23 +176,13 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const [inspector, setInspector] = useState<InspectorState | null>(null);
   const [isPaletteCollapsed, setIsPaletteCollapsed] = useState<boolean>(false);
   const [isDiagramTypeLocked, setIsDiagramTypeLocked] = useState<boolean>(false);
-  const [edgeDraft, setEdgeDraft] = useState<{
-    source: string;
-    target: string;
-    variant: string;
-    label: string;
-  }>({
-    source: '',
-    target: '',
-    variant: '',
-    label: '',
-  });
   const [contextMenu, setContextMenu] = useState<CanvasContextMenuState | null>(null);
   const lastSerializedRef = useRef<string>('');
   const lastHydratedTabIdRef = useRef<string | null>(null);
   const isHydrating = useRef<boolean>(false);
   const hasInitialized = useRef<boolean>(false);
   const hasLockedTypeRef = useRef<boolean>(false);
+
   const nodeTemplates = useMemo<MermaidNodeTemplate[]>(
     () => diagramDefinitions[diagramType].nodeTemplates,
     [diagramType],
@@ -277,26 +267,6 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   }, [diagramType, config, nodes, edges, refreshGeneratedCode]);
 
   useEffect(() => {
-    const defaultVariant = edgeTemplates[0]?.variant ?? getDefaultEdgeVariant(diagramType);
-    setEdgeDraft((current) => ({
-      source: current.source,
-      target: current.target,
-      variant: current.variant || defaultVariant,
-      label: current.label,
-    }));
-  }, [diagramType, edgeTemplates]);
-
-  useEffect(() => {
-    const nodeIds = new Set(nodes.map((node) => node.id));
-    setEdgeDraft((current) => ({
-      source: nodeIds.has(current.source) ? current.source : '',
-      target: nodeIds.has(current.target) ? current.target : '',
-      variant: current.variant,
-      label: current.label,
-    }));
-  }, [nodes]);
-
-  useEffect(() => {
     const handleWindowClick = (event: MouseEvent) => {
       if (event.button === 2) {
         return;
@@ -315,6 +285,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       window.removeEventListener('keydown', handleWindowKeyDown);
     };
   }, []);
+
   const handleNodesChange = useCallback((changes: NodeChange[]) => {
     setNodes((current) => applyNodeChanges(changes, current));
   }, []);
@@ -552,7 +523,6 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       setEdges([]);
       setWarnings([]);
       setInspector(null);
-      setEdgeDraft({ source: '', target: '', variant: '', label: '' });
       hasLockedTypeRef.current = true;
       setIsDiagramTypeLocked(true);
     },
@@ -584,38 +554,6 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     }
   }, [generatedCode]);
 
-  const handleAddEdge = useCallback(() => {
-    if (!edgeDraft.source || !edgeDraft.target) {
-      if (typeof window !== 'undefined') {
-        window.alert('接続元と接続先を選択してください。');
-      }
-      return;
-    }
-    const variant = edgeDraft.variant || getDefaultEdgeVariant(diagramType);
-    const template = edgeTemplates.find((item) => item.variant === variant);
-    const id = createEdgeId();
-    const newEdge: MermaidEdge = {
-      id,
-      source: edgeDraft.source,
-      target: edgeDraft.target,
-      data: {
-        diagramType,
-        variant,
-        label: edgeDraft.label || template?.defaultLabel,
-        metadata: template?.defaultMetadata ? { ...template.defaultMetadata } : {},
-      },
-      label: edgeDraft.label || template?.defaultLabel,
-    };
-    setEdges((current) => [...current, newEdge]);
-    setInspector({ type: 'edge', id });
-    setEdgeDraft((current) => ({
-      source: current.source,
-      target: current.target,
-      variant: current.variant || variant,
-      label: '',
-    }));
-  }, [diagramType, edgeDraft, edgeTemplates]);
-
   const selectedNode = useMemo(
     () => nodes.find((node) => inspector?.type === 'node' && node.id === inspector.id),
     [inspector, nodes],
@@ -636,7 +574,6 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   }, [selectedEdge, edgeTemplates]);
 
   const paletteClasses = isPaletteCollapsed ? 'w-12' : 'w-36';
-  const canAddEdge = nodes.length >= 2;
 
   const renderNodeInspector = () => {
     if (!selectedNode) {
@@ -807,24 +744,6 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
                   図の種類は一度選択すると変更できません。
                 </p>
               )}
-            </div>
-          )}
-          {!isPaletteCollapsed && (
-            <div>
-              <p className="text-xs text-gray-500 mb-2">ノードを追加</p>
-              <div className="space-y-2">
-                {nodeTemplates.map((template) => (
-                  <button
-                    key={template.variant}
-                    type="button"
-                    className="w-full flex items-center justify-between px-2 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
-                    onClick={() => handleAddNode(template)}
-                  >
-                    <span>{template.label}</span>
-                    <IoAdd />
-                  </button>
-                ))}
-              </div>
             </div>
           )}
           {!isPaletteCollapsed && edgeTemplates.length > 0 && (
