@@ -82,11 +82,13 @@ const serializeSequence = (model: MermaidGraphModel): MermaidSerializationResult
 
   model.nodes.forEach((node) => {
     const keyword = sequenceVariantKeyword[node.data.variant] || 'participant';
-    const alias = node.data.metadata?.alias?.trim();
-    if (alias && alias !== node.id) {
-      lines.push(`${keyword} ${alias} as ${escapeMermaidText(node.data.label)}`);
+    const alias = (node.data.metadata?.alias ?? node.id).trim() || node.id;
+    const label = node.data.label?.trim() ?? '';
+
+    if (label && label !== alias) {
+      lines.push(`${keyword} ${alias} as ${escapeMermaidText(label)}`);
     } else {
-      lines.push(`${keyword} ${node.id} as ${escapeMermaidText(node.data.label)}`);
+      lines.push(`${keyword} ${alias}`);
     }
   });
 
