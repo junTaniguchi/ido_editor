@@ -18,8 +18,8 @@ import ReactFlow, {
   addEdge,
   applyEdgeChanges,
   applyNodeChanges,
-  useReactFlow,
 } from 'reactflow';
+import type { FitViewOptions, ReactFlowInstance } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { IoAdd, IoAlertCircleOutline, IoCopy, IoTrash } from 'react-icons/io5';
 import { useEditorStore } from '@/store/editorStore';
@@ -159,7 +159,7 @@ const FieldInput: React.FC<{
 
 const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, content }) => {
   const { updateTab, getTab } = useTabActions();
-  const reactFlow = useReactFlow();
+  const reactFlowInstanceRef = useRef<ReactFlowInstance | null>(null);
   const [diagramType, setDiagramType] = useState<MermaidDiagramType>('flowchart');
   const [config, setConfig] = useState<MermaidDiagramConfig>(diagramDefinitions.flowchart.defaultConfig);
   const [nodes, setNodes] = useState<MermaidNode[]>([]);
@@ -214,6 +214,18 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     }
   }, [diagramType, config, nodes, edges, getTab, tabId, updateTab]);
 
+  const fitViewToDiagram = useCallback(
+    (options?: FitViewOptions) => {
+      const instance = reactFlowInstanceRef.current;
+      if (!instance) return;
+      instance.fitView({
+        padding: 0.2,
+        ...options,
+      });
+    },
+    [],
+  );
+
   useEffect(() => {
     if (content === lastSerializedRef.current && lastHydratedTabIdRef.current === tabId) {
       return;
@@ -234,8 +246,9 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     hasInitialized.current = true;
     requestAnimationFrame(() => {
       isHydrating.current = false;
+      fitViewToDiagram({ duration: 300 });
     });
-  }, [content, tabId, reactFlow]);
+  }, [content, tabId, fitViewToDiagram]);
 
   useEffect(() => {
     if (!hasInitialized.current) return;
@@ -295,15 +308,15 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     [diagramType, edgeTemplates],
   );
 
-  useEffect(() => {
-    const nodeIds = new Set(nodes.map((node) => node.id));
-    setEdgeDraft((current) => ({
-      source: nodeIds.has(current.source) ? current.source : '',
-      target: nodeIds.has(current.target) ? current.target : '',
-      variant: current.variant,
-      label: current.label,
-    }));
-  }, [nodes]);
+  const handleSelectionChange = useCallback((params: { nodes: MermaidNode[]; edges: MermaidEdge[] }) => {
+    if (params.nodes.length > 0) {
+      setInspector({ type: 'node', id: params.nodes[0].id });
+    } else if (params.edges.length > 0) {
+      setInspector({ type: 'edge', id: params.edges[0].id });
+    } else {
+      setInspector(null);
+    }
+  }, []);
 
   const handleAddNode = useCallback(
     (template: MermaidNodeTemplate) => {
@@ -711,9 +724,21 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           <ReactFlow
             nodes={nodes}
             edges={edges}
-            selected={inspector}
-            onSelect={handleSelectFromCanvas}
-          />
+            onNodesChange={handleNodesChange}
+            onEdgesChange={handleEdgesChange}
+            onConnect={handleConnect}
+            onSelectionChange={handleSelectionChange}
+            onInit={(instance) => {
+              reactFlowInstanceRef.current = instance;
+              fitViewToDiagram();
+            }}
+            fitView
+            fitViewOptions={{ padding: 0.2 }}
+          >
+            <Background />
+            <MiniMap />
+            <Controls />
+          </ReactFlow>
         </div>
       </main>
       <aside className="w-96 flex-shrink-0 border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex flex-col">
