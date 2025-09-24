@@ -93,8 +93,10 @@ const MainLayout = () => {
       activeTabViewMode === 'editor'
         ? 'preview'
         : activeTabViewMode === 'preview'
-          ? 'split'
-          : 'editor';
+          ? 'data-preview'
+          : activeTabViewMode === 'data-preview'
+            ? 'split'
+            : 'editor';
 
     setViewMode(activeTabId, nextMode);
   }, [activeTabId, activeTabViewMode, setViewMode]);

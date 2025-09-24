@@ -8,7 +8,7 @@ interface EditorStore {
   // タブ管理
   tabs: Map<string, TabData>;
   activeTabId: string | null;
-  lastViewMode: 'editor' | 'preview' | 'split'; // グローバルな表示モード
+  lastViewMode: 'editor' | 'preview' | 'data-preview' | 'split'; // グローバルな表示モード
   setActiveTabId: (id: string | null) => void;
   addTab: (tab: TabData) => void;
   addTempTab: (type: string, name?: string) => void;
@@ -17,9 +17,9 @@ interface EditorStore {
   getTab: (id: string) => TabData | undefined;
   
   // 表示モード（'editor', 'preview', または 'split'）
-  viewModes: Map<string, 'editor' | 'preview' | 'split'>;
-  setViewMode: (tabId: string, mode: 'editor' | 'preview' | 'split') => void;
-  getViewMode: (tabId: string) => 'editor' | 'preview' | 'split';
+  viewModes: Map<string, 'editor' | 'preview' | 'data-preview' | 'split'>;
+  setViewMode: (tabId: string, mode: 'editor' | 'preview' | 'data-preview' | 'split') => void;
+  getViewMode: (tabId: string) => 'editor' | 'preview' | 'data-preview' | 'split';
   
   // ファイルエクスプローラー
   rootDirHandle: FileSystemDirectoryHandle | null;
@@ -158,7 +158,7 @@ export const useEditorStore = create<EditorStore>()(
       getTab: (id) => get().tabs.get(id),
       
       // 表示モード管理
-      viewModes: new Map<string, 'editor' | 'preview' | 'split'>(),
+      viewModes: new Map<string, 'editor' | 'preview' | 'data-preview' | 'split'>(),
       setViewMode: (tabId, mode) => set((state) => {
         const newViewModes = new Map(state.viewModes);
         newViewModes.set(tabId, mode);
@@ -308,7 +308,7 @@ export const useEditorStore = create<EditorStore>()(
           tabsObject[key] = value;
         });
         // 表示モードのMapをシリアライズするためオブジェクトに変換
-        const viewModesObject: Record<string, 'editor' | 'preview' | 'split'> = {};
+        const viewModesObject: Record<string, 'editor' | 'preview' | 'data-preview' | 'split'> = {};
         state.viewModes.forEach((value, key) => {
           viewModesObject[key] = value;
         });
@@ -360,8 +360,8 @@ export const useEditorStore = create<EditorStore>()(
           }
 
           // 表示モードオブジェクトをMapに変換
-          const viewModesMap = new Map<string, 'editor' | 'preview' | 'split'>();
-          const viewModesObj = state.viewModes as unknown as Record<string, 'editor' | 'preview' | 'split'>;
+          const viewModesMap = new Map<string, 'editor' | 'preview' | 'data-preview' | 'split'>();
+          const viewModesObj = state.viewModes as unknown as Record<string, 'editor' | 'preview' | 'data-preview' | 'split'>;
 
           if (viewModesObj) {
             Object.keys(viewModesObj).forEach(key => {
