@@ -41,6 +41,12 @@ export interface MermaidEdgeData {
   metadata?: Record<string, string>;
 }
 
+export interface MermaidSubgraph {
+  id: string;
+  title: string;
+  nodes: string[];
+}
+
 /** React Flowで扱うノード型 */
 export type MermaidNode = Node<MermaidNodeData>;
 /** React Flowで扱うエッジ型 */
@@ -84,4 +90,6 @@ export interface MermaidGraphModel {
   edges: MermaidEdge[];
   /** 変換時に発生した警告 */
   warnings: string[];
+  /** フローチャートなどで使用するサブグラフ情報 */
+  subgraphs?: MermaidSubgraph[];
 }

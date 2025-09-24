@@ -16,12 +16,43 @@ const escapeMermaidText = (value: string): string => value.replace(/"/g, '\\"');
 const sanitizeMultiline = (value: string): string => value.split(/\r?\n/).map((line) => line.trim()).join('\n');
 const getEdgeLabel = (edge: MermaidEdge): string => edge.data.label ?? edge.data.metadata?.label ?? '';
 
+const sanitizeColor = (value?: string): string | undefined => {
+  if (!value) return undefined;
+  if (/^#[0-9a-fA-F]{3}$/.test(value)) {
+    return `#${value
+      .slice(1)
+      .split('')
+      .map((char) => char + char)
+      .join('')}`.toLowerCase();
+  }
+  if (/^#[0-9a-fA-F]{6}$/.test(value)) {
+    return value.toLowerCase();
+  }
+  return value;
+};
+
+const buildStyleParts = (metadata?: Record<string, string | undefined>): string[] => {
+  if (!metadata) return [];
+  const parts: string[] = [];
+  const fill = sanitizeColor(metadata.fillColor);
+  const stroke = sanitizeColor(metadata.strokeColor);
+  const text = sanitizeColor(metadata.textColor);
+  if (fill) parts.push(`fill:${fill}`);
+  if (stroke) parts.push(`stroke:${stroke}`);
+  if (text) parts.push(`color:${text}`);
+  return parts;
+};
+
 const serializeFlowchart = (model: MermaidGraphModel): MermaidSerializationResult => {
   const config = model.config.type === 'flowchart' ? model.config : diagramDefinitions.flowchart.defaultConfig;
   const lines: string[] = [`flowchart ${config.orientation}`];
   const warnings: string[] = [];
 
-  model.nodes.forEach((node) => {
+  const nodeMap = new Map<string, MermaidNode>(model.nodes.map((node) => [node.id, node]));
+  const declaredNodes = new Set<string>();
+  const styleLines: string[] = [];
+
+  const emitNodeDeclaration = (node: MermaidNode, indent = '') => {
     const { variant, label } = node.data;
     const safeLabel = escapeMermaidText(label || node.id);
 
@@ -44,10 +75,35 @@ const serializeFlowchart = (model: MermaidGraphModel): MermaidSerializationResul
         declaration = `${node.id}[${safeLabel}]`;
         break;
     }
-    lines.push(declaration);
+    lines.push(`${indent}${declaration}`.trimEnd());
+    declaredNodes.add(node.id);
+
+    const metadata = node.data.metadata || {};
+    const styleParts = buildStyleParts(metadata);
+    if (styleParts.length > 0) {
+      styleLines.push(`style ${node.id} ${styleParts.join(',')}`);
+    }
+  };
+
+  const subgraphs = model.subgraphs ?? [];
+  subgraphs.forEach((subgraph) => {
+    const title = subgraph.title ? ` [${escapeMermaidText(subgraph.title)}]` : '';
+    lines.push(`subgraph ${subgraph.id}${title}`);
+    subgraph.nodes.forEach((nodeId) => {
+      const node = nodeMap.get(nodeId);
+      if (!node) return;
+      emitNodeDeclaration(node, '  ');
+    });
+    lines.push('end');
   });
 
-  model.edges.forEach((edge) => {
+  model.nodes.forEach((node) => {
+    if (declaredNodes.has(node.id)) return;
+    emitNodeDeclaration(node);
+  });
+
+  const edgeStyleLines: string[] = [];
+  model.edges.forEach((edge, index) => {
     const { variant } = edge.data;
     let connector = '-->';
     if (variant === 'dashed') {
@@ -58,7 +114,16 @@ const serializeFlowchart = (model: MermaidGraphModel): MermaidSerializationResul
     const label = getEdgeLabel(edge);
     const text = label ? `|${label}|` : '';
     lines.push(`${edge.source} ${connector}${text} ${edge.target}`.trim());
+
+    const metadata = edge.data.metadata || {};
+    const styleParts = buildStyleParts(metadata);
+    if (styleParts.length > 0) {
+      edgeStyleLines.push(`linkStyle ${index} ${styleParts.join(',')}`);
+    }
   });
+
+  lines.push(...styleLines);
+  lines.push(...edgeStyleLines);
 
   return { code: lines.join('\n'), warnings };
 };
@@ -92,6 +157,14 @@ const serializeSequence = (model: MermaidGraphModel): MermaidSerializationResult
     }
   });
 
+  const nodeStyleLines: string[] = [];
+  model.nodes.forEach((node) => {
+    const parts = buildStyleParts(node.data.metadata as Record<string, string | undefined>);
+    if (parts.length > 0) {
+      nodeStyleLines.push(`style ${node.id} ${parts.join(',')}`);
+    }
+  });
+
   model.edges.forEach((edge) => {
     let connector = '->>';
     if (edge.data.variant === 'dashed') connector = '-->>';
@@ -100,6 +173,17 @@ const serializeSequence = (model: MermaidGraphModel): MermaidSerializationResult
     const labelText = label ? `: ${label}` : '';
     lines.push(`${edge.source} ${connector} ${edge.target}${labelText}`);
   });
+
+  const edgeStyleLines: string[] = [];
+  model.edges.forEach((edge, index) => {
+    const parts = buildStyleParts(edge.data.metadata as Record<string, string | undefined>);
+    if (parts.length > 0) {
+      edgeStyleLines.push(`linkStyle ${index} ${parts.join(',')}`);
+    }
+  });
+
+  lines.push(...nodeStyleLines);
+  lines.push(...edgeStyleLines);
 
   return { code: lines.join('\n'), warnings };
 };
@@ -152,6 +236,23 @@ const serializeClass = (model: MermaidGraphModel): MermaidSerializationResult =>
     lines.push(`${edge.source} ${symbol} ${edge.target}${labelText}`);
   });
 
+  const nodeStyleLines: string[] = [];
+  model.nodes.forEach((node) => {
+    const parts = buildStyleParts(node.data.metadata as Record<string, string | undefined>);
+    if (parts.length > 0) {
+      nodeStyleLines.push(`style ${node.id} ${parts.join(',')}`);
+    }
+  });
+  const edgeStyleLines: string[] = [];
+  model.edges.forEach((edge, index) => {
+    const parts = buildStyleParts(edge.data.metadata as Record<string, string | undefined>);
+    if (parts.length > 0) {
+      edgeStyleLines.push(`linkStyle ${index} ${parts.join(',')}`);
+    }
+  });
+  lines.push(...nodeStyleLines);
+  lines.push(...edgeStyleLines);
+
   return { code: lines.join('\n'), warnings };
 };
 
@@ -188,6 +289,23 @@ const serializeState = (model: MermaidGraphModel): MermaidSerializationResult =>
     lines.push(`${source} --> ${target}${labelText}`);
   });
 
+  const nodeStyleLines: string[] = [];
+  model.nodes.forEach((node) => {
+    const parts = buildStyleParts(node.data.metadata as Record<string, string | undefined>);
+    if (parts.length > 0) {
+      nodeStyleLines.push(`style ${node.id} ${parts.join(',')}`);
+    }
+  });
+  const edgeStyleLines: string[] = [];
+  model.edges.forEach((edge, index) => {
+    const parts = buildStyleParts(edge.data.metadata as Record<string, string | undefined>);
+    if (parts.length > 0) {
+      edgeStyleLines.push(`linkStyle ${index} ${parts.join(',')}`);
+    }
+  });
+  lines.push(...nodeStyleLines);
+  lines.push(...edgeStyleLines);
+
   return { code: lines.join('\n'), warnings };
 };
 
@@ -220,6 +338,23 @@ const serializeEr = (model: MermaidGraphModel): MermaidSerializationResult => {
     const labelText = label ? ` : ${label}` : '';
     lines.push(`${edge.source} ${symbol} ${edge.target}${labelText}`);
   });
+
+  const nodeStyleLines: string[] = [];
+  model.nodes.forEach((node) => {
+    const parts = buildStyleParts(node.data.metadata as Record<string, string | undefined>);
+    if (parts.length > 0) {
+      nodeStyleLines.push(`style ${node.id} ${parts.join(',')}`);
+    }
+  });
+  const edgeStyleLines: string[] = [];
+  model.edges.forEach((edge, index) => {
+    const parts = buildStyleParts(edge.data.metadata as Record<string, string | undefined>);
+    if (parts.length > 0) {
+      edgeStyleLines.push(`linkStyle ${index} ${parts.join(',')}`);
+    }
+  });
+  lines.push(...nodeStyleLines);
+  lines.push(...edgeStyleLines);
 
   return { code: lines.join('\n'), warnings };
 };
@@ -268,6 +403,15 @@ const serializeGantt = (model: MermaidGraphModel): MermaidSerializationResult =>
       lines.push(`${node.data.label} :${status}${taskId}${timing}`);
     });
   });
+
+  const styleLines: string[] = [];
+  model.nodes.forEach((node) => {
+    const parts = buildStyleParts(node.data.metadata as Record<string, string | undefined>);
+    if (parts.length > 0) {
+      styleLines.push(`style ${node.id} ${parts.join(',')}`);
+    }
+  });
+  lines.push(...styleLines);
 
   return { code: lines.join('\n'), warnings };
 };

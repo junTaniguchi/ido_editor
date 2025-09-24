@@ -21,7 +21,7 @@ import ReactFlow, {
 } from 'reactflow';
 import type { FitViewOptions, ReactFlowInstance, XYPosition } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { IoAlertCircleOutline, IoCopy, IoTrash } from 'react-icons/io5';
+import { IoAlertCircleOutline, IoTrash } from 'react-icons/io5';
 import { useEditorStore } from '@/store/editorStore';
 import {
   diagramDefinitions,
@@ -38,6 +38,7 @@ import type {
   MermaidEdge,
   MermaidGraphModel,
   MermaidNode,
+  MermaidSubgraph,
 } from '@/lib/mermaid/types';
 import MermaidPreview from '@/components/preview/MermaidPreview';
 import InteractiveMermaidCanvas from './InteractiveMermaidCanvas';
@@ -82,6 +83,70 @@ const PERSISTENT_METADATA_KEYS = ['sequence', 'command'];
 
 const MERMAID_EDGE_TYPE = 'mermaid-edge';
 
+const expandShortHex = (value: string): string =>
+  `#${value
+    .slice(1)
+    .split('')
+    .map((char) => char + char)
+    .join('')}`;
+
+const toHexColor = (value: string | undefined, fallback: string): string => {
+  if (!value) return fallback;
+  let normalized = value.trim();
+  if (/^#[0-9a-fA-F]{3}$/.test(normalized)) {
+    normalized = expandShortHex(normalized.toLowerCase());
+  }
+  if (/^#[0-9a-fA-F]{6}$/.test(normalized)) {
+    return normalized.toLowerCase();
+  }
+  return fallback;
+};
+
+const sanitizeColorValue = (value: string): string => {
+  if (/^#[0-9a-fA-F]{3}$/.test(value)) {
+    return expandShortHex(value.toLowerCase());
+  }
+  if (/^#[0-9a-fA-F]{6}$/.test(value)) {
+    return value.toLowerCase();
+  }
+  return value;
+};
+
+const getNodeTemplateDefaults = (diagramType: MermaidDiagramType, variant: string) => {
+  const templates = diagramDefinitions[diagramType]?.nodeTemplates;
+  const template = templates?.find((item) => item.variant === variant);
+  return template?.defaultMetadata ?? {};
+};
+
+const getEdgeTemplateDefaults = (diagramType: MermaidDiagramType, variant: string) => {
+  const templates = diagramDefinitions[diagramType]?.edgeTemplates;
+  const template = templates?.find((item) => item.variant === variant);
+  return template?.defaultMetadata ?? {};
+};
+
+const applyNodeDefaults = (node: MermaidNode, fallbackDiagramType?: MermaidDiagramType): MermaidNode => {
+  const diagramType = (node.data.diagramType as MermaidDiagramType) || fallbackDiagramType || 'flowchart';
+  const defaultMetadata = getNodeTemplateDefaults(diagramType, node.data.variant);
+  const metadata = { ...defaultMetadata, ...(node.data.metadata || {}) };
+  const fillColor = metadata.fillColor ? sanitizeColorValue(metadata.fillColor) : '#ffffff';
+  const strokeColor = metadata.strokeColor ? sanitizeColorValue(metadata.strokeColor) : '#1f2937';
+  const textColor = metadata.textColor ? sanitizeColorValue(metadata.textColor) : '#111827';
+
+  return {
+    ...node,
+    data: {
+      ...node.data,
+      metadata,
+    },
+    style: {
+      ...node.style,
+      background: fillColor,
+      border: `2px solid ${strokeColor}`,
+      color: textColor,
+    },
+  };
+};
+
 const normalizeEdges = (edgeList: MermaidEdge[]): MermaidEdge[] => {
   if (!Array.isArray(edgeList) || edgeList.length === 0) {
     return [];
@@ -115,6 +180,24 @@ const normalizeEdges = (edgeList: MermaidEdge[]): MermaidEdge[] => {
     const parallelCount = meta?.count ?? 1;
     const parallelIndex = meta && parallelCount > 1 ? meta.index : 0;
     const normalizedLabel = edge.data?.label ?? edge.label;
+    const diagramType = (edge.data?.diagramType as MermaidDiagramType) || 'flowchart';
+    const defaultMetadata = getEdgeTemplateDefaults(diagramType, edge.data?.variant ?? '');
+    const metadata = { ...defaultMetadata, ...(edge.data?.metadata ?? {}) };
+    const strokeColor = metadata.strokeColor ? sanitizeColorValue(metadata.strokeColor) : '#1f2937';
+    const fillColor = metadata.fillColor ? sanitizeColorValue(metadata.fillColor) : undefined;
+    const textColor = metadata.textColor ? sanitizeColorValue(metadata.textColor) : undefined;
+    if (fillColor) {
+      metadata.fillColor = fillColor;
+    }
+    if (textColor) {
+      metadata.textColor = textColor;
+    }
+    metadata.strokeColor = strokeColor;
+
+    const baseStyle = {
+      stroke: strokeColor,
+      strokeWidth: edge.data?.variant === 'thick' ? 2.6 : 1.6,
+    } as const;
 
     return {
       ...edge,
@@ -126,7 +209,18 @@ const normalizeEdges = (edgeList: MermaidEdge[]): MermaidEdge[] => {
         label: normalizedLabel,
         parallelIndex,
         parallelCount,
+        metadata,
       },
+      markerEnd:
+        edge.markerEnd ??
+        ({
+          type: MarkerType.ArrowClosed,
+          width: 18,
+          height: 18,
+          color: strokeColor,
+        } as const),
+      style: edge.style ? { ...baseStyle, ...edge.style } : { ...baseStyle },
+      updatable: true,
     };
   });
 };
@@ -142,12 +236,14 @@ const buildModel = (
   config: MermaidDiagramConfig,
   nodes: MermaidNode[],
   edges: MermaidEdge[],
+  subgraphs: MermaidSubgraph[],
 ): MermaidGraphModel => ({
   type,
   config,
   nodes,
   edges,
   warnings: [],
+  subgraphs,
 });
 
 const FieldInput: React.FC<{
@@ -232,11 +328,12 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const [config, setConfig] = useState<MermaidDiagramConfig>(diagramDefinitions.flowchart.defaultConfig);
   const [nodes, setNodes] = useState<MermaidNode[]>([]);
   const [edges, setEdgesState] = useState<MermaidEdge[]>([]);
+  const [subgraphs, setSubgraphs] = useState<MermaidSubgraph[]>([]);
+  const [ganttSections, setGanttSections] = useState<string[]>(['General']);
   const [generatedCode, setGeneratedCode] = useState<string>('');
   const [warnings, setWarnings] = useState<string[]>([]);
   const [inspector, setInspector] = useState<InspectorState | null>(null);
   const [isPaletteCollapsed, setIsPaletteCollapsed] = useState<boolean>(false);
-  const [isDiagramTypeLocked, setIsDiagramTypeLocked] = useState<boolean>(false);
   const [contextMenu, setContextMenu] = useState<CanvasContextMenuState | null>(null);
   const [, setEdgeDraft] = useState<EdgeDraft>({
     source: '',
@@ -248,7 +345,6 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const lastHydratedTabIdRef = useRef<string | null>(null);
   const isHydrating = useRef<boolean>(false);
   const hasInitialized = useRef<boolean>(false);
-  const hasLockedTypeRef = useRef<boolean>(false);
 
   const updateEdges = useCallback(
     (updater: React.SetStateAction<MermaidEdge[]>) => {
@@ -279,7 +375,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const supportsEdges = useMemo(() => diagramDefinitions[diagramType].supportsEdges, [diagramType]);
 
   const refreshGeneratedCode = useCallback(() => {
-    const model = buildModel(diagramType, config, nodes, edges);
+    const model = buildModel(diagramType, config, nodes, edges, subgraphs);
     const { code, warnings: serializationWarnings } = serializeMermaid(model);
     setGeneratedCode(code);
     setWarnings(serializationWarnings);
@@ -291,7 +387,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         updateTab(tabId, { content: code, isDirty });
       }
     }
-  }, [diagramType, config, nodes, edges, getTab, tabId, updateTab]);
+  }, [diagramType, config, nodes, edges, subgraphs, getTab, tabId, updateTab]);
 
   const fitViewToDiagram = useCallback(
     (options?: FitViewOptions) => {
@@ -306,11 +402,6 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   );
 
   useEffect(() => {
-    hasLockedTypeRef.current = false;
-    setIsDiagramTypeLocked(false);
-  }, [tabId]);
-
-  useEffect(() => {
     if (content === lastSerializedRef.current && lastHydratedTabIdRef.current === tabId) {
       return;
     }
@@ -318,15 +409,23 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     const parsed = parseMermaidSource(content);
     setDiagramType(parsed.type);
     setConfig(parsed.config);
-    setNodes(parsed.nodes);
+    const hydratedNodes = parsed.nodes.map((node) => applyNodeDefaults(node, parsed.type));
+    setNodes(hydratedNodes);
     updateEdges(parsed.edges.map((edge) => ({ ...edge, label: edge.data.label })));
-    setWarnings(parsed.warnings);
-    const trimmed = content.trim();
-    const shouldLockType = trimmed.length > 0 || parsed.nodes.length > 0 || parsed.edges.length > 0;
-    if (shouldLockType) {
-      hasLockedTypeRef.current = true;
+    setSubgraphs(parsed.subgraphs ?? []);
+    if (parsed.type === 'gantt') {
+      const sectionSet = new Set<string>(['General']);
+      hydratedNodes.forEach((node) => {
+        const section = node.data.metadata?.section;
+        if (section) {
+          sectionSet.add(section);
+        }
+      });
+      setGanttSections(Array.from(sectionSet));
+    } else {
+      setGanttSections(['General']);
     }
-    setIsDiagramTypeLocked(hasLockedTypeRef.current);
+    setWarnings(parsed.warnings);
     const { code } = serializeMermaid(parsed);
     setGeneratedCode(code);
     lastSerializedRef.current = code;
@@ -350,7 +449,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     if (!hasInitialized.current) return;
     if (isHydrating.current) return;
     refreshGeneratedCode();
-  }, [diagramType, config, nodes, edges, refreshGeneratedCode]);
+  }, [diagramType, config, nodes, edges, subgraphs, refreshGeneratedCode]);
 
   useEffect(() => {
     const handleWindowClick = (event: MouseEvent) => {
@@ -383,6 +482,26 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     [updateEdges],
   );
 
+  const handleEdgeUpdate = useCallback(
+    (oldEdge: MermaidEdge, newConnection: Connection) => {
+      if (!newConnection.source || !newConnection.target) {
+        return;
+      }
+      updateEdges((current) =>
+        current.map((edge) =>
+          edge.id === oldEdge.id
+            ? {
+                ...edge,
+                source: newConnection.source,
+                target: newConnection.target,
+              }
+            : edge,
+        ),
+      );
+    },
+    [updateEdges],
+  );
+
   const handleConnect = useCallback(
     (connection: Connection) => {
       if (!supportsEdges || edgeTemplates.length === 0) return;
@@ -406,16 +525,6 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           type: MERMAID_EDGE_TYPE,
           source: connection.source,
           target: connection.target,
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            width: 18,
-            height: 18,
-            color: '#1f2937',
-          },
-          style: {
-            stroke: '#1f2937',
-            strokeWidth: 1.6,
-          },
           data: {
             diagramType,
             variant: template?.variant ?? variant,
@@ -458,6 +567,10 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
             baseMetadata.type = 'NORMAL';
           }
         }
+        if (diagramType === 'gantt') {
+          const fallbackSection = ganttSections[0] ?? 'General';
+          baseMetadata.section = fallbackSection;
+        }
 
         const defaultPosition =
           position ?? {
@@ -477,11 +590,11 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           },
         };
 
-        return [...current, newNode];
+        return [...current, applyNodeDefaults(newNode, diagramType)];
       });
       setInspector({ type: 'node', id });
     },
-    [diagramType],
+    [diagramType, ganttSections],
   );
 
   const handleContextMenuAddNode = useCallback(
@@ -516,13 +629,223 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     }
   }, []);
 
-  const updateNode = useCallback((nodeId: string, updater: (node: MermaidNode) => MermaidNode) => {
-    setNodes((current) => current.map((node) => (node.id === nodeId ? updater(node) : node)));
-  }, []);
+  const updateNode = useCallback(
+    (nodeId: string, updater: (node: MermaidNode) => MermaidNode) => {
+      setNodes((current) =>
+        current.map((node) => (node.id === nodeId ? applyNodeDefaults(updater(node), diagramType) : node)),
+      );
+    },
+    [diagramType],
+  );
 
   const updateEdge = useCallback((edgeId: string, updater: (edge: MermaidEdge) => MermaidEdge) => {
     updateEdges((current) => current.map((edge) => (edge.id === edgeId ? updater(edge) : edge)));
   }, [updateEdges]);
+
+  const addSubgraph = useCallback(() => {
+    const newId = `subgraph_${Date.now().toString(36)}`;
+    setSubgraphs((current) => [
+      ...current,
+      {
+        id: newId,
+        title: '新しいサブグラフ',
+        nodes: [],
+      },
+    ]);
+  }, []);
+
+  const updateSubgraphTitle = useCallback((subgraphId: string, title: string) => {
+    setSubgraphs((current) =>
+      current.map((subgraph) => (subgraph.id === subgraphId ? { ...subgraph, title } : subgraph)),
+    );
+  }, []);
+
+  const removeSubgraph = useCallback(
+    (subgraphId: string) => {
+      setSubgraphs((current) => current.filter((subgraph) => subgraph.id !== subgraphId));
+      setNodes((current) =>
+        current.map((node) => {
+          if (node.data.metadata?.subgraphId !== subgraphId) {
+            return node;
+          }
+          const nextMetadata = { ...(node.data.metadata || {}) };
+          delete nextMetadata.subgraphId;
+          return applyNodeDefaults(
+            {
+              ...node,
+              data: {
+                ...node.data,
+                metadata: nextMetadata,
+              },
+            },
+            diagramType,
+          );
+        }),
+      );
+    },
+    [diagramType],
+  );
+
+  const assignNodeToSubgraph = useCallback(
+    (nodeId: string, subgraphId: string | null) => {
+      setNodes((current) =>
+        current.map((node) => {
+          if (node.id !== nodeId) {
+            return node;
+          }
+          const nextMetadata = { ...(node.data.metadata || {}) };
+          if (subgraphId) {
+            nextMetadata.subgraphId = subgraphId;
+          } else {
+            delete nextMetadata.subgraphId;
+          }
+          return applyNodeDefaults(
+            {
+              ...node,
+              data: {
+                ...node.data,
+                metadata: nextMetadata,
+              },
+            },
+            diagramType,
+          );
+        }),
+      );
+
+      setSubgraphs((current) =>
+        current.map((subgraph) => {
+          const filtered = subgraph.nodes.filter((id) => id !== nodeId);
+          if (subgraphId && subgraph.id === subgraphId) {
+            return {
+              ...subgraph,
+              nodes: filtered.includes(nodeId) ? filtered : [...filtered, nodeId],
+            };
+          }
+          return {
+            ...subgraph,
+            nodes: filtered,
+          };
+        }),
+      );
+    },
+    [diagramType],
+  );
+
+  const addGanttSection = useCallback(() => {
+    setGanttSections((current) => {
+      const baseName = `Section ${current.length + 1}`;
+      let candidate = baseName;
+      let counter = 1;
+      while (current.includes(candidate)) {
+        counter += 1;
+        candidate = `${baseName} ${counter}`;
+      }
+      return [...current, candidate];
+    });
+  }, []);
+
+  const updateGanttSection = useCallback(
+    (index: number, name: string) => {
+      setGanttSections((current) => {
+        if (index < 0 || index >= current.length) return current;
+        const trimmed = name.trim() || current[index];
+        if (current.includes(trimmed) && trimmed !== current[index]) {
+          return current;
+        }
+        const previous = current[index];
+        if (previous === trimmed) {
+          return current;
+        }
+        const nextSections = current.map((section, i) => (i === index ? trimmed : section));
+        setNodes((nodesList) =>
+          nodesList.map((node) => {
+            if (node.data.diagramType !== 'gantt') {
+              return node;
+            }
+            const metadata = { ...(node.data.metadata || {}) };
+            if (metadata.section === previous) {
+              metadata.section = trimmed;
+              return applyNodeDefaults(
+                {
+                  ...node,
+                  data: { ...node.data, metadata },
+                },
+                'gantt',
+              );
+            }
+            return node;
+          }),
+        );
+        return nextSections;
+      });
+    },
+    [],
+  );
+
+  const removeGanttSection = useCallback((index: number) => {
+    setGanttSections((current) => {
+      if (index < 0 || index >= current.length) return current;
+      const removed = current[index];
+      const remaining = current.filter((_, i) => i !== index);
+      const nextSections = remaining.length > 0 ? remaining : ['General'];
+      const fallback = nextSections[0];
+      setNodes((nodesList) =>
+        nodesList.map((node) => {
+          if (node.data.diagramType !== 'gantt') {
+            return node;
+          }
+          const metadata = { ...(node.data.metadata || {}) };
+          if (metadata.section === removed) {
+            metadata.section = fallback;
+            return applyNodeDefaults(
+              {
+                ...node,
+                data: { ...node.data, metadata },
+              },
+              'gantt',
+            );
+          }
+          return node;
+        }),
+      );
+      return nextSections;
+    });
+  }, []);
+
+  useEffect(() => {
+    setSubgraphs((current) =>
+      current.map((subgraph) => ({
+        ...subgraph,
+        nodes: subgraph.nodes.filter((nodeId) => nodes.some((node) => node.id === nodeId)),
+      })),
+    );
+  }, [nodes]);
+
+  useEffect(() => {
+    if (diagramType !== 'gantt') {
+      return;
+    }
+    setNodes((current) =>
+      current.map((node) => {
+        if (node.data.diagramType !== 'gantt') {
+          return node;
+        }
+        const metadata = { ...(node.data.metadata || {}) };
+        const fallbackSection = ganttSections[0] ?? 'General';
+        if (!metadata.section || !ganttSections.includes(metadata.section)) {
+          metadata.section = fallbackSection;
+          return applyNodeDefaults(
+            {
+              ...node,
+              data: { ...node.data, metadata },
+            },
+            'gantt',
+          );
+        }
+        return node;
+      }),
+    );
+  }, [diagramType, ganttSections]);
 
   const handleAutoLayout = useCallback(() => {
     setNodes((currentNodes) => {
@@ -660,10 +983,13 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           y: startY + fallbackRow * verticalSpacing,
         };
         const target = positionMap.get(node.id) ?? fallbackPosition;
-        return {
-          ...node,
-          position: target,
-        };
+        return applyNodeDefaults(
+          {
+            ...node,
+            position: target,
+          },
+          diagramType,
+        );
       });
     });
 
@@ -674,7 +1000,6 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
 
   const handleDiagramTypeChange = useCallback(
     (nextType: MermaidDiagramType) => {
-      if (isDiagramTypeLocked) return;
       if (nextType === diagramType) return;
       let allowSwitch = true;
       if ((nodes.length > 0 || edges.length > 0) && typeof window !== 'undefined') {
@@ -686,6 +1011,8 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       setConfig(definition.defaultConfig);
       setNodes([]);
       updateEdges([]);
+      setSubgraphs([]);
+      setGanttSections(nextType === 'gantt' ? ['General'] : ['General']);
       setWarnings([]);
       setInspector(null);
       const firstEdgeTemplate = definition.edgeTemplates[0];
@@ -695,10 +1022,8 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         variant: firstEdgeTemplate?.variant ?? '',
         label: firstEdgeTemplate?.defaultLabel ?? '',
       });
-      hasLockedTypeRef.current = true;
-      setIsDiagramTypeLocked(true);
     },
-    [diagramType, edges.length, isDiagramTypeLocked, nodes.length],
+    [diagramType, edges.length, nodes.length],
   );
 
   const handleDeleteSelection = useCallback(() => {
@@ -706,6 +1031,12 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     if (inspector.type === 'node') {
       setNodes((current) => current.filter((node) => node.id !== inspector.id));
       updateEdges((current) => current.filter((edge) => edge.source !== inspector.id && edge.target !== inspector.id));
+      setSubgraphs((current) =>
+        current.map((subgraph) => ({
+          ...subgraph,
+          nodes: subgraph.nodes.filter((nodeId) => nodeId !== inspector.id),
+        })),
+      );
       setEdgeDraft((current) => ({
         source: current.source === inspector.id ? '' : current.source,
         target: current.target === inspector.id ? '' : current.target,
@@ -717,14 +1048,6 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     }
     setInspector(null);
   }, [inspector]);
-
-  const handleCopyCode = useCallback(() => {
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(generatedCode).catch(() => {
-        // ignore copy failure
-      });
-    }
-  }, [generatedCode]);
 
   const selectedNode = useMemo(
     () => nodes.find((node) => inspector?.type === 'node' && node.id === inspector.id),
@@ -772,6 +1095,28 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     if (!selectedNode) {
       return <p className="text-sm text-gray-500">ノードを選択すると詳細を編集できます。</p>;
     }
+    const nodeMetadata = selectedNode.data.metadata || {};
+    const fillColorValue = toHexColor(nodeMetadata.fillColor, '#ffffff');
+    const strokeColorValue = toHexColor(nodeMetadata.strokeColor, '#1f2937');
+    const textColorValue = toHexColor(nodeMetadata.textColor, '#1f2937');
+
+    const handleNodeColorChange = (key: 'fillColor' | 'strokeColor' | 'textColor', color: string | null) => {
+      updateNode(selectedNode.id, (node) => {
+        const metadata = { ...(node.data.metadata || {}) };
+        if (color) {
+          metadata[key] = sanitizeColorValue(color);
+        } else {
+          delete metadata[key];
+        }
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            metadata,
+          },
+        };
+      });
+    };
     return (
       <div className="space-y-3">
         <div>
@@ -835,7 +1180,29 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
             }}
           />
         </div>
-        {selectedNodeTemplate?.fields?.map((field) => {
+        {diagramType === 'flowchart' && (
+          <div>
+            <label className="block text-xs text-gray-500">サブグラフ</label>
+            <select
+              className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+              value={nodeMetadata.subgraphId ?? ''}
+              onChange={(event) => {
+                const value = event.target.value;
+                assignNodeToSubgraph(selectedNode.id, value ? value : null);
+              }}
+            >
+              <option value="">（なし）</option>
+              {subgraphs.map((subgraph) => (
+                <option key={subgraph.id} value={subgraph.id}>
+                  {subgraph.title || subgraph.id}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        {selectedNodeTemplate?.fields
+          ?.filter((field) => !(diagramType === 'gantt' && field.key === 'section'))
+          .map((field) => {
           const value = selectedNode.data.metadata?.[field.key] ?? '';
           return (
             <div key={field.key}>
@@ -855,7 +1222,58 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
               />
             </div>
           );
-        })}
+          })}
+        <div>
+          <label className="block text-xs text-gray-500">背景色</label>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              type="color"
+              value={fillColorValue}
+              onChange={(event) => handleNodeColorChange('fillColor', event.target.value)}
+            />
+            <button
+              type="button"
+              className="text-[11px] text-gray-500 hover:text-gray-700"
+              onClick={() => handleNodeColorChange('fillColor', null)}
+            >
+              リセット
+            </button>
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500">枠線色</label>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              type="color"
+              value={strokeColorValue}
+              onChange={(event) => handleNodeColorChange('strokeColor', event.target.value)}
+            />
+            <button
+              type="button"
+              className="text-[11px] text-gray-500 hover:text-gray-700"
+              onClick={() => handleNodeColorChange('strokeColor', null)}
+            >
+              リセット
+            </button>
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500">文字色</label>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              type="color"
+              value={textColorValue}
+              onChange={(event) => handleNodeColorChange('textColor', event.target.value)}
+            />
+            <button
+              type="button"
+              className="text-[11px] text-gray-500 hover:text-gray-700"
+              onClick={() => handleNodeColorChange('textColor', null)}
+            >
+              リセット
+            </button>
+          </div>
+        </div>
       </div>
     );
   };
@@ -864,6 +1282,28 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     if (!selectedEdge) {
       return <p className="text-sm text-gray-500">エッジを選択すると詳細を編集できます。</p>;
     }
+    const edgeMetadata = selectedEdge.data.metadata || {};
+    const strokeColorValue = toHexColor(edgeMetadata.strokeColor, '#1f2937');
+    const textColorValue = toHexColor(edgeMetadata.textColor, '#1f2937');
+    const fillColorValue = toHexColor(edgeMetadata.fillColor, '#ffffff');
+
+    const handleEdgeColorChange = (key: 'strokeColor' | 'textColor' | 'fillColor', color: string | null) => {
+      updateEdge(selectedEdge.id, (edge) => {
+        const metadata = { ...(edge.data.metadata || {}) };
+        if (color) {
+          metadata[key] = sanitizeColorValue(color);
+        } else {
+          delete metadata[key];
+        }
+        return {
+          ...edge,
+          data: {
+            ...edge.data,
+            metadata,
+          },
+        };
+      });
+    };
     return (
       <div className="space-y-3">
         <div>
@@ -916,6 +1356,57 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
             </div>
           );
         })}
+        <div>
+          <label className="block text-xs text-gray-500">線の色</label>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              type="color"
+              value={strokeColorValue}
+              onChange={(event) => handleEdgeColorChange('strokeColor', event.target.value)}
+            />
+            <button
+              type="button"
+              className="text-[11px] text-gray-500 hover:text-gray-700"
+              onClick={() => handleEdgeColorChange('strokeColor', null)}
+            >
+              リセット
+            </button>
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500">文字色</label>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              type="color"
+              value={textColorValue}
+              onChange={(event) => handleEdgeColorChange('textColor', event.target.value)}
+            />
+            <button
+              type="button"
+              className="text-[11px] text-gray-500 hover:text-gray-700"
+              onClick={() => handleEdgeColorChange('textColor', null)}
+            >
+              リセット
+            </button>
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500">背景色</label>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              type="color"
+              value={fillColorValue}
+              onChange={(event) => handleEdgeColorChange('fillColor', event.target.value)}
+            />
+            <button
+              type="button"
+              className="text-[11px] text-gray-500 hover:text-gray-700"
+              onClick={() => handleEdgeColorChange('fillColor', null)}
+            >
+              リセット
+            </button>
+          </div>
+        </div>
       </div>
     );
   };
@@ -938,13 +1429,10 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
             <div className="space-y-1">
               <select
                 className={`w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm ${
-                  isDiagramTypeLocked
-                    ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed text-gray-500 dark:text-gray-400'
-                    : 'bg-white dark:bg-gray-900'
+                  'bg-white dark:bg-gray-900'
                 }`}
                 value={diagramType}
                 onChange={(event) => handleDiagramTypeChange(event.target.value as MermaidDiagramType)}
-                disabled={isDiagramTypeLocked}
               >
                 {diagramList.map((item) => (
                   <option key={item.type} value={item.type}>
@@ -952,11 +1440,6 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
                   </option>
                 ))}
               </select>
-              {isDiagramTypeLocked && (
-                <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                  図の種類は一度選択すると変更できません。
-                </p>
-              )}
             </div>
           )}
           {!isPaletteCollapsed && edgeTemplates.length > 0 && (
@@ -990,6 +1473,83 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
                   </div>
                 );
               })}
+            </div>
+          )}
+          {!isPaletteCollapsed && diagramType === 'flowchart' && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-gray-500">サブグラフ</p>
+                <button
+                  type="button"
+                  className="rounded border border-blue-500 px-2 py-1 text-[11px] text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-300 dark:hover:bg-blue-900"
+                  onClick={addSubgraph}
+                >
+                  追加
+                </button>
+              </div>
+              {subgraphs.length === 0 ? (
+                <p className="text-[11px] text-gray-500">サブグラフはまだありません。</p>
+              ) : (
+                <div className="space-y-2">
+                  {subgraphs.map((subgraph) => (
+                    <div key={subgraph.id} className="rounded border border-gray-200 p-2 text-xs dark:border-gray-700">
+                      <label className="block text-[11px] text-gray-500">タイトル</label>
+                      <input
+                        type="text"
+                        className="mt-1 w-full rounded border border-gray-300 p-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                        value={subgraph.title}
+                        onChange={(event) => updateSubgraphTitle(subgraph.id, event.target.value)}
+                      />
+                      <p className="mt-1 text-[10px] text-gray-400">ノード数: {subgraph.nodes.length}</p>
+                      <button
+                        type="button"
+                        className="mt-2 flex items-center text-[11px] text-red-500 hover:text-red-600"
+                        onClick={() => removeSubgraph(subgraph.id)}
+                      >
+                        <IoTrash className="mr-1" /> 削除
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {!isPaletteCollapsed && diagramType === 'gantt' && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-gray-500">セクション</p>
+                <button
+                  type="button"
+                  className="rounded border border-blue-500 px-2 py-1 text-[11px] text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-300 dark:hover:bg-blue-900"
+                  onClick={addGanttSection}
+                >
+                  追加
+                </button>
+              </div>
+              {ganttSections.length === 0 ? (
+                <p className="text-[11px] text-gray-500">セクションはまだありません。</p>
+              ) : (
+                <div className="space-y-2">
+                  {ganttSections.map((section, index) => (
+                    <div key={`gantt-section-${section}-${index}`} className="rounded border border-gray-200 p-2 text-xs dark:border-gray-700">
+                      <label className="block text-[11px] text-gray-500">セクション名</label>
+                      <input
+                        type="text"
+                        className="mt-1 w-full rounded border border-gray-300 p-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                        value={section}
+                        onChange={(event) => updateGanttSection(index, event.target.value)}
+                      />
+                      <button
+                        type="button"
+                        className="mt-2 flex items-center text-[11px] text-red-500 hover:text-red-600"
+                        onClick={() => removeGanttSection(index)}
+                      >
+                        <IoTrash className="mr-1" /> 削除
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1028,6 +1588,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
             onNodesChange={handleNodesChange}
             onEdgesChange={handleEdgesChange}
             onConnect={handleConnect}
+            onEdgeUpdate={handleEdgeUpdate}
             onSelectionChange={handleSelectionChange}
             onInit={(instance) => {
               reactFlowInstanceRef.current = instance;
@@ -1035,6 +1596,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
             }}
             fitView
             fitViewOptions={{ padding: 0.2 }}
+            edgeUpdaterRadius={12}
           >
             <Background />
             <MiniMap />
@@ -1093,23 +1655,6 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
               </ul>
             </div>
           )}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-semibold">Mermaid記法</h3>
-              <button
-                type="button"
-                className="flex items-center text-xs text-blue-600"
-                onClick={handleCopyCode}
-              >
-                <IoCopy className="mr-1" /> コピー
-              </button>
-            </div>
-            <textarea
-              className="w-full h-40 border border-gray-300 dark:border-gray-700 rounded p-2 text-xs font-mono bg-gray-50 dark:bg-gray-800 text-gray-800 dark:text-gray-100"
-              value={generatedCode}
-              readOnly
-            />
-          </div>
           <div className="border border-gray-200 dark:border-gray-800 rounded overflow-hidden">
             <MermaidPreview content={generatedCode} fileName={fileName} />
           </div>

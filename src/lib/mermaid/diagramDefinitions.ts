@@ -67,37 +67,42 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         label: '開始/終了',
         description: '開始・終了を表す端点',
         defaultLabel: 'Start',
+        defaultMetadata: { fillColor: '#DBEAFE', strokeColor: '#1D4ED8', textColor: '#1E3A8A' },
       },
       {
         variant: 'process',
         label: '処理',
         description: '通常の処理ステップ',
         defaultLabel: 'Process',
+        defaultMetadata: { fillColor: '#E2E8F0', strokeColor: '#1F2937', textColor: '#111827' },
       },
       {
         variant: 'decision',
         label: '分岐',
         description: '条件分岐',
         defaultLabel: 'Decision',
+        defaultMetadata: { fillColor: '#FDE68A', strokeColor: '#D97706', textColor: '#92400E' },
       },
       {
         variant: 'inputOutput',
         label: '入出力',
         description: '入力または出力',
         defaultLabel: 'I/O',
+        defaultMetadata: { fillColor: '#C7D2FE', strokeColor: '#4338CA', textColor: '#1E1B4B' },
       },
       {
         variant: 'subroutine',
         label: 'サブルーチン',
         description: 'サブルーチン呼び出し',
         defaultLabel: 'Subroutine',
+        defaultMetadata: { fillColor: '#DDD6FE', strokeColor: '#7C3AED', textColor: '#4C1D95' },
       },
     ],
     edgeTemplates: [
       {
         variant: 'arrow',
         label: '通常の矢印',
-        defaultMetadata: {},
+        defaultMetadata: { strokeColor: '#2563EB' },
         fields: [
           { key: 'label', label: 'ラベル', type: 'text', placeholder: 'Yes/No など' },
         ],
@@ -106,6 +111,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         variant: 'dashed',
         label: '破線矢印',
         description: '補助的な流れ',
+        defaultMetadata: { strokeColor: '#7C3AED' },
         fields: [
           { key: 'label', label: 'ラベル', type: 'text', placeholder: '補足説明' },
         ],
@@ -114,6 +120,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         variant: 'thick',
         label: '強調矢印',
         description: '重要な流れを強調',
+        defaultMetadata: { strokeColor: '#F59E0B' },
         fields: [
           { key: 'label', label: 'ラベル', type: 'text' },
         ],
@@ -153,6 +160,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         variant: 'participant',
         label: '参加者',
         defaultLabel: 'Participant',
+        defaultMetadata: { fillColor: '#E0F2FE', strokeColor: '#0284C7', textColor: '#0C4A6E' },
         fields: [
           { key: 'alias', label: '識別子', type: 'text', placeholder: '内部ID (省略可)' },
         ],
@@ -161,6 +169,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         variant: 'actor',
         label: 'アクター',
         defaultLabel: 'Actor',
+        defaultMetadata: { fillColor: '#F5F3FF', strokeColor: '#7C3AED', textColor: '#4C1D95' },
         fields: [
           { key: 'alias', label: '識別子', type: 'text', placeholder: '内部ID (省略可)' },
         ],
@@ -169,6 +178,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         variant: 'boundary',
         label: 'バウンダリ',
         defaultLabel: 'Boundary',
+        defaultMetadata: { fillColor: '#FEF9C3', strokeColor: '#CA8A04', textColor: '#713F12' },
         fields: [
           { key: 'alias', label: '識別子', type: 'text' },
         ],
@@ -177,6 +187,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         variant: 'control',
         label: 'コントロール',
         defaultLabel: 'Control',
+        defaultMetadata: { fillColor: '#FEE2E2', strokeColor: '#DC2626', textColor: '#7F1D1D' },
         fields: [
           { key: 'alias', label: '識別子', type: 'text' },
         ],
@@ -185,6 +196,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         variant: 'database',
         label: 'データベース',
         defaultLabel: 'DB',
+        defaultMetadata: { fillColor: '#DCFCE7', strokeColor: '#16A34A', textColor: '#14532D' },
         fields: [
           { key: 'alias', label: '識別子', type: 'text' },
         ],
@@ -242,6 +254,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         variant: 'class',
         label: 'クラス',
         defaultLabel: 'ClassName',
+        defaultMetadata: { fillColor: '#F3F4F6', strokeColor: '#4B5563', textColor: '#111827' },
         fields: [
           { key: 'stereotype', label: 'ステレオタイプ', type: 'text', placeholder: '<<interface>> など' },
           { key: 'members', label: '属性', type: 'textarea', placeholder: '属性1\n属性2' },
@@ -252,7 +265,12 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         variant: 'interface',
         label: 'インターフェース',
         defaultLabel: 'Interface',
-        defaultMetadata: { stereotype: '<<interface>>' },
+        defaultMetadata: {
+          stereotype: '<<interface>>',
+          fillColor: '#DBEAFE',
+          strokeColor: '#1D4ED8',
+          textColor: '#1E3A8A',
+        },
         fields: [
           { key: 'members', label: '属性', type: 'textarea' },
           { key: 'methods', label: '操作', type: 'textarea' },
@@ -262,7 +280,12 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         variant: 'abstract',
         label: '抽象クラス',
         defaultLabel: 'AbstractClass',
-        defaultMetadata: { stereotype: '<<abstract>>' },
+        defaultMetadata: {
+          stereotype: '<<abstract>>',
+          fillColor: '#FCE7F3',
+          strokeColor: '#BE185D',
+          textColor: '#831843',
+        },
         fields: [
           { key: 'members', label: '属性', type: 'textarea' },
           { key: 'methods', label: '操作', type: 'textarea' },
@@ -270,11 +293,36 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
       },
     ],
     edgeTemplates: [
-      { variant: 'inheritance', label: '継承 (<|--)', fields: [{ key: 'label', label: '説明', type: 'text' }] },
-      { variant: 'composition', label: 'コンポジション (*--)', fields: [{ key: 'label', label: '説明', type: 'text' }] },
-      { variant: 'aggregation', label: '集約 (o--)', fields: [{ key: 'label', label: '説明', type: 'text' }] },
-      { variant: 'association', label: '関連 (--)', fields: [{ key: 'label', label: '説明', type: 'text' }] },
-      { variant: 'dependency', label: '依存 (..>)', fields: [{ key: 'label', label: '説明', type: 'text' }] },
+      {
+        variant: 'inheritance',
+        label: '継承 (<|--)',
+        defaultMetadata: { strokeColor: '#2563EB' },
+        fields: [{ key: 'label', label: '説明', type: 'text' }],
+      },
+      {
+        variant: 'composition',
+        label: 'コンポジション (*--)',
+        defaultMetadata: { strokeColor: '#16A34A' },
+        fields: [{ key: 'label', label: '説明', type: 'text' }],
+      },
+      {
+        variant: 'aggregation',
+        label: '集約 (o--)',
+        defaultMetadata: { strokeColor: '#0EA5E9' },
+        fields: [{ key: 'label', label: '説明', type: 'text' }],
+      },
+      {
+        variant: 'association',
+        label: '関連 (--)',
+        defaultMetadata: { strokeColor: '#6B7280' },
+        fields: [{ key: 'label', label: '説明', type: 'text' }],
+      },
+      {
+        variant: 'dependency',
+        label: '依存 (..>)',
+        defaultMetadata: { strokeColor: '#F59E0B' },
+        fields: [{ key: 'label', label: '説明', type: 'text' }],
+      },
     ],
     defaultConfig: { type: 'class', direction: 'TB' },
     defaultTemplate: `classDiagram
@@ -307,27 +355,32 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         variant: 'state',
         label: '状態',
         defaultLabel: 'State',
+        defaultMetadata: { fillColor: '#EEF2FF', strokeColor: '#4C51BF', textColor: '#312E81' },
       },
       {
         variant: 'start',
         label: '開始',
         defaultLabel: 'Start',
+        defaultMetadata: { fillColor: '#22C55E', strokeColor: '#15803D', textColor: '#064E3B' },
       },
       {
         variant: 'end',
         label: '終了',
         defaultLabel: 'End',
+        defaultMetadata: { fillColor: '#F87171', strokeColor: '#B91C1C', textColor: '#7F1D1D' },
       },
       {
         variant: 'choice',
         label: '分岐',
         defaultLabel: 'Choice',
+        defaultMetadata: { fillColor: '#FCD34D', strokeColor: '#B45309', textColor: '#78350F' },
       },
     ],
     edgeTemplates: [
       {
         variant: 'transition',
         label: '遷移',
+        defaultMetadata: { strokeColor: '#2563EB' },
         fields: [
           { key: 'label', label: 'イベント/条件', type: 'text', placeholder: 'イベント / ガード [アクション]' },
         ],
@@ -361,6 +414,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         variant: 'entity',
         label: 'エンティティ',
         defaultLabel: 'Entity',
+        defaultMetadata: { fillColor: '#DCFCE7', strokeColor: '#16A34A', textColor: '#065F46' },
         fields: [
           { key: 'attributes', label: '属性', type: 'textarea', placeholder: 'id PK\nname' },
         ],
@@ -369,16 +423,37 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         variant: 'weakEntity',
         label: '弱エンティティ',
         defaultLabel: 'WeakEntity',
+        defaultMetadata: { fillColor: '#FEF3C7', strokeColor: '#D97706', textColor: '#92400E' },
         fields: [
           { key: 'attributes', label: '属性', type: 'textarea' },
         ],
       },
     ],
     edgeTemplates: [
-      { variant: 'identifying', label: '識別 (||--||)', fields: [{ key: 'label', label: '説明', type: 'text' }] },
-      { variant: 'nonIdentifying', label: '非識別 (||--o{)', fields: [{ key: 'label', label: '説明', type: 'text' }] },
-      { variant: 'oneToMany', label: '1対多 (||--|{)', fields: [{ key: 'label', label: '説明', type: 'text' }] },
-      { variant: 'manyToMany', label: '多対多 ({--})', fields: [{ key: 'label', label: '説明', type: 'text' }] },
+      {
+        variant: 'identifying',
+        label: '識別 (||--||)',
+        defaultMetadata: { strokeColor: '#16A34A' },
+        fields: [{ key: 'label', label: '説明', type: 'text' }],
+      },
+      {
+        variant: 'nonIdentifying',
+        label: '非識別 (||--o{)',
+        defaultMetadata: { strokeColor: '#0EA5E9' },
+        fields: [{ key: 'label', label: '説明', type: 'text' }],
+      },
+      {
+        variant: 'oneToMany',
+        label: '1対多 (||--|{)',
+        defaultMetadata: { strokeColor: '#F59E0B' },
+        fields: [{ key: 'label', label: '説明', type: 'text' }],
+      },
+      {
+        variant: 'manyToMany',
+        label: '多対多 ({--})',
+        defaultMetadata: { strokeColor: '#DC2626' },
+        fields: [{ key: 'label', label: '説明', type: 'text' }],
+      },
     ],
     defaultConfig: { type: 'er' },
     defaultTemplate: `erDiagram
@@ -400,7 +475,13 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         variant: 'task',
         label: 'タスク',
         defaultLabel: 'Task',
-        defaultMetadata: { status: 'active', section: 'General' },
+        defaultMetadata: {
+          status: 'active',
+          section: 'General',
+          fillColor: '#DBEAFE',
+          strokeColor: '#1D4ED8',
+          textColor: '#1E3A8A',
+        },
         fields: [
           { key: 'section', label: 'セクション', type: 'text', placeholder: 'カテゴリ名' },
           { key: 'taskId', label: 'タスクID', type: 'text', placeholder: 'task_1' },
@@ -425,7 +506,13 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         variant: 'milestone',
         label: 'マイルストーン',
         defaultLabel: 'Milestone',
-        defaultMetadata: { status: 'milestone', section: 'General' },
+        defaultMetadata: {
+          status: 'milestone',
+          section: 'General',
+          fillColor: '#FDE68A',
+          strokeColor: '#D97706',
+          textColor: '#92400E',
+        },
         fields: [
           { key: 'section', label: 'セクション', type: 'text' },
           { key: 'taskId', label: 'タスクID', type: 'text' },

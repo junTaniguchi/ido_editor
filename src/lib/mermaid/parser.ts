@@ -24,6 +24,7 @@ const createBaseModel = (type: MermaidDiagramType): MermaidGraphModel => {
     nodes: [],
     edges: [],
     warnings: [],
+    subgraphs: [],
   };
 };
 
@@ -117,6 +118,9 @@ const parseFlowchart = (source: string): MermaidGraphModel => {
   ];
   const edgePattern = /([\p{L}\p{N}_-]+)\s*((?=[-\.=>ox]*[-\.=>])[-\.=>ox]+)\s*(?:\|([^|]+)\|)?\s*([\p{L}\p{N}_-]+)/gu;
 
+  const subgraphMap = new Map<string, { title: string; nodes: Set<string> }>();
+  let currentSubgraphId: string | null = null;
+
   lines.forEach((line) => {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('%%')) return;
@@ -125,7 +129,68 @@ const parseFlowchart = (source: string): MermaidGraphModel => {
       model.config = { type: 'flowchart', orientation: orientationMatch[1].toUpperCase() as any };
       return;
     }
-    if (trimmed.startsWith('subgraph') || trimmed === 'end') {
+
+    if (trimmed.toLowerCase() === 'end') {
+      currentSubgraphId = null;
+      return;
+    }
+
+    const subgraphMatch = trimmed.match(/^subgraph\s+(\S+)(?:\s*\[(.+)\])?/i);
+    if (subgraphMatch) {
+      const id = sanitizeId(subgraphMatch[1]);
+      const title = subgraphMatch[2] ? sanitizeLabel(subgraphMatch[2]) : '';
+      subgraphMap.set(id, { title, nodes: new Set<string>() });
+      currentSubgraphId = id;
+      return;
+    }
+
+    const styleMatch = trimmed.match(/^style\s+([^\s]+)\s+(.+)$/i);
+    if (styleMatch) {
+      const nodeId = sanitizeId(styleMatch[1]);
+      const styleParts = styleMatch[2]
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean);
+      const node = model.nodes.find((item) => item.id === nodeId);
+      if (node) {
+        const metadata = { ...(node.data.metadata || {}) };
+        styleParts.forEach((part) => {
+          const [key, value] = part.split(':');
+          if (!key || !value) return;
+          const trimmedKey = key.trim().toLowerCase();
+          const trimmedValue = value.trim();
+          if (!trimmedValue) return;
+          if (trimmedKey === 'fill') metadata.fillColor = trimmedValue;
+          if (trimmedKey === 'stroke') metadata.strokeColor = trimmedValue;
+          if (trimmedKey === 'color') metadata.textColor = trimmedValue;
+        });
+        node.data.metadata = metadata;
+      }
+      return;
+    }
+
+    const linkStyleMatch = trimmed.match(/^linkStyle\s+(\d+)\s+(.+)$/i);
+    if (linkStyleMatch) {
+      const index = Number.parseInt(linkStyleMatch[1], 10);
+      if (!Number.isNaN(index) && model.edges[index]) {
+        const styleParts = linkStyleMatch[2]
+          .split(',')
+          .map((part) => part.trim())
+          .filter(Boolean);
+        const edge = model.edges[index];
+        const metadata = { ...(edge.data.metadata || {}) };
+        styleParts.forEach((part) => {
+          const [key, value] = part.split(':');
+          if (!key || !value) return;
+          const trimmedKey = key.trim().toLowerCase();
+          const trimmedValue = value.trim();
+          if (!trimmedValue) return;
+          if (trimmedKey === 'stroke') metadata.strokeColor = trimmedValue;
+          if (trimmedKey === 'color') metadata.textColor = trimmedValue;
+          if (trimmedKey === 'fill') metadata.fillColor = trimmedValue;
+        });
+        edge.data.metadata = metadata;
+      }
       return;
     }
 
@@ -141,7 +206,14 @@ const parseFlowchart = (source: string): MermaidGraphModel => {
         }
         matchedNodeIds.add(id);
         const label = sanitizeLabel(match[2]);
-        ensureNode(model, id, variant, label);
+        const node = ensureNode(model, id, variant, label);
+        if (currentSubgraphId && !node.data.metadata?.subgraphId) {
+          const entry = subgraphMap.get(currentSubgraphId);
+          if (entry) {
+            entry.nodes.add(node.id);
+          }
+          node.data.metadata = { ...(node.data.metadata || {}), subgraphId: currentSubgraphId };
+        }
       }
     });
 
@@ -153,8 +225,25 @@ const parseFlowchart = (source: string): MermaidGraphModel => {
       const label = match[3] ? sanitizeLabel(match[3]) : undefined;
       const target = sanitizeId(match[4]);
 
-      ensureNode(model, source, 'process', source);
-      ensureNode(model, target, 'process', target);
+      const sourceNode = ensureNode(model, source, 'process', source);
+      const targetNode = ensureNode(model, target, 'process', target);
+      if (currentSubgraphId) {
+        const entry = subgraphMap.get(currentSubgraphId);
+        if (entry) {
+          if (!sourceNode.data.metadata?.subgraphId) {
+            entry.nodes.add(sourceNode.id);
+          }
+          if (!targetNode.data.metadata?.subgraphId) {
+            entry.nodes.add(targetNode.id);
+          }
+        }
+        if (!sourceNode.data.metadata?.subgraphId) {
+          sourceNode.data.metadata = { ...(sourceNode.data.metadata || {}), subgraphId: currentSubgraphId };
+        }
+        if (!targetNode.data.metadata?.subgraphId) {
+          targetNode.data.metadata = { ...(targetNode.data.metadata || {}), subgraphId: currentSubgraphId };
+        }
+      }
 
       let variant = 'arrow';
       if (symbol.includes('.')) {
@@ -166,6 +255,14 @@ const parseFlowchart = (source: string): MermaidGraphModel => {
       addEdge(model, source, target, variant, label);
     }
   });
+
+  if (subgraphMap.size > 0) {
+    model.subgraphs = Array.from(subgraphMap.entries()).map(([id, value]) => ({
+      id,
+      title: value.title,
+      nodes: Array.from(value.nodes),
+    }));
+  }
 
   return model;
 };

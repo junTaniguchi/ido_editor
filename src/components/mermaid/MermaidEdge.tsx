@@ -9,6 +9,23 @@ const DEFAULT_STROKE = '#1f2937';
 const DEFAULT_STROKE_WIDTH = 1.6;
 const PARALLEL_OFFSET = 38;
 
+const expandShortHex = (value: string): string =>
+  `#${value
+    .slice(1)
+    .split('')
+    .map((char) => char + char)
+    .join('')}`;
+
+const sanitizeColorValue = (value: string): string => {
+  if (/^#[0-9a-fA-F]{3}$/.test(value)) {
+    return expandShortHex(value.toLowerCase());
+  }
+  if (/^#[0-9a-fA-F]{6}$/.test(value)) {
+    return value.toLowerCase();
+  }
+  return value;
+};
+
 const buildStrokeStyle = (variant?: string): CSSProperties => {
   const style: CSSProperties = {
     stroke: DEFAULT_STROKE,
@@ -55,6 +72,9 @@ const MermaidEdge: React.FC<EdgeProps<MermaidEdgeData>> = ({
 }) => {
   const parallelCount = data?.parallelCount ?? 1;
   const parallelIndex = data?.parallelIndex ?? 0;
+  const strokeColor = data?.metadata?.strokeColor;
+  const labelTextColor = data?.metadata?.textColor;
+  const labelBackground = data?.metadata?.fillColor;
 
   let path = '';
   let labelX = (sourceX + targetX) / 2;
@@ -103,14 +123,17 @@ const MermaidEdge: React.FC<EdgeProps<MermaidEdgeData>> = ({
   const baseStyle = buildStrokeStyle(data?.variant);
   const mergedStyle: CSSProperties = {
     ...baseStyle,
+    ...(strokeColor ? { stroke: strokeColor } : {}),
     ...(style ?? {}),
   };
+
+  const markerColor = typeof mergedStyle.stroke === 'string' ? mergedStyle.stroke : DEFAULT_STROKE;
 
   const resolvedMarkerEnd = markerEnd ?? {
     type: MarkerType.ArrowClosed,
     width: 16,
     height: 16,
-    color: typeof mergedStyle.stroke === 'string' ? mergedStyle.stroke : DEFAULT_STROKE,
+    color: markerColor,
   };
 
   return (
@@ -123,11 +146,11 @@ const MermaidEdge: React.FC<EdgeProps<MermaidEdgeData>> = ({
               pointerEvents: 'none',
               position: 'absolute',
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-              background: 'var(--edge-label-bg, rgba(255, 255, 255, 0.9))',
+              background: labelBackground ? sanitizeColorValue(labelBackground) : 'rgba(255, 255, 255, 0.9)',
               padding: '2px 6px',
               borderRadius: 4,
               fontSize: 12,
-              color: 'var(--edge-label-color, #1f2937)',
+              color: labelTextColor ? sanitizeColorValue(labelTextColor) : '#1f2937',
               boxShadow: '0 1px 3px rgba(15, 23, 42, 0.18)',
               whiteSpace: 'nowrap',
               maxWidth: 200,
