@@ -506,15 +506,24 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     if (content === lastSerializedRef.current && lastHydratedTabIdRef.current === tabId) {
       return;
     }
+
     isHydrating.current = true;
     const parsed = parseMermaidSource(content);
-    setDiagramType(parsed.type);
-    setConfig(parsed.config);
     const hydratedNodes = parsed.nodes.map((node) => applyNodeDefaults(node, parsed.type));
-    setNodes(hydratedNodes);
-    updateEdges(parsed.edges.map((edge) => ({ ...edge, label: edge.data.label })));
-    setSubgraphs(parsed.subgraphs ?? []);
-    if (parsed.type === 'gantt') {
+    const normalizedEdges = normalizeEdges(
+      parsed.edges.map((edge) => ({
+        ...edge,
+        label: edge.data.label,
+      })),
+    );
+    const parsedSubgraphs = (parsed.subgraphs ?? []).map((subgraph) => ({
+      ...subgraph,
+      nodes: [...subgraph.nodes],
+    }));
+    const nextGanttSections = (() => {
+      if (parsed.type !== 'gantt') {
+        return ['General'];
+      }
       const sectionSet = new Set<string>(['General']);
       hydratedNodes.forEach((node) => {
         const section = node.data.metadata?.section;
@@ -522,12 +531,19 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           sectionSet.add(section);
         }
       });
-      setGanttSections(Array.from(sectionSet));
-    } else {
-      setGanttSections(['General']);
-    }
+      return Array.from(sectionSet);
+    })();
+
+    setDiagramType(parsed.type);
+    setConfig(parsed.config);
+    setNodes(hydratedNodes);
+    setEdgesState(normalizedEdges);
+    setSubgraphs(parsedSubgraphs);
+    setGanttSections(nextGanttSections);
     setWarnings(parsed.warnings);
-    const { code } = serializeMermaid(parsed);
+
+    const model = buildModel(parsed.type, parsed.config, hydratedNodes, normalizedEdges, parsedSubgraphs);
+    const { code } = serializeMermaid(model);
     setGeneratedCode(code);
     lastSerializedRef.current = code;
     lastHydratedTabIdRef.current = tabId;
@@ -540,16 +556,24 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       label: firstEdgeTemplate?.defaultLabel ?? '',
     });
     hasInitialized.current = true;
+
     requestAnimationFrame(() => {
       isHydrating.current = false;
       fitViewToDiagram({ duration: 300 });
       requestAnimationFrame(() => {
-        historyRef.current = [];
+        const initialSnapshot: Snapshot = {
+          diagramType: parsed.type,
+          config: JSON.parse(JSON.stringify(parsed.config)) as MermaidDiagramConfig,
+          nodes: cloneNodeList(hydratedNodes),
+          edges: cloneEdgeList(normalizedEdges),
+          subgraphs: parsedSubgraphs.map((subgraph) => ({ ...subgraph, nodes: [...subgraph.nodes] })),
+          ganttSections: [...nextGanttSections],
+        };
+        historyRef.current = [initialSnapshot];
         futureRef.current = [];
-        historyRef.current.push(createSnapshot());
       });
     });
-  }, [content, tabId, fitViewToDiagram, updateEdges, createSnapshot]);
+  }, [content, tabId, fitViewToDiagram]);
 
   useEffect(() => {
     if (!hasInitialized.current) return;
