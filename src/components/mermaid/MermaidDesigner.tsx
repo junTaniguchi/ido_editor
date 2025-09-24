@@ -18,8 +18,8 @@ import ReactFlow, {
   addEdge,
   applyEdgeChanges,
   applyNodeChanges,
-  useReactFlow,
 } from 'reactflow';
+import type { FitViewOptions, ReactFlowInstance } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { IoAdd, IoAlertCircleOutline, IoCopy, IoTrash } from 'react-icons/io5';
 import { useEditorStore } from '@/store/editorStore';
@@ -158,7 +158,7 @@ const FieldInput: React.FC<{
 
 const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, content }) => {
   const { updateTab, getTab } = useTabActions();
-  const reactFlow = useReactFlow();
+  const reactFlowInstanceRef = useRef<ReactFlowInstance | null>(null);
   const [diagramType, setDiagramType] = useState<MermaidDiagramType>('flowchart');
   const [config, setConfig] = useState<MermaidDiagramConfig>(diagramDefinitions.flowchart.defaultConfig);
   const [nodes, setNodes] = useState<MermaidNode[]>([]);
@@ -213,6 +213,18 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
     }
   }, [diagramType, config, nodes, edges, getTab, tabId, updateTab]);
 
+  const fitViewToDiagram = useCallback(
+    (options?: FitViewOptions) => {
+      const instance = reactFlowInstanceRef.current;
+      if (!instance) return;
+      instance.fitView({
+        padding: 0.2,
+        ...options,
+      });
+    },
+    [],
+  );
+
   useEffect(() => {
     if (content === lastSerializedRef.current && lastHydratedTabIdRef.current === tabId) {
       return;
@@ -233,9 +245,9 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
     hasInitialized.current = true;
     requestAnimationFrame(() => {
       isHydrating.current = false;
-      reactFlow.fitView({ padding: 0.2, duration: 300 });
+      fitViewToDiagram({ duration: 300 });
     });
-  }, [content, tabId, reactFlow]);
+  }, [content, tabId, fitViewToDiagram]);
 
   useEffect(() => {
     if (!hasInitialized.current) return;
@@ -715,6 +727,10 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
             onEdgesChange={handleEdgesChange}
             onConnect={handleConnect}
             onSelectionChange={handleSelectionChange}
+            onInit={(instance) => {
+              reactFlowInstanceRef.current = instance;
+              fitViewToDiagram();
+            }}
             fitView
             fitViewOptions={{ padding: 0.2 }}
           >
