@@ -82,11 +82,13 @@ const serializeSequence = (model: MermaidGraphModel): MermaidSerializationResult
 
   model.nodes.forEach((node) => {
     const keyword = sequenceVariantKeyword[node.data.variant] || 'participant';
-    const alias = node.data.metadata?.alias?.trim();
-    if (alias && alias !== node.id) {
-      lines.push(`${keyword} ${alias} as ${escapeMermaidText(node.data.label)}`);
+    const alias = (node.data.metadata?.alias ?? node.id).trim() || node.id;
+    const label = node.data.label?.trim() ?? '';
+
+    if (label && label !== alias) {
+      lines.push(`${keyword} ${alias} as ${escapeMermaidText(label)}`);
     } else {
-      lines.push(`${keyword} ${node.id} as ${escapeMermaidText(node.data.label)}`);
+      lines.push(`${keyword} ${alias}`);
     }
   });
 
@@ -270,6 +272,170 @@ const serializeGantt = (model: MermaidGraphModel): MermaidSerializationResult =>
   return { code: lines.join('\n'), warnings };
 };
 
+const serializeGitGraph = (model: MermaidGraphModel): MermaidSerializationResult => {
+  const config = model.config.type === 'gitGraph' ? model.config : diagramDefinitions.gitGraph.defaultConfig;
+  const warnings: string[] = [];
+  const orientation = config.orientation ?? 'LR';
+  const lines: string[] = [`gitGraph ${orientation}:`];
+
+  const orderMap = new Map<string, number>();
+  model.nodes.forEach((node, index) => {
+    orderMap.set(node.id, index);
+  });
+
+  const parseSequenceValue = (node: MermaidNode): number | undefined => {
+    const raw = node.data.metadata?.sequence;
+    if (!raw) return undefined;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : undefined;
+  };
+
+  const sortedNodes = [...model.nodes].sort((a, b) => {
+    const seqA = parseSequenceValue(a);
+    const seqB = parseSequenceValue(b);
+    if (seqA !== undefined && seqB !== undefined) {
+      if (seqA !== seqB) {
+        return seqA - seqB;
+      }
+    } else if (seqA !== undefined) {
+      return -1;
+    } else if (seqB !== undefined) {
+      return 1;
+    }
+    return (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0);
+  });
+
+  const formatIdentifier = (value: string): string => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return trimmed;
+    }
+    return /\s/.test(trimmed) ? `"${escapeMermaidText(trimmed)}"` : trimmed;
+  };
+
+  sortedNodes.forEach((node) => {
+    switch (node.data.variant) {
+      case 'commit': {
+        const metadata = node.data.metadata || {};
+        const parts: string[] = [];
+        if (metadata.id?.trim()) {
+          parts.push(`id: "${escapeMermaidText(metadata.id.trim())}"`);
+        }
+        if (metadata.tag?.trim()) {
+          parts.push(`tag: "${escapeMermaidText(metadata.tag.trim())}"`);
+        }
+        const typeValue = (metadata.type ?? 'NORMAL').toUpperCase();
+        if (typeValue && typeValue !== 'NORMAL') {
+          parts.push(`type: ${typeValue}`);
+        }
+        const text = parts.length > 0 ? `  commit ${parts.join(' ')}` : '  commit';
+        lines.push(text);
+        break;
+      }
+      case 'branch': {
+        const branchName = node.data.label?.trim() ?? '';
+        if (!branchName) {
+          warnings.push(`ブランチノード「${node.id}」に名称が無いため出力をスキップしました。`);
+          break;
+        }
+        const metadata = node.data.metadata || {};
+        const orderText = metadata.order?.toString().trim();
+        const extras = orderText ? ` order: ${orderText}` : '';
+        lines.push(`  branch ${formatIdentifier(branchName)}${extras}`);
+        break;
+      }
+      case 'checkout': {
+        const branchName = node.data.label?.trim() ?? '';
+        if (!branchName) {
+          warnings.push(`チェックアウトノード「${node.id}」にブランチ名が無いためスキップしました。`);
+          break;
+        }
+        const command = node.data.metadata?.command === 'switch' ? 'switch' : 'checkout';
+        lines.push(`  ${command} ${formatIdentifier(branchName)}`);
+        break;
+      }
+      case 'merge': {
+        const branchName = node.data.label?.trim() ?? '';
+        if (!branchName) {
+          warnings.push(`マージノード「${node.id}」にブランチ名が無いためスキップしました。`);
+          break;
+        }
+        const metadata = node.data.metadata || {};
+        const parts: string[] = [];
+        if (metadata.id?.trim()) {
+          parts.push(`id: "${escapeMermaidText(metadata.id.trim())}"`);
+        }
+        if (metadata.tag?.trim()) {
+          parts.push(`tag: "${escapeMermaidText(metadata.tag.trim())}"`);
+        }
+        const typeValue = (metadata.type ?? 'NORMAL').toUpperCase();
+        if (typeValue && typeValue !== 'NORMAL') {
+          parts.push(`type: ${typeValue}`);
+        }
+        const suffix = parts.length > 0 ? ` ${parts.join(' ')}` : '';
+        lines.push(`  merge ${formatIdentifier(branchName)}${suffix}`);
+        break;
+      }
+      case 'cherryPick': {
+        const metadata = node.data.metadata || {};
+        const commitId = metadata.id?.trim();
+        if (!commitId) {
+          warnings.push(`cherry-pick ノード「${node.id}」に対象IDが無いためスキップしました。`);
+          break;
+        }
+        const parts = [`id: "${escapeMermaidText(commitId)}"`];
+        if (metadata.parent?.trim()) {
+          parts.push(`parent: "${escapeMermaidText(metadata.parent.trim())}"`);
+        }
+        const command = metadata.command?.trim() || 'cherry-pick';
+        lines.push(`  ${command} ${parts.join(' ')}`);
+        break;
+      }
+      default: {
+        warnings.push(`未対応のGitコマンドをスキップしました: ${node.data.variant}`);
+        break;
+      }
+    }
+  });
+
+  return { code: lines.join('\n'), warnings };
+};
+
+
+const serializePie = (model: MermaidGraphModel): MermaidSerializationResult => {
+  const config = model.config.type === 'pie' ? model.config : diagramDefinitions.pie.defaultConfig;
+  const warnings: string[] = [];
+  const headerParts: string[] = ['pie'];
+
+  if (config.showData) {
+    headerParts.push('showData');
+  }
+  if (config.title) {
+    headerParts.push(`title ${config.title.trim()}`);
+  }
+
+  const lines: string[] = [headerParts.join(' ').trim() || 'pie'];
+
+  model.nodes.forEach((node) => {
+    const label = escapeMermaidText(node.data.label || node.id);
+    const rawValue = (node.data.metadata?.value ?? '').toString().trim();
+    if (!rawValue) {
+      warnings.push(`スライス「${node.data.label || node.id}」の値が空のため0として出力します。`);
+      lines.push(`  "${label}" : 0`);
+      return;
+    }
+
+    if (Number.isNaN(Number(rawValue))) {
+      warnings.push(`スライス「${node.data.label || node.id}」の値「${rawValue}」は数値として解釈できません。文字列のまま出力します。`);
+      lines.push(`  "${label}" : ${rawValue}`);
+    } else {
+      lines.push(`  "${label}" : ${rawValue}`);
+    }
+  });
+
+  return { code: lines.join('\n'), warnings };
+};
+
 export const serializeMermaid = (model: MermaidGraphModel): MermaidSerializationResult => {
   switch (model.type) {
     case 'flowchart':
@@ -284,6 +450,10 @@ export const serializeMermaid = (model: MermaidGraphModel): MermaidSerialization
       return serializeEr(model);
     case 'gantt':
       return serializeGantt(model);
+    case 'gitGraph':
+      return serializeGitGraph(model);
+    case 'pie':
+      return serializePie(model);
     default:
       return { code: model.nodes.map((node) => node.data.label).join('\n'), warnings: ['未対応の図種類です'] };
   }

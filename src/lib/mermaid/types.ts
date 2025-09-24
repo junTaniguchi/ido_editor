@@ -7,7 +7,9 @@ export type MermaidDiagramType =
   | 'class'
   | 'state'
   | 'er'
-  | 'gantt';
+  | 'gantt'
+  | 'pie'
+  | 'gitGraph';
 
 /** ノード共通のデータ構造 */
 export interface MermaidNodeData {
@@ -53,6 +55,7 @@ export type ClassRelationshipVariant =
   | 'dependency';
 /** ステート図の方向 */
 export type StateDiagramDirection = 'TB' | 'LR';
+export type GitGraphOrientation = 'LR' | 'TB' | 'BT';
 
 /** 図種別ごとの設定値 */
 export type MermaidDiagramConfig =
@@ -61,7 +64,9 @@ export type MermaidDiagramConfig =
   | { type: 'class'; direction: StateDiagramDirection }
   | { type: 'state'; direction: StateDiagramDirection }
   | { type: 'er' }
-  | { type: 'gantt'; dateFormat: string; axisFormat: string; title?: string };
+  | { type: 'gantt'; dateFormat: string; axisFormat: string; title?: string }
+  | { type: 'pie'; title?: string; showData?: boolean }
+  | { type: 'gitGraph'; orientation: GitGraphOrientation };
 
 /** React Flow上の状態をMermaidソースへ変換するためのモデル */
 export interface MermaidGraphModel {
