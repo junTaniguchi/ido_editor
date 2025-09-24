@@ -40,6 +40,7 @@ import type {
   MermaidNode,
 } from '@/lib/mermaid/types';
 import MermaidPreview from '@/components/preview/MermaidPreview';
+import InteractiveMermaidCanvas from './InteractiveMermaidCanvas';
 
 export interface MermaidDesignerProps {
   tabId: string;
@@ -156,7 +157,7 @@ const FieldInput: React.FC<{
   }
 };
 
-const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, content }) => {
+const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, content }) => {
   const { updateTab, getTab } = useTabActions();
   const reactFlow = useReactFlow();
   const [diagramType, setDiagramType] = useState<MermaidDiagramType>('flowchart');
@@ -233,7 +234,6 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
     hasInitialized.current = true;
     requestAnimationFrame(() => {
       isHydrating.current = false;
-      reactFlow.fitView({ padding: 0.2, duration: 300 });
     });
   }, [content, tabId, reactFlow]);
 
@@ -295,15 +295,15 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
     [diagramType, edgeTemplates],
   );
 
-  const handleSelectionChange = useCallback((params: { nodes: MermaidNode[]; edges: MermaidEdge[] }) => {
-    if (params.nodes.length > 0) {
-      setInspector({ type: 'node', id: params.nodes[0].id });
-    } else if (params.edges.length > 0) {
-      setInspector({ type: 'edge', id: params.edges[0].id });
-    } else {
-      setInspector(null);
-    }
-  }, []);
+  useEffect(() => {
+    const nodeIds = new Set(nodes.map((node) => node.id));
+    setEdgeDraft((current) => ({
+      source: nodeIds.has(current.source) ? current.source : '',
+      target: nodeIds.has(current.target) ? current.target : '',
+      variant: current.variant,
+      label: current.label,
+    }));
+  }, [nodes]);
 
   const handleAddNode = useCallback(
     (template: MermaidNodeTemplate) => {
@@ -711,17 +711,9 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
           <ReactFlow
             nodes={nodes}
             edges={edges}
-            onNodesChange={handleNodesChange}
-            onEdgesChange={handleEdgesChange}
-            onConnect={handleConnect}
-            onSelectionChange={handleSelectionChange}
-            fitView
-            fitViewOptions={{ padding: 0.2 }}
-          >
-            <Background />
-            <MiniMap />
-            <Controls />
-          </ReactFlow>
+            selected={inspector}
+            onSelect={handleSelectFromCanvas}
+          />
         </div>
       </main>
       <aside className="w-96 flex-shrink-0 border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex flex-col">
@@ -777,11 +769,5 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
     </div>
   );
 };
-
-const MermaidDesigner: React.FC<MermaidDesignerProps> = (props) => (
-  <ReactFlowProvider>
-    <MermaidDesignerInner {...props} />
-  </ReactFlowProvider>
-);
 
 export default MermaidDesigner;
