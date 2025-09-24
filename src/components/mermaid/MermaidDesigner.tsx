@@ -19,7 +19,7 @@ import ReactFlow, {
   applyEdgeChanges,
   applyNodeChanges,
 } from 'reactflow';
-import type { FitViewOptions, ReactFlowInstance } from 'reactflow';
+import type { FitViewOptions, ReactFlowInstance, XYPosition } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { IoAdd, IoAlertCircleOutline, IoCopy, IoTrash } from 'react-icons/io5';
 import { useEditorStore } from '@/store/editorStore';
@@ -51,6 +51,12 @@ export interface MermaidDesignerProps {
 interface InspectorState {
   type: 'node' | 'edge';
   id: string;
+}
+
+interface CanvasContextMenuState {
+  x: number;
+  y: number;
+  position: XYPosition;
 }
 
 const getDefaultEdgeVariant = (type: MermaidDiagramType): string => {
@@ -160,6 +166,7 @@ const FieldInput: React.FC<{
 const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, content }) => {
   const { updateTab, getTab } = useTabActions();
   const reactFlowInstanceRef = useRef<ReactFlowInstance | null>(null);
+  const flowWrapperRef = useRef<HTMLDivElement | null>(null);
   const [diagramType, setDiagramType] = useState<MermaidDiagramType>('flowchart');
   const [config, setConfig] = useState<MermaidDiagramConfig>(diagramDefinitions.flowchart.defaultConfig);
   const [nodes, setNodes] = useState<MermaidNode[]>([]);
@@ -180,6 +187,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     variant: '',
     label: '',
   });
+  const [contextMenu, setContextMenu] = useState<CanvasContextMenuState | null>(null);
   const lastSerializedRef = useRef<string>('');
   const lastHydratedTabIdRef = useRef<string | null>(null);
   const isHydrating = useRef<boolean>(false);
@@ -288,6 +296,25 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     }));
   }, [nodes]);
 
+  useEffect(() => {
+    const handleWindowClick = (event: MouseEvent) => {
+      if (event.button === 2) {
+        return;
+      }
+      setContextMenu(null);
+    };
+    const handleWindowKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setContextMenu(null);
+      }
+    };
+    window.addEventListener('click', handleWindowClick);
+    window.addEventListener('keydown', handleWindowKeyDown);
+    return () => {
+      window.removeEventListener('click', handleWindowClick);
+      window.removeEventListener('keydown', handleWindowKeyDown);
+    };
+  }, []);
   const handleNodesChange = useCallback((changes: NodeChange[]) => {
     setNodes((current) => applyNodeChanges(changes, current));
   }, []);
@@ -331,16 +358,17 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   }, []);
 
   const handleAddNode = useCallback(
-    (template: MermaidNodeTemplate) => {
+    (template: MermaidNodeTemplate, position?: XYPosition) => {
       const definition = diagramDefinitions[diagramType];
       const id = definition.createNodeId ? definition.createNodeId() : `node_${Date.now()}`;
       const newNode: MermaidNode = {
         id,
         type: 'default',
-        position: {
-          x: (nodes.length % 4) * 200 + 50,
-          y: Math.floor(nodes.length / 4) * 150 + 40,
-        },
+        position:
+          position ?? {
+            x: (nodes.length % 4) * 200 + 50,
+            y: Math.floor(nodes.length / 4) * 150 + 40,
+          },
         data: {
           diagramType,
           variant: template.variant,
@@ -353,6 +381,38 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     },
     [diagramType, nodes.length],
   );
+
+  const handleContextMenuAddNode = useCallback(
+    (template: MermaidNodeTemplate) => {
+      if (!contextMenu) return;
+      handleAddNode(template, contextMenu.position);
+      setContextMenu(null);
+    },
+    [contextMenu, handleAddNode],
+  );
+
+  const handleCanvasContextMenu = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    if (!reactFlowInstanceRef.current || !flowWrapperRef.current) {
+      return;
+    }
+    const bounds = flowWrapperRef.current.getBoundingClientRect();
+    const projected = reactFlowInstanceRef.current.project({
+      x: event.clientX - bounds.left,
+      y: event.clientY - bounds.top,
+    });
+    setContextMenu({
+      x: event.clientX - bounds.left,
+      y: event.clientY - bounds.top,
+      position: projected,
+    });
+  }, []);
+
+  const handleCanvasMouseDown = useCallback((event: React.MouseEvent) => {
+    if (event.button !== 2) {
+      setContextMenu(null);
+    }
+  }, []);
 
   const updateNode = useCallback((nodeId: string, updater: (node: MermaidNode) => MermaidNode) => {
     setNodes((current) => current.map((node) => (node.id === nodeId ? updater(node) : node)));
@@ -575,7 +635,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     return edgeTemplates.find((template) => template.variant === selectedEdge.data.variant);
   }, [selectedEdge, edgeTemplates]);
 
-  const paletteClasses = isPaletteCollapsed ? 'w-12' : 'w-72';
+  const paletteClasses = isPaletteCollapsed ? 'w-12' : 'w-36';
   const canAddEdge = nodes.length >= 2;
 
   const renderNodeInspector = () => {
@@ -880,7 +940,12 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
             </button>
           </div>
         </div>
-        <div className="flex-1 min-h-0 border-b border-gray-200 dark:border-gray-800">
+        <div
+          ref={flowWrapperRef}
+          className="relative flex-1 min-h-0 border-b border-gray-200 dark:border-gray-800"
+          onContextMenu={handleCanvasContextMenu}
+          onMouseDown={handleCanvasMouseDown}
+        >
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -899,6 +964,29 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
             <MiniMap />
             <Controls />
           </ReactFlow>
+          {contextMenu && (
+            <div
+              className="absolute z-50 min-w-[160px] rounded border border-gray-200 bg-white py-1 text-sm shadow-lg dark:border-gray-700 dark:bg-gray-800"
+              style={{ top: contextMenu.y, left: contextMenu.x }}
+              onClick={(event) => event.stopPropagation()}
+              onMouseDown={(event) => event.stopPropagation()}
+              onContextMenu={(event) => event.preventDefault()}
+            >
+              <p className="px-3 py-1 text-xs font-semibold text-gray-500 dark:text-gray-300">ノードの追加</p>
+              <div className="max-h-60 overflow-y-auto">
+                {nodeTemplates.map((template) => (
+                  <button
+                    key={template.variant}
+                    type="button"
+                    className="flex w-full items-center px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-700"
+                    onClick={() => handleContextMenuAddNode(template)}
+                  >
+                    {template.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </main>
       <aside className="w-96 flex-shrink-0 border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex flex-col">
