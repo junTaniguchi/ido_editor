@@ -7,6 +7,20 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import ReactFlow, {
+  Background,
+  Connection,
+  Controls,
+  EdgeChange,
+  MiniMap,
+  NodeChange,
+  ReactFlowProvider,
+  addEdge,
+  applyEdgeChanges,
+  applyNodeChanges,
+  useReactFlow,
+} from 'reactflow';
+import 'reactflow/dist/style.css';
 import { IoAdd, IoAlertCircleOutline, IoCopy, IoTrash } from 'react-icons/io5';
 import { useEditorStore } from '@/store/editorStore';
 import {
@@ -145,6 +159,7 @@ const FieldInput: React.FC<{
 
 const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, content }) => {
   const { updateTab, getTab } = useTabActions();
+  const reactFlow = useReactFlow();
   const [diagramType, setDiagramType] = useState<MermaidDiagramType>('flowchart');
   const [config, setConfig] = useState<MermaidDiagramConfig>(diagramDefinitions.flowchart.defaultConfig);
   const [nodes, setNodes] = useState<MermaidNode[]>([]);
@@ -153,7 +168,12 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const [warnings, setWarnings] = useState<string[]>([]);
   const [inspector, setInspector] = useState<InspectorState | null>(null);
   const [isPaletteCollapsed, setIsPaletteCollapsed] = useState<boolean>(false);
-  const [edgeDraft, setEdgeDraft] = useState<{ source: string; target: string; variant: string; label: string }>({
+  const [edgeDraft, setEdgeDraft] = useState<{
+    source: string;
+    target: string;
+    variant: string;
+    label: string;
+  }>({
     source: '',
     target: '',
     variant: '',
@@ -215,7 +235,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     requestAnimationFrame(() => {
       isHydrating.current = false;
     });
-  }, [content, tabId]);
+  }, [content, tabId, reactFlow]);
 
   useEffect(() => {
     if (!hasInitialized.current) return;
@@ -243,26 +263,71 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     }));
   }, [nodes]);
 
-  const handleAddNode = useCallback((template: MermaidNodeTemplate) => {
-    const definition = diagramDefinitions[diagramType];
-    const id = definition.createNodeId ? definition.createNodeId() : `node_${Date.now()}`;
-    const newNode: MermaidNode = {
-      id,
-      type: 'default',
-      position: {
-        x: (nodes.length % 4) * 200 + 50,
-        y: Math.floor(nodes.length / 4) * 150 + 40,
-      },
-      data: {
-        diagramType,
-        variant: template.variant,
-        label: template.defaultLabel,
-        metadata: template.defaultMetadata ? { ...template.defaultMetadata } : {},
-      },
-    };
-    setNodes((current) => [...current, newNode]);
-    setInspector({ type: 'node', id });
-  }, [diagramType, nodes.length]);
+  const handleNodesChange = useCallback((changes: NodeChange[]) => {
+    setNodes((current) => applyNodeChanges(changes, current));
+  }, []);
+
+  const handleEdgesChange = useCallback((changes: EdgeChange[]) => {
+    setEdges((current) => applyEdgeChanges(changes, current));
+  }, []);
+
+  const handleConnect = useCallback(
+    (connection: Connection) => {
+      if (!connection.source || !connection.target) return;
+      const variant = getDefaultEdgeVariant(diagramType);
+      const template = edgeTemplates.find((item) => item.variant === variant) ?? edgeTemplates[0];
+      const id = createEdgeId();
+      const newEdge: MermaidEdge = {
+        id,
+        source: connection.source,
+        target: connection.target,
+        data: {
+          diagramType,
+          variant: template?.variant ?? variant,
+          label: template?.defaultLabel,
+          metadata: template?.defaultMetadata ? { ...template.defaultMetadata } : {},
+        },
+        label: template?.defaultLabel,
+      };
+      setEdges((current) => addEdge(newEdge, current));
+      setInspector({ type: 'edge', id });
+    },
+    [diagramType, edgeTemplates],
+  );
+
+  useEffect(() => {
+    const nodeIds = new Set(nodes.map((node) => node.id));
+    setEdgeDraft((current) => ({
+      source: nodeIds.has(current.source) ? current.source : '',
+      target: nodeIds.has(current.target) ? current.target : '',
+      variant: current.variant,
+      label: current.label,
+    }));
+  }, [nodes]);
+
+  const handleAddNode = useCallback(
+    (template: MermaidNodeTemplate) => {
+      const definition = diagramDefinitions[diagramType];
+      const id = definition.createNodeId ? definition.createNodeId() : `node_${Date.now()}`;
+      const newNode: MermaidNode = {
+        id,
+        type: 'default',
+        position: {
+          x: (nodes.length % 4) * 200 + 50,
+          y: Math.floor(nodes.length / 4) * 150 + 40,
+        },
+        data: {
+          diagramType,
+          variant: template.variant,
+          label: template.defaultLabel,
+          metadata: template.defaultMetadata ? { ...template.defaultMetadata } : {},
+        },
+      };
+      setNodes((current) => [...current, newNode]);
+      setInspector({ type: 'node', id });
+    },
+    [diagramType, nodes.length],
+  );
 
   const updateNode = useCallback((nodeId: string, updater: (node: MermaidNode) => MermaidNode) => {
     setNodes((current) => current.map((node) => (node.id === nodeId ? updater(node) : node)));
@@ -272,22 +337,25 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     setEdges((current) => current.map((edge) => (edge.id === edgeId ? updater(edge) : edge)));
   }, []);
 
-  const handleDiagramTypeChange = useCallback((nextType: MermaidDiagramType) => {
-    if (nextType === diagramType) return;
-    let allowSwitch = true;
-    if ((nodes.length > 0 || edges.length > 0) && typeof window !== 'undefined') {
-      allowSwitch = window.confirm('図の種類を変更すると現在の図はクリアされます。続行しますか？');
-    }
-    if (!allowSwitch) return;
-    const definition = diagramDefinitions[nextType];
-    setDiagramType(nextType);
-    setConfig(definition.defaultConfig);
-    setNodes([]);
-    setEdges([]);
-    setWarnings([]);
-    setInspector(null);
-    setEdgeDraft({ source: '', target: '', variant: '', label: '' });
-  }, [diagramType, nodes.length, edges.length]);
+  const handleDiagramTypeChange = useCallback(
+    (nextType: MermaidDiagramType) => {
+      if (nextType === diagramType) return;
+      let allowSwitch = true;
+      if ((nodes.length > 0 || edges.length > 0) && typeof window !== 'undefined') {
+        allowSwitch = window.confirm('図の種類を変更すると現在の図はクリアされます。続行しますか？');
+      }
+      if (!allowSwitch) return;
+      const definition = diagramDefinitions[nextType];
+      setDiagramType(nextType);
+      setConfig(definition.defaultConfig);
+      setNodes([]);
+      setEdges([]);
+      setWarnings([]);
+      setInspector(null);
+      setEdgeDraft({ source: '', target: '', variant: '', label: '' });
+    },
+    [diagramType, nodes.length, edges.length],
+  );
 
   const handleDeleteSelection = useCallback(() => {
     if (!inspector) return;
@@ -322,6 +390,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       return;
     }
     const variant = edgeDraft.variant || getDefaultEdgeVariant(diagramType);
+    const template = edgeTemplates.find((item) => item.variant === variant);
     const id = createEdgeId();
     const newEdge: MermaidEdge = {
       id,
@@ -330,10 +399,10 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       data: {
         diagramType,
         variant,
-        label: edgeDraft.label || undefined,
-        metadata: {},
+        label: edgeDraft.label || template?.defaultLabel,
+        metadata: template?.defaultMetadata ? { ...template.defaultMetadata } : {},
       },
-      label: edgeDraft.label || undefined,
+      label: edgeDraft.label || template?.defaultLabel,
     };
     setEdges((current) => [...current, newEdge]);
     setInspector({ type: 'edge', id });
@@ -343,14 +412,16 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       variant: current.variant || variant,
       label: '',
     }));
-  }, [diagramType, edgeDraft]);
+  }, [diagramType, edgeDraft, edgeTemplates]);
 
-  const handleSelectFromCanvas = useCallback((selection: InspectorState | null) => {
-    setInspector(selection);
-  }, []);
-
-  const selectedNode = useMemo(() => nodes.find((node) => inspector?.type === 'node' && node.id === inspector.id), [inspector, nodes]);
-  const selectedEdge = useMemo(() => edges.find((edge) => inspector?.type === 'edge' && edge.id === inspector.id), [inspector, edges]);
+  const selectedNode = useMemo(
+    () => nodes.find((node) => inspector?.type === 'node' && node.id === inspector.id),
+    [inspector, nodes],
+  );
+  const selectedEdge = useMemo(
+    () => edges.find((edge) => inspector?.type === 'edge' && edge.id === inspector.id),
+    [inspector, edges],
+  );
 
   const selectedNodeTemplate = useMemo(() => {
     if (!selectedNode) return undefined;
@@ -637,8 +708,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       </aside>
       <main className="flex-1 min-w-0 flex flex-col bg-white dark:bg-gray-950">
         <div className="flex-1 min-h-0 border-b border-gray-200 dark:border-gray-800">
-          <InteractiveMermaidCanvas
-            code={generatedCode}
+          <ReactFlow
             nodes={nodes}
             edges={edges}
             selected={inspector}
