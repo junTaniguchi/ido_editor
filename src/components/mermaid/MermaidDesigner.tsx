@@ -40,6 +40,7 @@ import type {
   MermaidNode,
 } from '@/lib/mermaid/types';
 import MermaidPreview from '@/components/preview/MermaidPreview';
+import InteractiveMermaidCanvas from './InteractiveMermaidCanvas';
 
 export interface MermaidDesignerProps {
   tabId: string;
@@ -171,7 +172,7 @@ const FieldInput: React.FC<{
   }
 };
 
-const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, content }) => {
+const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, content }) => {
   const { updateTab, getTab } = useTabActions();
   const reactFlowInstanceRef = useRef<ReactFlowInstance | null>(null);
   const flowWrapperRef = useRef<HTMLDivElement | null>(null);
@@ -581,6 +582,12 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
     if (inspector.type === 'node') {
       setNodes((current) => current.filter((node) => node.id !== inspector.id));
       setEdges((current) => current.filter((edge) => edge.source !== inspector.id && edge.target !== inspector.id));
+      setEdgeDraft((current) => ({
+        source: current.source === inspector.id ? '' : current.source,
+        target: current.target === inspector.id ? '' : current.target,
+        variant: current.variant,
+        label: current.label,
+      }));
     } else {
       setEdges((current) => current.filter((edge) => edge.id !== inspector.id));
     }
@@ -964,11 +971,5 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
     </div>
   );
 };
-
-const MermaidDesigner: React.FC<MermaidDesignerProps> = (props) => (
-  <ReactFlowProvider>
-    <MermaidDesignerInner {...props} />
-  </ReactFlowProvider>
-);
 
 export default MermaidDesigner;
