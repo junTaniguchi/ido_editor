@@ -168,6 +168,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const [warnings, setWarnings] = useState<string[]>([]);
   const [inspector, setInspector] = useState<InspectorState | null>(null);
   const [isPaletteCollapsed, setIsPaletteCollapsed] = useState<boolean>(false);
+  const [isDiagramTypeLocked, setIsDiagramTypeLocked] = useState<boolean>(false);
   const [edgeDraft, setEdgeDraft] = useState<{
     source: string;
     target: string;
@@ -183,7 +184,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const lastHydratedTabIdRef = useRef<string | null>(null);
   const isHydrating = useRef<boolean>(false);
   const hasInitialized = useRef<boolean>(false);
-
+  const hasLockedTypeRef = useRef<boolean>(false);
   const nodeTemplates = useMemo<MermaidNodeTemplate[]>(
     () => diagramDefinitions[diagramType].nodeTemplates,
     [diagramType],
@@ -227,6 +228,11 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   );
 
   useEffect(() => {
+    hasLockedTypeRef.current = false;
+    setIsDiagramTypeLocked(false);
+  }, [tabId]);
+
+  useEffect(() => {
     if (content === lastSerializedRef.current && lastHydratedTabIdRef.current === tabId) {
       return;
     }
@@ -237,6 +243,12 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     setNodes(parsed.nodes);
     setEdges(parsed.edges.map((edge) => ({ ...edge, label: edge.data.label })));
     setWarnings(parsed.warnings);
+    const trimmed = content.trim();
+    const shouldLockType = trimmed.length > 0 || parsed.nodes.length > 0 || parsed.edges.length > 0;
+    if (shouldLockType) {
+      hasLockedTypeRef.current = true;
+    }
+    setIsDiagramTypeLocked(hasLockedTypeRef.current);
     const { code } = serializeMermaid(parsed);
     setGeneratedCode(code);
     lastSerializedRef.current = code;
@@ -466,6 +478,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
 
   const handleDiagramTypeChange = useCallback(
     (nextType: MermaidDiagramType) => {
+      if (isDiagramTypeLocked) return;
       if (nextType === diagramType) return;
       let allowSwitch = true;
       if ((nodes.length > 0 || edges.length > 0) && typeof window !== 'undefined') {
@@ -480,8 +493,10 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       setWarnings([]);
       setInspector(null);
       setEdgeDraft({ source: '', target: '', variant: '', label: '' });
+      hasLockedTypeRef.current = true;
+      setIsDiagramTypeLocked(true);
     },
-    [diagramType, nodes.length, edges.length],
+    [diagramType, edges.length, isDiagramTypeLocked, nodes.length],
   );
 
   const handleDeleteSelection = useCallback(() => {
@@ -710,17 +725,29 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
             </button>
           </div>
           {!isPaletteCollapsed && (
-            <select
-              className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
-              value={diagramType}
-              onChange={(event) => handleDiagramTypeChange(event.target.value as MermaidDiagramType)}
-            >
-              {diagramList.map((item) => (
-                <option key={item.type} value={item.type}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
+            <div className="space-y-1">
+              <select
+                className={`w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm ${
+                  isDiagramTypeLocked
+                    ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed text-gray-500 dark:text-gray-400'
+                    : 'bg-white dark:bg-gray-900'
+                }`}
+                value={diagramType}
+                onChange={(event) => handleDiagramTypeChange(event.target.value as MermaidDiagramType)}
+                disabled={isDiagramTypeLocked}
+              >
+                {diagramList.map((item) => (
+                  <option key={item.type} value={item.type}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+              {isDiagramTypeLocked && (
+                <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                  図の種類は一度選択すると変更できません。
+                </p>
+              )}
+            </div>
           )}
           {!isPaletteCollapsed && (
             <div>

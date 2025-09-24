@@ -11,7 +11,7 @@ interface EditorStore {
   lastViewMode: 'editor' | 'preview' | 'data-preview' | 'split'; // グローバルな表示モード
   setActiveTabId: (id: string | null) => void;
   addTab: (tab: TabData) => void;
-  addTempTab: (type: string, name?: string) => void;
+  addTempTab: (type: string, name?: string, initialContent?: string) => void;
   updateTab: (id: string, updates: Partial<TabData>) => void;
   removeTab: (id: string) => void;
   getTab: (id: string) => TabData | undefined;
@@ -94,7 +94,7 @@ export const useEditorStore = create<EditorStore>()(
         newViewModes.set(tab.id, state.lastViewMode || 'editor');
         return { tabs: newTabs, activeTabId: tab.id, viewModes: newViewModes };
       }),
-      addTempTab: (type, name) => set((state) => {
+      addTempTab: (type, name, initialContent = '') => set((state) => {
         // 現在時刻をベースにしたユニークなID
         const timestamp = new Date().getTime();
         const tempId = `temp_${timestamp}`;
@@ -103,8 +103,8 @@ export const useEditorStore = create<EditorStore>()(
         const newTab: TabData = {
           id: tempId,
           name: fileName,
-          content: '',
-          originalContent: '',
+          content: initialContent,
+          originalContent: initialContent,
           isDirty: false,
           type: type as any, // タイプキャスト
           isReadOnly: false,

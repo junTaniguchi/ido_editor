@@ -9,12 +9,15 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useEditorStore } from '@/store/editorStore';
 import TabBarDnD from '@/components/tabs/TabBarDnD';
 import InputDialog from '@/components/modals/InputDialog';
+import MermaidTemplateDialog from '@/components/modals/MermaidTemplateDialog';
 import MainHeader from '@/components/layout/MainHeader';
 import ViewModeBanner from '@/components/layout/ViewModeBanner';
 import Workspace from '@/components/layout/Workspace';
 import { createNewFile } from '@/lib/fileSystemUtils';
 import { getFileType } from '@/lib/editorUtils';
+import { getMermaidTemplate } from '@/lib/mermaid/diagramDefinitions';
 import { TabData } from '@/types';
+import type { MermaidDiagramType } from '@/lib/mermaid/types';
 
 const MainLayout = () => {
   const {
@@ -37,6 +40,11 @@ const MainLayout = () => {
   } = useEditorStore();
 
   const [showNewFileDialog, setShowNewFileDialog] = useState(false);
+  const [showMermaidTemplateDialog, setShowMermaidTemplateDialog] = useState(false);
+  const [pendingMermaidFile, setPendingMermaidFile] = useState<{
+    fileName: string;
+    directoryHandle: FileSystemDirectoryHandle | null;
+  } | null>(null);
 
   const activeTab = activeTabId ? tabs.get(activeTabId) : null;
   const activeTabViewMode = activeTabId ? getViewMode(activeTabId) : 'editor';
@@ -105,6 +113,13 @@ const MainLayout = () => {
     async (fileName: string) => {
       setShowNewFileDialog(false);
 
+      const lowerName = fileName.toLowerCase();
+      if (lowerName.endsWith('.mmd')) {
+        setPendingMermaidFile({ fileName, directoryHandle: rootDirHandle ?? null });
+        setShowMermaidTemplateDialog(true);
+        return;
+      }
+
       if (rootDirHandle) {
         try {
           const fileHandle = await createNewFile(rootDirHandle, fileName, '');
@@ -133,6 +148,56 @@ const MainLayout = () => {
       }
     },
     [addTab, addTempTab, rootDirHandle]
+  );
+
+  const handleMermaidTemplateCancel = useCallback(() => {
+    setPendingMermaidFile(null);
+    setShowMermaidTemplateDialog(false);
+  }, []);
+
+  const handleMermaidTemplateConfirm = useCallback(
+    async (diagramType: MermaidDiagramType) => {
+      if (!pendingMermaidFile) return;
+
+      const template = getMermaidTemplate(diagramType);
+
+      try {
+        if (pendingMermaidFile.directoryHandle) {
+          const fileHandle = await createNewFile(
+            pendingMermaidFile.directoryHandle,
+            pendingMermaidFile.fileName,
+            template,
+          );
+
+          if (!fileHandle) {
+            throw new Error('ファイルハンドルを取得できませんでした');
+          }
+
+          const newTab: TabData = {
+            id: pendingMermaidFile.fileName,
+            name: pendingMermaidFile.fileName,
+            content: template,
+            originalContent: template,
+            isDirty: false,
+            type: getFileType(pendingMermaidFile.fileName),
+            isReadOnly: false,
+          };
+
+          addTab(newTab);
+        } else {
+          const parts = pendingMermaidFile.fileName.split('.');
+          const fileType = parts.length > 1 ? parts[parts.length - 1].toLowerCase() : 'mmd';
+          addTempTab(fileType, pendingMermaidFile.fileName, template);
+        }
+      } catch (error) {
+        console.error('Failed to create Mermaid file:', error);
+        alert(`Mermaidファイルの作成に失敗しました: ${error instanceof Error ? error.message : '不明なエラー'}`);
+      } finally {
+        setPendingMermaidFile(null);
+        setShowMermaidTemplateDialog(false);
+      }
+    },
+    [addTab, addTempTab, pendingMermaidFile],
   );
 
   const canToggleViewMode = useMemo(() => {
@@ -321,6 +386,14 @@ const MainLayout = () => {
           }}
           onConfirm={handleConfirmNewFile}
           onCancel={() => setShowNewFileDialog(false)}
+        />
+      )}
+
+      {showMermaidTemplateDialog && pendingMermaidFile && (
+        <MermaidTemplateDialog
+          isOpen={showMermaidTemplateDialog}
+          onCancel={handleMermaidTemplateCancel}
+          onConfirm={handleMermaidTemplateConfirm}
         />
       )}
     </div>
