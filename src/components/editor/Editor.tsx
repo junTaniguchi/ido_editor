@@ -17,9 +17,9 @@ import { getLanguageByFileName, getTheme, getEditorExtensions } from '@/lib/edit
 import { TabData } from '@/types';
 import { IoCodeSlash, IoEye, IoAnalytics, IoSave, IoGrid, IoDownload } from 'react-icons/io5';
 import DataPreview from '@/components/preview/DataPreview';
-import MermaidPreview from '@/components/preview/MermaidPreview';
 import MarkdownPreview from '@/components/preview/MarkdownPreview';
 import HtmlPreview from '@/components/preview/HtmlPreview';
+import MermaidPreview from '@/components/preview/MermaidPreview';
 import MarkdownEditorExtension from '@/components/markdown/MarkdownEditorExtension';
 import ExportModal from '@/components/preview/ExportModal';
 import { parseCSV, parseJSON, parseYAML, parseParquet } from '@/lib/dataPreviewUtils';
@@ -114,10 +114,12 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
   
   const toggleViewMode = () => {
     // エディタ → プレビュー → 分割表示 → エディタ の順に切り替え
-    let newMode: 'editor' | 'preview' | 'split';
+    let newMode: 'editor' | 'preview' | 'data-preview' | 'split';
     if (viewMode === 'editor') {
       newMode = 'preview';
     } else if (viewMode === 'preview') {
+      newMode = 'data-preview';
+    } else if (viewMode === 'data-preview') {
       newMode = 'split';
     } else {
       newMode = 'editor';
@@ -323,11 +325,14 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
   }
   
   // 対応するファイルタイプかどうかチェック
-  const isPreviewable = currentTab.type === 'csv' || currentTab.type === 'tsv' || 
-                          currentTab.type === 'json' || currentTab.type === 'yaml' || 
-                          currentTab.type === 'parquet' || currentTab.type === 'mermaid' || 
-                          currentTab.type === 'markdown' || currentTab.type === 'md' || 
+  const isPreviewable = currentTab.type === 'csv' || currentTab.type === 'tsv' ||
+                          currentTab.type === 'json' || currentTab.type === 'yaml' ||
+                          currentTab.type === 'parquet' || currentTab.type === 'mermaid' ||
+                          currentTab.type === 'markdown' || currentTab.type === 'md' ||
                           currentTab.type === 'mmd' || currentTab.type === 'html';
+  const isMarkdownTab = currentTab.type === 'markdown' || currentTab.type === 'md';
+  const isMermaidTab = currentTab.type === 'mermaid' || currentTab.type === 'mmd';
+  const isHtmlTab = currentTab.type === 'html';
   
   // エディタ設定
   const { theme, fontSize, lineWrapping, rectangularSelection } = editorSettings;
@@ -428,18 +433,22 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
         )}
         
         {/* プレビューモードの場合のみプレビュー表示（分割表示はMainLayoutで処理） */}
-        {isPreviewable && viewMode === 'preview' && (
+        {isPreviewable && (viewMode === 'preview' || viewMode === 'data-preview') && (
           <div className="h-full">
-            {currentTab.type === 'mermaid' || currentTab.type === 'mmd' ? (
-              <MermaidPreview content={currentTab.content} fileName={currentTab.name} />
-            ) : currentTab.type === 'markdown' || currentTab.type === 'md' ? (
+            {viewMode === 'data-preview' ? (
+              <div className="h-full">
+                <DataPreview tabId={tabId} />
+              </div>
+            ) : isMarkdownTab ? (
               <div className="h-full">
                 <MarkdownPreview tabId={tabId} />
               </div>
-            ) : currentTab.type === 'html' ? (
+            ) : isHtmlTab ? (
               <div className="h-full">
                 <HtmlPreview tabId={tabId} />
               </div>
+            ) : isMermaidTab ? (
+              <MermaidPreview content={currentTab.content} fileName={currentTab.name} />
             ) : (
               <div className="h-full">
                 <DataPreview tabId={tabId} />

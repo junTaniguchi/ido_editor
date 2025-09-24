@@ -41,6 +41,8 @@ export interface MermaidDiagramDefinition {
   nodeTemplates: MermaidNodeTemplate[];
   edgeTemplates: MermaidEdgeTemplate[];
   defaultConfig: MermaidDiagramConfig;
+  /** 新規作成時に利用するテンプレートコード */
+  defaultTemplate: string;
   configFields?: MermaidFieldDefinition[];
   supportsEdges: boolean;
   /** ノード追加時にユニークIDを生成するヘルパー */
@@ -118,6 +120,13 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
       },
     ],
     defaultConfig: { type: 'flowchart', orientation: 'TD' },
+    defaultTemplate: `flowchart TD
+  Start((Start))
+  Process[Process]
+  End((End))
+
+  Start --> Process
+  Process --> End`,
     configFields: [
       {
         key: 'orientation',
@@ -208,6 +217,11 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
       },
     ],
     defaultConfig: { type: 'sequence', autoNumber: false },
+    defaultTemplate: `sequenceDiagram
+  participant Alice
+  participant Bob
+
+  Alice->>Bob: Hello Bob!`,
     configFields: [
       {
         key: 'autoNumber',
@@ -263,6 +277,13 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
       { variant: 'dependency', label: '依存 (..>)', fields: [{ key: 'label', label: '説明', type: 'text' }] },
     ],
     defaultConfig: { type: 'class', direction: 'TB' },
+    defaultTemplate: `classDiagram
+  class ClassName {
+    +string property
+    +operation()
+  }
+
+  ClassName <|-- DerivedClass`,
     configFields: [
       {
         key: 'direction',
@@ -313,6 +334,10 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
       },
     ],
     defaultConfig: { type: 'state', direction: 'TB' },
+    defaultTemplate: `stateDiagram-v2
+  [*] --> State1
+  State1 --> State2
+  State2 --> [*]`,
     configFields: [
       {
         key: 'direction',
@@ -356,6 +381,13 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
       { variant: 'manyToMany', label: '多対多 ({--})', fields: [{ key: 'label', label: '説明', type: 'text' }] },
     ],
     defaultConfig: { type: 'er' },
+    defaultTemplate: `erDiagram
+  CUSTOMER ||--o{ ORDER : places
+  ORDER ||--|{ LINE-ITEM : contains
+  CUSTOMER {
+    string name
+    string address
+  }`,
     supportsEdges: true,
     createNodeId: () => `entity_${createId()}`,
   },
@@ -404,6 +436,11 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
     ],
     edgeTemplates: [],
     defaultConfig: { type: 'gantt', dateFormat: 'YYYY-MM-DD', axisFormat: '%m/%d', title: 'Timeline' },
+    defaultTemplate: `gantt
+  title Timeline
+  dateFormat YYYY-MM-DD
+  section General
+    Task :a1, 2024-01-01, 3d`,
     configFields: [
       { key: 'title', label: 'タイトル', type: 'text' },
       { key: 'dateFormat', label: '日付フォーマット', type: 'text', placeholder: 'YYYY-MM-DD' },
@@ -417,3 +454,5 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
 export const diagramList: { type: MermaidDiagramType; label: string }[] = Object.values(diagramDefinitions).map(
   ({ type, label }) => ({ type, label })
 );
+
+export const getMermaidTemplate = (type: MermaidDiagramType): string => diagramDefinitions[type].defaultTemplate;
