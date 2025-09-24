@@ -8,15 +8,15 @@ import MultiFileAnalysis from '@/components/analysis/MultiFileAnalysis';
 import DataAnalysis from '@/components/analysis/DataAnalysis';
 import Editor from '@/components/editor/Editor';
 import MarkdownPreview from '@/components/preview/MarkdownPreview';
-import MermaidPreview from '@/components/preview/MermaidPreview';
 import DataPreview from '@/components/preview/DataPreview';
 import HtmlPreview from '@/components/preview/HtmlPreview';
+import MermaidPreview from '@/components/preview/MermaidPreview';
 
 interface WorkspaceProps {
   paneState: PaneState;
   activeTab: TabData | null;
   activeTabId: string | null;
-  activeTabViewMode: 'editor' | 'preview' | 'split';
+  activeTabViewMode: 'editor' | 'preview' | 'data-preview' | 'split';
   multiFileAnalysisEnabled: boolean;
   onCloseMultiFileAnalysis: () => void;
 }
@@ -174,16 +174,22 @@ const Workspace: React.FC<WorkspaceProps> = ({
           {isMarkdown ? (
             <MarkdownPreview tabId={activeTabId} />
           ) : isMermaid ? (
-            <div className="h-full w-full overflow-auto">
-              <div className="w-full">
-                <MermaidPreview content={activeTab.content} fileName={activeTab.name} />
-              </div>
-            </div>
+            <MermaidPreview content={activeTab.content} fileName={activeTab.name} />
           ) : isHtml ? (
             <HtmlPreview tabId={activeTabId} />
           ) : (
-            <DataPreview tabId={activeTabId} />
+            <div className="h-full">
+              <DataPreview tabId={activeTabId} />
+            </div>
           )}
+        </div>
+      );
+    }
+
+    if (activeTabViewMode === 'data-preview') {
+      return (
+        <div className="w-full h-full overflow-hidden">
+          <DataPreview tabId={activeTabId} />
         </div>
       );
     }
@@ -214,15 +220,13 @@ const Workspace: React.FC<WorkspaceProps> = ({
           {isMarkdown ? (
             <MarkdownPreview tabId={activeTabId} onScroll={handlePreviewScroll} />
           ) : isMermaid ? (
-            <div className="h-full py-2">
-              <div className="w-full mx-auto px-4">
-                <MermaidPreview content={activeTab.content} fileName={activeTab.name} />
-              </div>
-            </div>
+            <MermaidPreview content={activeTab.content} fileName={activeTab.name} />
           ) : isHtml ? (
             <HtmlPreview tabId={activeTabId} onScroll={handlePreviewScroll} />
           ) : (
-            <DataPreview tabId={activeTabId} />
+            <div className="h-full">
+              <DataPreview tabId={activeTabId} />
+            </div>
           )}
         </div>
       </div>
@@ -238,7 +242,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
       );
     }
 
-    if (activeTabViewMode === 'preview') {
+    if (activeTabViewMode === 'preview' || activeTabViewMode === 'data-preview') {
       return (
         <div className="w-full h-full overflow-hidden">
           <DataPreview tabId={activeTabId} />

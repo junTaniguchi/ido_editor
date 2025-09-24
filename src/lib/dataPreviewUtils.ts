@@ -495,21 +495,31 @@ export const downloadData = (data: any[], filename: string, format: 'csv'|'tsv'|
 export const parseMermaid = (content: string) => {
   try {
     // Mermaidはテキスト形式なので、基本的なバリデーションのみ行う
-    const lines = content.trim().split('\n');
-    
-    // 空のファイルかチェック
-    if (lines.length === 0 || (lines.length === 1 && lines[0].trim() === '')) {
-      return { 
-        data: { diagram: content, type: 'unknown', valid: false },
-        error: '空のMermaidファイルです', 
-        valid: false 
+    const trimmed = content.trim();
+
+    if (!trimmed) {
+      return {
+        data: {
+          diagram: content,
+          type: 'flowchart',
+          metadata: {
+            lines: 0,
+            type: 'flowchart',
+            preview: '',
+          },
+          valid: true,
+        },
+        error: null,
+        valid: true,
       };
     }
-    
+
+    const lines = trimmed.split('\n');
+
     // 一般的なMermaid図式タイプを検出
     const firstLine = lines[0].trim().toLowerCase();
     let diagramType = 'unknown';
-    
+
     if (firstLine.startsWith('graph ') || firstLine.startsWith('flowchart ')) {
       diagramType = 'flowchart';
     } else if (firstLine.startsWith('sequencediagram')) {
@@ -525,14 +535,14 @@ export const parseMermaid = (content: string) => {
     } else if (firstLine.startsWith('pie')) {
       diagramType = 'pie';
     }
-    
+
     // メタデータを収集
     const metadata = {
       lines: lines.length,
       type: diagramType,
       preview: lines.slice(0, Math.min(5, lines.length)).join('\n') + (lines.length > 5 ? '...' : '')
     };
-    
+
     return { 
       data: { 
         diagram: content, 
