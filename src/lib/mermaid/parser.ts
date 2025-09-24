@@ -115,7 +115,7 @@ const parseFlowchart = (source: string): MermaidGraphModel => {
     { variant: 'startEnd', regex: /([\p{L}\p{N}_-]+)\s*\(([^)]+)\)/gu },
     { variant: 'inputOutput', regex: /([\p{L}\p{N}_-]+)\s*\[\/([^/]+)\/\]/gu },
   ];
-  const edgePattern = /([\p{L}\p{N}_-]+)\s*([-\.=>ox]+)\s*(?:\|([^|]+)\|)?\s*([\p{L}\p{N}_-]+)/gu;
+  const edgePattern = /([\p{L}\p{N}_-]+)\s*((?=[-\.=>ox]*[-\.=>])[-\.=>ox]+)\s*(?:\|([^|]+)\|)?\s*([\p{L}\p{N}_-]+)/gu;
 
   lines.forEach((line) => {
     const trimmed = line.trim();
@@ -129,11 +129,17 @@ const parseFlowchart = (source: string): MermaidGraphModel => {
       return;
     }
 
+    const matchedNodeIds = new Set<string>();
+
     nodePatterns.forEach(({ variant, regex }) => {
       let match: RegExpExecArray | null;
       regex.lastIndex = 0;
       while ((match = regex.exec(trimmed)) !== null) {
         const id = sanitizeId(match[1]);
+        if (matchedNodeIds.has(id)) {
+          continue;
+        }
+        matchedNodeIds.add(id);
         const label = sanitizeLabel(match[2]);
         ensureNode(model, id, variant, label);
       }

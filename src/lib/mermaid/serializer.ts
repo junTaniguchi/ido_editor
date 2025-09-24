@@ -28,7 +28,7 @@ const serializeFlowchart = (model: MermaidGraphModel): MermaidSerializationResul
     let declaration = '';
     switch (variant) {
       case 'startEnd':
-        declaration = `${node.id}(${safeLabel})`;
+        declaration = `${node.id}((${safeLabel}))`;
         break;
       case 'decision':
         declaration = `${node.id}{${safeLabel}}`;
