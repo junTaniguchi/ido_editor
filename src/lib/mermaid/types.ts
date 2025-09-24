@@ -33,6 +33,10 @@ export interface MermaidEdgeData {
   variant: string;
   /** エッジに表示するラベル */
   label?: string;
+  /** 同一ノード間の並列エッジでのインデックス */
+  parallelIndex?: number;
+  /** 同一ノード間の並列エッジ数 */
+  parallelCount?: number;
   /** 追加メタデータ（自由形式） */
   metadata?: Record<string, string>;
 }

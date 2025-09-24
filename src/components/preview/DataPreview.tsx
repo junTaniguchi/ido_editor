@@ -149,6 +149,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
           const extension = fileName.split('.').pop()?.toLowerCase();
           if (extension === 'ipynb') mappedType = 'ipynb';
           if (extension === 'pdf') mappedType = 'pdf';
+          if (extension === 'mmd') mappedType = 'mermaid';
         }
         setType(mappedType as typeof type);
         
@@ -181,11 +182,13 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
       setContent(tab.content);
       setEditableContent(tab.content);
       let mappedType = tab.type;
+      if (tab.type === 'mmd') mappedType = 'mermaid';
       if (tab.type === 'text' || tab.type === 'json') {
         const fileName = tab.name || '';
         const extension = fileName.split('.').pop()?.toLowerCase();
         if (extension === 'ipynb') mappedType = 'ipynb';
         if (extension === 'pdf') mappedType = 'pdf';
+        if (extension === 'mmd') mappedType = 'mermaid';
       }
       parseContent(tab.content, mappedType);
     }

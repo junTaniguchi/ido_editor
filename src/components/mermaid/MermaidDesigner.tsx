@@ -12,10 +12,10 @@ import ReactFlow, {
   Connection,
   Controls,
   EdgeChange,
+  MarkerType,
   MiniMap,
   NodeChange,
   ReactFlowProvider,
-  addEdge,
   applyEdgeChanges,
   applyNodeChanges,
 } from 'reactflow';
@@ -41,6 +41,7 @@ import type {
 } from '@/lib/mermaid/types';
 import MermaidPreview from '@/components/preview/MermaidPreview';
 import InteractiveMermaidCanvas from './InteractiveMermaidCanvas';
+import MermaidEdgeComponent from './MermaidEdge';
 
 export interface MermaidDesignerProps {
   tabId: string;
@@ -78,6 +79,57 @@ const parseBoolean = (value: string | undefined): boolean => value === 'true';
 const createEdgeId = (): string => `edge_${Date.now().toString(36)}`;
 
 const PERSISTENT_METADATA_KEYS = ['sequence', 'command'];
+
+const MERMAID_EDGE_TYPE = 'mermaid-edge';
+
+const normalizeEdges = (edgeList: MermaidEdge[]): MermaidEdge[] => {
+  if (!Array.isArray(edgeList) || edgeList.length === 0) {
+    return [];
+  }
+
+  const edgesWithIds = edgeList.map((edge, index) => ({
+    edge,
+    id: edge.id ?? `edge_auto_${index}`,
+  }));
+
+  const pairMap = new Map<string, string[]>();
+  edgesWithIds.forEach(({ edge, id }) => {
+    const key = `${edge.source ?? ''}__${edge.target ?? ''}`;
+    const existing = pairMap.get(key);
+    if (existing) {
+      existing.push(id);
+    } else {
+      pairMap.set(key, [id]);
+    }
+  });
+
+  const metaMap = new Map<string, { index: number; count: number }>();
+  pairMap.forEach((ids) => {
+    ids.forEach((edgeId, index) => {
+      metaMap.set(edgeId, { index, count: ids.length });
+    });
+  });
+
+  return edgesWithIds.map(({ edge, id }) => {
+    const meta = metaMap.get(id);
+    const parallelCount = meta?.count ?? 1;
+    const parallelIndex = meta && parallelCount > 1 ? meta.index : 0;
+    const normalizedLabel = edge.data?.label ?? edge.label;
+
+    return {
+      ...edge,
+      id,
+      type: edge.type ?? MERMAID_EDGE_TYPE,
+      label: normalizedLabel,
+      data: {
+        ...edge.data,
+        label: normalizedLabel,
+        parallelIndex,
+        parallelCount,
+      },
+    };
+  });
+};
 
 const useTabActions = () => {
   const updateTab = useEditorStore((state) => state.updateTab);
@@ -179,7 +231,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const [diagramType, setDiagramType] = useState<MermaidDiagramType>('flowchart');
   const [config, setConfig] = useState<MermaidDiagramConfig>(diagramDefinitions.flowchart.defaultConfig);
   const [nodes, setNodes] = useState<MermaidNode[]>([]);
-  const [edges, setEdges] = useState<MermaidEdge[]>([]);
+  const [edges, setEdgesState] = useState<MermaidEdge[]>([]);
   const [generatedCode, setGeneratedCode] = useState<string>('');
   const [warnings, setWarnings] = useState<string[]>([]);
   const [inspector, setInspector] = useState<InspectorState | null>(null);
@@ -197,6 +249,17 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const isHydrating = useRef<boolean>(false);
   const hasInitialized = useRef<boolean>(false);
   const hasLockedTypeRef = useRef<boolean>(false);
+
+  const updateEdges = useCallback(
+    (updater: React.SetStateAction<MermaidEdge[]>) => {
+      setEdgesState((current) => {
+        const next =
+          typeof updater === 'function' ? (updater as (prev: MermaidEdge[]) => MermaidEdge[])(current) : updater;
+        return normalizeEdges(Array.isArray(next) ? next : []);
+      });
+    },
+    [],
+  );
 
   const nodeTemplates = useMemo<MermaidNodeTemplate[]>(
     () => diagramDefinitions[diagramType].nodeTemplates,
@@ -256,7 +319,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     setDiagramType(parsed.type);
     setConfig(parsed.config);
     setNodes(parsed.nodes);
-    setEdges(parsed.edges.map((edge) => ({ ...edge, label: edge.data.label })));
+    updateEdges(parsed.edges.map((edge) => ({ ...edge, label: edge.data.label })));
     setWarnings(parsed.warnings);
     const trimmed = content.trim();
     const shouldLockType = trimmed.length > 0 || parsed.nodes.length > 0 || parsed.edges.length > 0;
@@ -281,7 +344,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       isHydrating.current = false;
       fitViewToDiagram({ duration: 300 });
     });
-  }, [content, tabId, fitViewToDiagram]);
+  }, [content, tabId, fitViewToDiagram, updateEdges]);
 
   useEffect(() => {
     if (!hasInitialized.current) return;
@@ -313,9 +376,12 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     setNodes((current) => applyNodeChanges(changes, current));
   }, []);
 
-  const handleEdgesChange = useCallback((changes: EdgeChange[]) => {
-    setEdges((current) => applyEdgeChanges(changes, current));
-  }, []);
+  const handleEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      updateEdges((current) => applyEdgeChanges(changes, current));
+    },
+    [updateEdges],
+  );
 
   const handleConnect = useCallback(
     (connection: Connection) => {
@@ -324,22 +390,46 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       const variant = getDefaultEdgeVariant(diagramType);
       const template = edgeTemplates.find((item) => item.variant === variant) ?? edgeTemplates[0];
       const id = createEdgeId();
-      const newEdge: MermaidEdge = {
-        id,
-        source: connection.source,
-        target: connection.target,
-        data: {
-          diagramType,
-          variant: template?.variant ?? variant,
-          label: template?.defaultLabel,
-          metadata: template?.defaultMetadata ? { ...template.defaultMetadata } : {},
-        },
-        label: template?.defaultLabel,
-      };
-      setEdges((current) => addEdge(newEdge, current));
+      updateEdges((current) => {
+        const existing = current.filter(
+          (edge) => edge.source === connection.source && edge.target === connection.target,
+        );
+        const baseLabel = template?.defaultLabel ?? '';
+        const automaticLabel = baseLabel
+          ? existing.length > 0
+            ? `${baseLabel} ${existing.length + 1}`
+            : baseLabel
+          : undefined;
+
+        const newEdge: MermaidEdge = {
+          id,
+          type: MERMAID_EDGE_TYPE,
+          source: connection.source,
+          target: connection.target,
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            width: 18,
+            height: 18,
+            color: '#1f2937',
+          },
+          style: {
+            stroke: '#1f2937',
+            strokeWidth: 1.6,
+          },
+          data: {
+            diagramType,
+            variant: template?.variant ?? variant,
+            label: automaticLabel,
+            metadata: template?.defaultMetadata ? { ...template.defaultMetadata } : {},
+          },
+          label: automaticLabel,
+        };
+
+        return [...current, newEdge];
+      });
       setInspector({ type: 'edge', id });
     },
-    [diagramType, edgeTemplates, supportsEdges],
+    [diagramType, edgeTemplates, supportsEdges, updateEdges],
   );
 
   const handleSelectionChange = useCallback((params: { nodes: MermaidNode[]; edges: MermaidEdge[] }) => {
@@ -431,8 +521,8 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   }, []);
 
   const updateEdge = useCallback((edgeId: string, updater: (edge: MermaidEdge) => MermaidEdge) => {
-    setEdges((current) => current.map((edge) => (edge.id === edgeId ? updater(edge) : edge)));
-  }, []);
+    updateEdges((current) => current.map((edge) => (edge.id === edgeId ? updater(edge) : edge)));
+  }, [updateEdges]);
 
   const handleAutoLayout = useCallback(() => {
     setNodes((currentNodes) => {
@@ -512,22 +602,56 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         layerMap.set(level, entry);
       });
 
-      const horizontalSpacing = 220;
+      const sortedLayers = Array.from(layerMap.entries()).sort((a, b) => a[0] - b[0]);
+      const previousLayerOrder = new Map<string, number>();
+      sortedLayers.forEach(([layerIndex, nodeIds]) => {
+        const ranked = nodeIds.map((nodeId, rawIndex) => {
+          const inbound = edges.filter(
+            (edge) => edge.target === nodeId && (levels.get(edge.source) ?? 0) < layerIndex,
+          );
+          if (inbound.length > 0) {
+            const score = inbound.reduce((sum, edge) => sum + (previousLayerOrder.get(edge.source) ?? rawIndex), 0);
+            return { nodeId, score: score / inbound.length };
+          }
+
+          const outbound = edges.filter(
+            (edge) => edge.source === nodeId && (levels.get(edge.target) ?? 0) < layerIndex,
+          );
+          if (outbound.length > 0) {
+            const score = outbound.reduce((sum, edge) => sum + (previousLayerOrder.get(edge.target) ?? rawIndex), 0);
+            return { nodeId, score: score / outbound.length + 0.3 };
+          }
+
+          return { nodeId, score: rawIndex + layerIndex * 0.01 };
+        });
+
+        ranked.sort((a, b) => a.score - b.score || a.nodeId.localeCompare(b.nodeId));
+        const orderedIds = ranked.map((item) => item.nodeId);
+        layerMap.set(layerIndex, orderedIds);
+        orderedIds.forEach((nodeId, index) => {
+          previousLayerOrder.set(nodeId, index);
+        });
+      });
+
+      const maxNodesPerLayer = sortedLayers.reduce((max, [, nodeIds]) => Math.max(max, nodeIds.length), 1);
+      const baseSpacing = 220;
+      const horizontalSpacing = Math.max(160, baseSpacing - Math.max(0, maxNodesPerLayer - 4) * 12);
       const verticalSpacing = 180;
       const startX = 80;
       const startY = 40;
 
       const positionMap = new Map<string, { x: number; y: number }>();
-      Array.from(layerMap.entries())
-        .sort((a, b) => a[0] - b[0])
-        .forEach(([layerIndex, nodeIds]) => {
-          nodeIds.forEach((nodeId, index) => {
-            positionMap.set(nodeId, {
-              x: startX + index * horizontalSpacing,
-              y: startY + layerIndex * verticalSpacing,
-            });
+      sortedLayers.forEach(([layerIndex]) => {
+        const orderedIds = layerMap.get(layerIndex) ?? [];
+        const offsetX =
+          startX + ((Math.max(1, maxNodesPerLayer) - orderedIds.length) * horizontalSpacing) / 2;
+        orderedIds.forEach((nodeId, index) => {
+          positionMap.set(nodeId, {
+            x: offsetX + index * horizontalSpacing,
+            y: startY + layerIndex * verticalSpacing,
           });
         });
+      });
 
       return currentNodes.map((node, index) => {
         const fallbackRow = Math.floor(index / 4);
@@ -561,7 +685,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       setDiagramType(nextType);
       setConfig(definition.defaultConfig);
       setNodes([]);
-      setEdges([]);
+      updateEdges([]);
       setWarnings([]);
       setInspector(null);
       const firstEdgeTemplate = definition.edgeTemplates[0];
@@ -581,7 +705,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     if (!inspector) return;
     if (inspector.type === 'node') {
       setNodes((current) => current.filter((node) => node.id !== inspector.id));
-      setEdges((current) => current.filter((edge) => edge.source !== inspector.id && edge.target !== inspector.id));
+      updateEdges((current) => current.filter((edge) => edge.source !== inspector.id && edge.target !== inspector.id));
       setEdgeDraft((current) => ({
         source: current.source === inspector.id ? '' : current.source,
         target: current.target === inspector.id ? '' : current.target,
@@ -589,7 +713,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         label: current.label,
       }));
     } else {
-      setEdges((current) => current.filter((edge) => edge.id !== inspector.id));
+      updateEdges((current) => current.filter((edge) => edge.id !== inspector.id));
     }
     setInspector(null);
   }, [inspector]);
@@ -620,6 +744,27 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     if (!selectedEdge) return undefined;
     return edgeTemplates.find((template) => template.variant === selectedEdge.data.variant);
   }, [selectedEdge, edgeTemplates]);
+
+  const edgeTypes = useMemo(() => ({
+    [MERMAID_EDGE_TYPE]: MermaidEdgeComponent,
+  }), []);
+
+  const defaultEdgeOptions = useMemo(
+    () => ({
+      type: MERMAID_EDGE_TYPE,
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        width: 18,
+        height: 18,
+        color: '#1f2937',
+      },
+      style: {
+        stroke: '#1f2937',
+        strokeWidth: 1.6,
+      },
+    }),
+    [],
+  );
 
   const paletteClasses = isPaletteCollapsed ? 'w-12' : 'w-36';
 
@@ -878,6 +1023,8 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           <ReactFlow
             nodes={nodes}
             edges={edges}
+            edgeTypes={edgeTypes}
+            defaultEdgeOptions={defaultEdgeOptions}
             onNodesChange={handleNodesChange}
             onEdgesChange={handleEdgesChange}
             onConnect={handleConnect}

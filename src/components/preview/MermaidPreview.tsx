@@ -4,6 +4,36 @@ import React, { useEffect, useState, useRef } from 'react';
 import { IoDownload, IoCopy, IoAdd, IoRemove, IoExpand } from 'react-icons/io5';
 import { initializeMermaid } from '@/lib/mermaid/mermaidClient';
 
+const normalizeMermaidSource = (value: string): string => {
+  if (!value) return '';
+
+  // 改行コードを統一し、Mermaidが解釈しやすい形に整形する
+  const unified = value
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u2028\u2029]/g, '\n')
+    .trim();
+
+  if (!unified) return '';
+
+  const lines = unified.split('\n');
+  const headerPattern = /^\s*(flowchart|graph)\s+([A-Za-z]{2})(.*)$/i;
+  const headerMatch = lines[0].match(headerPattern);
+
+  if (headerMatch) {
+    const [, keyword, orientation, rest] = headerMatch;
+    lines[0] = `${keyword} ${orientation.toUpperCase()}`;
+    if (rest && rest.trim().length > 0) {
+      lines.splice(1, 0, rest.trim());
+    }
+  } else {
+    lines[0] = lines[0].trim();
+  }
+
+  return lines
+    .map((line, index) => (index === 0 ? line : line.replace(/\s+$/g, '')))
+    .join('\n');
+};
+
 // SVGにパディングを追加して描画範囲を広げる関数
 const addPaddingToSvg = (svgString: string): string => {
   try {
@@ -79,7 +109,9 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({ content, fileName }) =>
   }, [content]);
 
   const renderDiagram = async () => {
-    if (!content || content.trim() === '') {
+    const normalizedContent = normalizeMermaidSource(content);
+
+    if (!normalizedContent) {
       setError('図式のコンテンツが空です');
       return;
     }
@@ -112,14 +144,14 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({ content, fileName }) =>
       tempDiv.style.visibility = 'hidden';
       
       // コンテンツを設定
-      tempDiv.textContent = content.trim();
-      
+      tempDiv.textContent = normalizedContent;
+
       // DOMに追加
       document.body.appendChild(tempDiv);
 
       try {
         // mermaidでレンダリング
-        const { svg: renderedSvg } = await mermaid.render(id + '_svg', content.trim());
+        const { svg: renderedSvg } = await mermaid.render(id + '_svg', normalizedContent);
         
         if (renderedSvg) {
           // SVGにパディングを追加して描画範囲を広げる
