@@ -382,6 +382,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const historyRef = useRef<Snapshot[]>([]);
   const futureRef = useRef<Snapshot[]>([]);
   const suppressHistoryRef = useRef<number>(0);
+  const hasPendingSyncRef = useRef<boolean>(false);
 
   const beginSuppressHistory = () => {
     suppressHistoryRef.current += 1;
@@ -413,6 +414,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
 
   const recordHistory = useCallback(() => {
     if (isRestoring.current) return;
+    hasPendingSyncRef.current = true;
     historyRef.current.push(createSnapshot());
     if (historyRef.current.length > 100) {
       historyRef.current.shift();
@@ -422,6 +424,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
 
   const restoreSnapshot = useCallback((snapshot: Snapshot) => {
     isRestoring.current = true;
+    hasPendingSyncRef.current = true;
     setDiagramType(snapshot.diagramType);
     setConfig(snapshot.config);
     setNodes(snapshot.nodes);
@@ -481,12 +484,16 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     setGeneratedCode(code);
     setWarnings(serializationWarnings);
     lastSerializedRef.current = code;
-    const tab = getTab(tabId);
-    if (tab) {
-      const isDirty = tab.originalContent !== code;
-      if (tab.content !== code || tab.isDirty !== isDirty) {
-        updateTab(tabId, { content: code, isDirty });
+    if (hasPendingSyncRef.current) {
+      const tab = getTab(tabId);
+      if (tab) {
+        const isDirty = tab.originalContent !== code;
+        if (tab.content !== code || tab.isDirty !== isDirty) {
+          updateTab(tabId, { content: code, isDirty });
+        }
       }
+      hasPendingSyncRef.current = false;
+      lastHydratedTabIdRef.current = tabId;
     }
   }, [diagramType, config, nodes, edges, subgraphs, getTab, tabId, updateTab]);
 
@@ -506,15 +513,24 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     if (content === lastSerializedRef.current && lastHydratedTabIdRef.current === tabId) {
       return;
     }
+
     isHydrating.current = true;
     const parsed = parseMermaidSource(content);
-    setDiagramType(parsed.type);
-    setConfig(parsed.config);
     const hydratedNodes = parsed.nodes.map((node) => applyNodeDefaults(node, parsed.type));
-    setNodes(hydratedNodes);
-    updateEdges(parsed.edges.map((edge) => ({ ...edge, label: edge.data.label })));
-    setSubgraphs(parsed.subgraphs ?? []);
-    if (parsed.type === 'gantt') {
+    const normalizedEdges = normalizeEdges(
+      parsed.edges.map((edge) => ({
+        ...edge,
+        label: edge.data.label,
+      })),
+    );
+    const parsedSubgraphs = (parsed.subgraphs ?? []).map((subgraph) => ({
+      ...subgraph,
+      nodes: [...subgraph.nodes],
+    }));
+    const nextGanttSections = (() => {
+      if (parsed.type !== 'gantt') {
+        return ['General'];
+      }
       const sectionSet = new Set<string>(['General']);
       hydratedNodes.forEach((node) => {
         const section = node.data.metadata?.section;
@@ -522,15 +538,23 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           sectionSet.add(section);
         }
       });
-      setGanttSections(Array.from(sectionSet));
-    } else {
-      setGanttSections(['General']);
-    }
+      return Array.from(sectionSet);
+    })();
+
+    setDiagramType(parsed.type);
+    setConfig(parsed.config);
+    setNodes(hydratedNodes);
+    setEdgesState(normalizedEdges);
+    setSubgraphs(parsedSubgraphs);
+    setGanttSections(nextGanttSections);
     setWarnings(parsed.warnings);
-    const { code } = serializeMermaid(parsed);
+
+    const model = buildModel(parsed.type, parsed.config, hydratedNodes, normalizedEdges, parsedSubgraphs);
+    const { code } = serializeMermaid(model);
     setGeneratedCode(code);
     lastSerializedRef.current = code;
     lastHydratedTabIdRef.current = tabId;
+    hasPendingSyncRef.current = false;
     setInspector(null);
     const firstEdgeTemplate = diagramDefinitions[parsed.type].edgeTemplates[0];
     setEdgeDraft({
@@ -540,16 +564,25 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       label: firstEdgeTemplate?.defaultLabel ?? '',
     });
     hasInitialized.current = true;
+
     requestAnimationFrame(() => {
       isHydrating.current = false;
       fitViewToDiagram({ duration: 300 });
       requestAnimationFrame(() => {
-        historyRef.current = [];
+        const initialSnapshot: Snapshot = {
+          diagramType: parsed.type,
+          config: JSON.parse(JSON.stringify(parsed.config)) as MermaidDiagramConfig,
+          nodes: cloneNodeList(hydratedNodes),
+          edges: cloneEdgeList(normalizedEdges),
+          subgraphs: parsedSubgraphs.map((subgraph) => ({ ...subgraph, nodes: [...subgraph.nodes] })),
+          ganttSections: [...nextGanttSections],
+        };
+        historyRef.current = [initialSnapshot];
         futureRef.current = [];
-        historyRef.current.push(createSnapshot());
+        hasPendingSyncRef.current = false;
       });
     });
-  }, [content, tabId, fitViewToDiagram, updateEdges, createSnapshot]);
+  }, [content, tabId, fitViewToDiagram]);
 
   useEffect(() => {
     if (!hasInitialized.current) return;
@@ -1685,9 +1718,15 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
                       field={field}
                       value={value}
                       onChange={(newValue) => {
+                        recordHistory();
                         setConfig((current) => ({
                           ...(current as any),
-                          [field.key]: field.type === 'boolean' ? newValue === 'true' : field.type === 'number' ? Number(newValue) : newValue,
+                          [field.key]:
+                            field.type === 'boolean'
+                              ? newValue === 'true'
+                              : field.type === 'number'
+                                ? Number(newValue)
+                                : newValue,
                         }));
                       }}
                     />
