@@ -59,6 +59,13 @@ interface CanvasContextMenuState {
   position: XYPosition;
 }
 
+interface EdgeDraft {
+  source: string;
+  target: string;
+  variant: string;
+  label: string;
+}
+
 const getDefaultEdgeVariant = (type: MermaidDiagramType): string => {
   const definition = diagramDefinitions[type];
   return definition.edgeTemplates[0]?.variant || 'arrow';
@@ -179,6 +186,12 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const [isPaletteCollapsed, setIsPaletteCollapsed] = useState<boolean>(false);
   const [isDiagramTypeLocked, setIsDiagramTypeLocked] = useState<boolean>(false);
   const [contextMenu, setContextMenu] = useState<CanvasContextMenuState | null>(null);
+  const [, setEdgeDraft] = useState<EdgeDraft>({
+    source: '',
+    target: '',
+    variant: '',
+    label: '',
+  });
   const lastSerializedRef = useRef<string>('');
   const lastHydratedTabIdRef = useRef<string | null>(null);
   const isHydrating = useRef<boolean>(false);
@@ -256,7 +269,13 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     lastSerializedRef.current = code;
     lastHydratedTabIdRef.current = tabId;
     setInspector(null);
-    setEdgeDraft({ source: '', target: '', variant: '', label: '' });
+    const firstEdgeTemplate = diagramDefinitions[parsed.type].edgeTemplates[0];
+    setEdgeDraft({
+      source: '',
+      target: '',
+      variant: firstEdgeTemplate?.variant ?? '',
+      label: firstEdgeTemplate?.defaultLabel ?? '',
+    });
     hasInitialized.current = true;
     requestAnimationFrame(() => {
       isHydrating.current = false;
@@ -545,6 +564,13 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       setEdges([]);
       setWarnings([]);
       setInspector(null);
+      const firstEdgeTemplate = definition.edgeTemplates[0];
+      setEdgeDraft({
+        source: '',
+        target: '',
+        variant: firstEdgeTemplate?.variant ?? '',
+        label: firstEdgeTemplate?.defaultLabel ?? '',
+      });
       hasLockedTypeRef.current = true;
       setIsDiagramTypeLocked(true);
     },
