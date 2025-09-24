@@ -182,7 +182,7 @@ const parseSequence = (source: string): MermaidGraphModel => {
       ensureNode(model, alias, variant, label, { alias });
       return;
     }
-    const messageMatch = trimmed.match(/^([\p{L}\p{N}_-]+)\s*([-.]*>>|[-.]*>)\s*([\p{L}\p{N}_-]+)(?:\s*:\s*(.+))?/u);
+    const messageMatch = trimmed.match(/^([\p{L}\p{N}_-]+?)\s*((?:[-.]*>>|[-.]*>))\s*([\p{L}\p{N}_-]+)(?:\s*:\s*(.+))?/u);
     if (messageMatch) {
       const source = sanitizeId(messageMatch[1]);
       const arrow = messageMatch[2];
