@@ -5,7 +5,7 @@ import { TabData } from '@/types';
 
 interface ViewModeBannerProps {
   activeTab: TabData | null;
-  activeTabViewMode: 'editor' | 'preview' | 'split';
+  activeTabViewMode: 'editor' | 'preview' | 'data-preview' | 'split';
   canToggleViewMode: boolean;
   onToggleViewMode: () => void;
 }
@@ -21,14 +21,22 @@ const ViewModeBanner: React.FC<ViewModeBannerProps> = ({
   }
 
   const modeLabel =
-    activeTabViewMode === 'editor' ? 'エディタ' : activeTabViewMode === 'preview' ? 'プレビュー' : '分割表示';
+    activeTabViewMode === 'editor'
+      ? 'エディタ'
+      : activeTabViewMode === 'preview'
+        ? 'プレビュー'
+        : activeTabViewMode === 'data-preview'
+          ? 'データプレビュー'
+          : '分割表示';
 
   const modeClassName =
     activeTabViewMode === 'editor'
       ? 'bg-blue-100 text-blue-800'
       : activeTabViewMode === 'preview'
         ? 'bg-green-100 text-green-800'
-        : 'bg-purple-100 text-purple-800';
+        : activeTabViewMode === 'data-preview'
+          ? 'bg-teal-100 text-teal-800'
+          : 'bg-purple-100 text-purple-800';
 
   return (
     <div className="bg-gray-100 dark:bg-gray-900 px-2 py-1 border-b border-gray-300 dark:border-gray-700 flex justify-between items-center">

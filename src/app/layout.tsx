@@ -28,12 +28,12 @@ export const metadata: Metadata = {
   applicationName: "IDO Editor",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const cookieTheme = cookieStore.get('ido-theme')?.value;
   const initialTheme = cookieTheme === 'dark' ? 'dark' : 'light';
 
