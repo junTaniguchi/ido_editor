@@ -40,6 +40,7 @@ import type {
   MermaidNode,
 } from '@/lib/mermaid/types';
 import MermaidPreview from '@/components/preview/MermaidPreview';
+import InteractiveMermaidCanvas from './InteractiveMermaidCanvas';
 
 export interface MermaidDesignerProps {
   tabId: string;
@@ -156,7 +157,7 @@ const FieldInput: React.FC<{
   }
 };
 
-const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, content }) => {
+const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, content }) => {
   const { updateTab, getTab } = useTabActions();
   const reactFlowInstanceRef = useRef<ReactFlowInstance | null>(null);
   const [diagramType, setDiagramType] = useState<MermaidDiagramType>('flowchart');
@@ -184,7 +185,6 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
   const isHydrating = useRef<boolean>(false);
   const hasInitialized = useRef<boolean>(false);
   const hasLockedTypeRef = useRef<boolean>(false);
-
   const nodeTemplates = useMemo<MermaidNodeTemplate[]>(
     () => diagramDefinitions[diagramType].nodeTemplates,
     [diagramType],
@@ -954,11 +954,5 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
     </div>
   );
 };
-
-const MermaidDesigner: React.FC<MermaidDesignerProps> = (props) => (
-  <ReactFlowProvider>
-    <MermaidDesignerInner {...props} />
-  </ReactFlowProvider>
-);
 
 export default MermaidDesigner;
