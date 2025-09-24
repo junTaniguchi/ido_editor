@@ -55,6 +55,8 @@ export const detectDiagramType = (source: string): MermaidDiagramType => {
   if (firstLine.startsWith('statediagram')) return 'state';
   if (firstLine.startsWith('erdiagram')) return 'er';
   if (firstLine.startsWith('gantt')) return 'gantt';
+  if (firstLine.startsWith('pie')) return 'pie';
+  if (firstLine.startsWith('gitgraph')) return 'gitGraph';
   return 'flowchart';
 };
 
@@ -502,6 +504,259 @@ const parseGantt = (source: string): MermaidGraphModel => {
   return model;
 };
 
+const parseGitGraph = (source: string): MermaidGraphModel => {
+  const model = createBaseModel('gitGraph');
+  const lines = source.split(/\r?\n/);
+  const config =
+    model.config.type === 'gitGraph'
+      ? { ...model.config }
+      : { type: 'gitGraph', orientation: 'LR' as const };
+
+  let commandIndex = 0;
+  let skippingOptions = false;
+  let braceDepth = 0;
+
+  const createCommandNode = (variant: string, label: string, metadata: Record<string, string> = {}) => {
+    const index = commandIndex;
+    const nodeId = `git_${index.toString(36).padStart(4, '0')}`;
+    const baseMetadata: Record<string, string> = { ...metadata };
+    if (!baseMetadata.sequence) {
+      baseMetadata.sequence = index.toString();
+    }
+    const normalizedLabel = label.trim().length > 0 ? label.trim() : variant;
+    const node: MermaidNode = {
+      id: nodeId,
+      type: 'default',
+      position: { x: 160, y: index * 100 },
+      data: {
+        diagramType: 'gitGraph',
+        variant,
+        label: normalizedLabel,
+        metadata: baseMetadata,
+      },
+    };
+    model.nodes.push(node);
+    commandIndex += 1;
+  };
+
+  const parseAttributes = (input: string): { attributes: Record<string, string>; remainder: string } => {
+    const attributes: Record<string, string> = {};
+    const attributePattern = /([A-Za-z_-]+)\s*:\s*(?:"([^"]*)"|([^\s]+))/g;
+    let match: RegExpExecArray | null;
+    while ((match = attributePattern.exec(input)) !== null) {
+      const key = match[1];
+      const value = (match[2] ?? match[3] ?? '').trim();
+      attributes[key] = value;
+    }
+    const remainder = input
+      .replace(/([A-Za-z_-]+)\s*:\s*(?:"([^"]*)"|([^\s]+))/g, ' ')
+      .replace(/,\s*/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return { attributes, remainder };
+  };
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('%%')) {
+      return;
+    }
+
+    if (skippingOptions) {
+      const openCount = (trimmed.match(/\{/g) ?? []).length;
+      const closeCount = (trimmed.match(/\}/g) ?? []).length;
+      braceDepth += openCount;
+      braceDepth -= closeCount;
+      if (braceDepth <= 0 && trimmed.includes('}')) {
+        skippingOptions = false;
+        braceDepth = 0;
+      }
+      return;
+    }
+
+    if (/^options\b/i.test(trimmed)) {
+      skippingOptions = true;
+      const openCount = (trimmed.match(/\{/g) ?? []).length;
+      const closeCount = (trimmed.match(/\}/g) ?? []).length;
+      braceDepth = openCount - closeCount;
+      if (braceDepth <= 0 && trimmed.includes('}')) {
+        skippingOptions = false;
+        braceDepth = 0;
+      }
+      return;
+    }
+
+    const headerMatch = trimmed.match(/^gitgraph\b(?:\s+([A-Za-z]{2}))?\s*:?\s*$/i);
+    if (headerMatch) {
+      const orientation = headerMatch[1] ? headerMatch[1].toUpperCase() : undefined;
+      if (orientation === 'LR' || orientation === 'TB' || orientation === 'BT') {
+        config.orientation = orientation;
+      }
+      return;
+    }
+
+    const commandMatch = trimmed.match(/^(commit|branch|checkout|switch|merge|cherry-pick)\b(.*)$/i);
+    if (!commandMatch) {
+      model.warnings.push(`解釈できない行をスキップしました: ${trimmed}`);
+      return;
+    }
+
+    const keyword = commandMatch[1].toLowerCase();
+    const rest = commandMatch[2]?.trim() ?? '';
+    const { attributes, remainder } = parseAttributes(rest);
+
+    if (keyword === 'commit') {
+      const metadata: Record<string, string> = {};
+      if (attributes.id) {
+        metadata.id = attributes.id;
+      }
+      if (attributes.tag) {
+        metadata.tag = attributes.tag;
+      }
+      const typeValue = (attributes.type ?? '').toUpperCase();
+      metadata.type = typeValue || 'NORMAL';
+      const fallbackLabel = remainder ? sanitizeLabel(remainder) : '';
+      const label = metadata.id || fallbackLabel || `commit_${commandIndex + 1}`;
+      createCommandNode('commit', label, metadata);
+      return;
+    }
+
+    if (keyword === 'branch') {
+      const branchNameRaw = remainder || attributes.name;
+      const branchName = branchNameRaw ? sanitizeLabel(branchNameRaw) : '';
+      if (!branchName) {
+        model.warnings.push(`branch コマンドのブランチ名が見つからないためスキップしました: ${trimmed}`);
+        return;
+      }
+      const metadata: Record<string, string> = {};
+      if (attributes.order) {
+        metadata.order = attributes.order;
+      }
+      createCommandNode('branch', branchName, metadata);
+      return;
+    }
+
+    if (keyword === 'checkout' || keyword === 'switch') {
+      const branchNameRaw = remainder || attributes.name;
+      const branchName = branchNameRaw ? sanitizeLabel(branchNameRaw) : '';
+      if (!branchName) {
+        model.warnings.push(`checkout コマンドのブランチ名が見つからないためスキップしました: ${trimmed}`);
+        return;
+      }
+      const metadata: Record<string, string> = {};
+      if (keyword === 'switch') {
+        metadata.command = 'switch';
+      }
+      createCommandNode('checkout', branchName, metadata);
+      return;
+    }
+
+    if (keyword === 'merge') {
+      const branchNameRaw = remainder || attributes.branch;
+      const branchName = branchNameRaw ? sanitizeLabel(branchNameRaw) : '';
+      if (!branchName) {
+        model.warnings.push(`merge コマンドのブランチ名が見つからないためスキップしました: ${trimmed}`);
+        return;
+      }
+      const metadata: Record<string, string> = {};
+      if (attributes.id) {
+        metadata.id = attributes.id;
+      }
+      if (attributes.tag) {
+        metadata.tag = attributes.tag;
+      }
+      const typeValue = (attributes.type ?? '').toUpperCase();
+      metadata.type = typeValue || 'NORMAL';
+      createCommandNode('merge', branchName, metadata);
+      return;
+    }
+
+    if (keyword === 'cherry-pick') {
+      if (!attributes.id) {
+        model.warnings.push(`cherry-pick コマンドに id が無いためスキップしました: ${trimmed}`);
+        return;
+      }
+      const metadata: Record<string, string> = { id: attributes.id, command: 'cherry-pick' };
+      if (attributes.parent) {
+        metadata.parent = attributes.parent;
+      }
+      createCommandNode('cherryPick', attributes.id, metadata);
+      return;
+    }
+  });
+
+  model.config = config;
+  return model;
+};
+
+
+
+const parsePie = (source: string): MermaidGraphModel => {
+  const model = createBaseModel('pie');
+  const lines = source.split(/\r?\n/);
+  const config = model.config.type === 'pie' ? { ...model.config } : { type: 'pie', showData: false };
+  let sliceIndex = 0;
+
+  const ensureUniqueId = (baseLabel: string): string => {
+    const sanitizedBase = sanitizeId(baseLabel || `slice_${sliceIndex}`);
+    let candidate = sanitizedBase;
+    let counter = 1;
+    while (model.nodes.some((node) => node.id === candidate)) {
+      candidate = `${sanitizedBase}_${(counter++).toString(36)}`;
+    }
+    return candidate;
+  };
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('%%')) return;
+
+    if (/^pie\b/i.test(trimmed)) {
+      let rest = trimmed.replace(/^pie\b/i, '').trim();
+      if (rest) {
+        if (/\bshowdata\b/i.test(rest)) {
+          config.showData = true;
+          rest = rest.replace(/\bshowdata\b/i, '').trim();
+        }
+        const titleMatch = rest.match(/title\s+(.+)/i);
+        if (titleMatch) {
+          config.title = sanitizeLabel(titleMatch[1]);
+        }
+      }
+      return;
+    }
+
+    if (/^showdata\b/i.test(trimmed)) {
+      config.showData = true;
+      return;
+    }
+
+    if (/^title\b/i.test(trimmed)) {
+      const titleText = trimmed.slice(5).trim();
+      if (titleText) {
+        config.title = sanitizeLabel(titleText);
+      }
+      return;
+    }
+
+    const sliceMatch = trimmed.match(/^"(.+?)"\s*:\s*([+-]?\d+(?:\.\d+)?)$/);
+    const fallbackMatch = sliceMatch || trimmed.match(/^([^:]+)\s*:\s*([+-]?\d+(?:\.\d+)?)$/);
+    if (fallbackMatch) {
+      const label = sanitizeLabel(fallbackMatch[1]);
+      const value = fallbackMatch[2];
+      const id = ensureUniqueId(label || `slice_${sliceIndex}`);
+      sliceIndex += 1;
+      ensureNode(model, id, 'slice', label || id, { value });
+      return;
+    }
+
+    model.warnings.push(`解釈できない行をスキップしました: ${trimmed}`);
+  });
+
+  model.config = config;
+  return model;
+};
+
 export const parseMermaidSource = (source: string): MermaidGraphModel => {
   generatedIdCounter = 0;
   const trimmed = source.trim();
@@ -522,6 +777,10 @@ export const parseMermaidSource = (source: string): MermaidGraphModel => {
       return parseEr(trimmed);
     case 'gantt':
       return parseGantt(trimmed);
+    case 'gitGraph':
+      return parseGitGraph(trimmed);
+    case 'pie':
+      return parsePie(trimmed);
     default:
       return parseFlowchart(trimmed);
   }

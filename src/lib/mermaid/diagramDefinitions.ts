@@ -449,6 +449,131 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
     supportsEdges: false,
     createNodeId: () => `task_${createId()}`,
   },
+  gitGraph: {
+    type: 'gitGraph',
+    label: 'Gitグラフ',
+    description: 'ブランチとコミットの履歴を表現するGitグラフ',
+    nodeTemplates: [
+      {
+        variant: 'commit',
+        label: 'コミット',
+        description: '現在のブランチにコミットを追加',
+        defaultLabel: 'Commit',
+        defaultMetadata: { type: 'NORMAL' },
+        fields: [
+          { key: 'id', label: 'コミットID', type: 'text', placeholder: '例: A1' },
+          { key: 'tag', label: 'タグ', type: 'text', placeholder: '例: v1.0.0' },
+          {
+            key: 'type',
+            label: 'コミットタイプ',
+            type: 'select',
+            options: [
+              { value: 'NORMAL', label: '通常 (NORMAL)' },
+              { value: 'HIGHLIGHT', label: 'ハイライト (HIGHLIGHT)' },
+              { value: 'REVERSE', label: 'リバース (REVERSE)' },
+            ],
+          },
+        ],
+      },
+      {
+        variant: 'branch',
+        label: 'ブランチ作成',
+        description: '新しいブランチを作成して現在のブランチにする',
+        defaultLabel: 'develop',
+        fields: [
+          { key: 'order', label: '表示順序 (order)', type: 'number', placeholder: '例: 1' },
+        ],
+      },
+      {
+        variant: 'checkout',
+        label: 'チェックアウト',
+        description: '既存のブランチへ切り替え',
+        defaultLabel: 'main',
+      },
+      {
+        variant: 'merge',
+        label: 'マージ',
+        description: '指定ブランチを現在のブランチへマージ',
+        defaultLabel: 'develop',
+        defaultMetadata: { type: 'NORMAL' },
+        fields: [
+          { key: 'id', label: 'マージコミットID', type: 'text' },
+          { key: 'tag', label: 'タグ', type: 'text' },
+          {
+            key: 'type',
+            label: 'コミットタイプ',
+            type: 'select',
+            options: [
+              { value: 'NORMAL', label: '通常 (NORMAL)' },
+              { value: 'HIGHLIGHT', label: 'ハイライト (HIGHLIGHT)' },
+              { value: 'REVERSE', label: 'リバース (REVERSE)' },
+            ],
+          },
+        ],
+      },
+      {
+        variant: 'cherryPick',
+        label: 'チェリーピック',
+        description: '別ブランチのコミットを現在のブランチへ取り込む',
+        defaultLabel: 'commitId',
+        fields: [
+          { key: 'id', label: '対象コミットID', type: 'text', placeholder: '必須: MERGE など' },
+          { key: 'parent', label: '親コミットID', type: 'text', placeholder: 'マージコミットの場合のみ' },
+        ],
+      },
+    ],
+    edgeTemplates: [],
+    defaultConfig: { type: 'gitGraph', orientation: 'LR' },
+    defaultTemplate: `gitGraph LR:
+  commit id: "A"
+  commit id: "B"
+  branch feature
+  checkout feature
+  commit
+  checkout main
+  merge feature`,
+    configFields: [
+      {
+        key: 'orientation',
+        label: 'レイアウト方向',
+        type: 'select',
+        options: [
+          { value: 'LR', label: '左 → 右 (LR)' },
+          { value: 'TB', label: '上 → 下 (TB)' },
+          { value: 'BT', label: '下 → 上 (BT)' },
+        ],
+      },
+    ],
+    supportsEdges: false,
+    createNodeId: () => `git_${createId()}`,
+  },
+  pie: {
+    type: 'pie',
+    label: '円グラフ',
+    description: 'カテゴリ別の割合を表現する円グラフ',
+    nodeTemplates: [
+      {
+        variant: 'slice',
+        label: 'スライス',
+        defaultLabel: 'カテゴリ',
+        defaultMetadata: { value: '10' },
+        fields: [
+          { key: 'value', label: '値', type: 'number', placeholder: '例: 25.5' },
+        ],
+      },
+    ],
+    edgeTemplates: [],
+    defaultConfig: { type: 'pie', title: 'サンプル', showData: false },
+    defaultTemplate: `pie title サンプル
+  "項目A" : 40
+  "項目B" : 60`,
+    configFields: [
+      { key: 'title', label: 'タイトル', type: 'text', placeholder: '図のタイトル' },
+      { key: 'showData', label: '値を表示', type: 'boolean', placeholder: 'スライスの値を表示' },
+    ],
+    supportsEdges: false,
+    createNodeId: () => `slice_${createId()}`,
+  },
 };
 
 export const diagramList: { type: MermaidDiagramType; label: string }[] = Object.values(diagramDefinitions).map(

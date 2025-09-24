@@ -70,6 +70,8 @@ const parseBoolean = (value: string | undefined): boolean => value === 'true';
 
 const createEdgeId = (): string => `edge_${Date.now().toString(36)}`;
 
+const PERSISTENT_METADATA_KEYS = ['sequence', 'command'];
+
 const useTabActions = () => {
   const updateTab = useEditorStore((state) => state.updateTab);
   const getTab = useEditorStore((state) => state.getTab);
@@ -198,6 +200,8 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     [diagramType],
   );
 
+  const supportsEdges = useMemo(() => diagramDefinitions[diagramType].supportsEdges, [diagramType]);
+
   const refreshGeneratedCode = useCallback(() => {
     const model = buildModel(diagramType, config, nodes, edges);
     const { code, warnings: serializationWarnings } = serializeMermaid(model);
@@ -296,6 +300,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
 
   const handleConnect = useCallback(
     (connection: Connection) => {
+      if (!supportsEdges || edgeTemplates.length === 0) return;
       if (!connection.source || !connection.target) return;
       const variant = getDefaultEdgeVariant(diagramType);
       const template = edgeTemplates.find((item) => item.variant === variant) ?? edgeTemplates[0];
@@ -315,7 +320,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       setEdges((current) => addEdge(newEdge, current));
       setInspector({ type: 'edge', id });
     },
-    [diagramType, edgeTemplates],
+    [diagramType, edgeTemplates, supportsEdges],
   );
 
   const handleSelectionChange = useCallback((params: { nodes: MermaidNode[]; edges: MermaidEdge[] }) => {
@@ -332,25 +337,42 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     (template: MermaidNodeTemplate, position?: XYPosition) => {
       const definition = diagramDefinitions[diagramType];
       const id = definition.createNodeId ? definition.createNodeId() : `node_${Date.now()}`;
-      const newNode: MermaidNode = {
-        id,
-        type: 'default',
-        position:
+      setNodes((current) => {
+        const baseMetadata = template.defaultMetadata ? { ...template.defaultMetadata } : {};
+        if (diagramType === 'gitGraph') {
+          const sequenceValues = current
+            .map((node) => Number(node.data.metadata?.sequence))
+            .filter((value) => Number.isFinite(value));
+          const nextSequence = sequenceValues.length > 0 ? Math.max(...sequenceValues) + 1 : 0;
+          baseMetadata.sequence = nextSequence.toString();
+          if ((template.variant === 'commit' || template.variant === 'merge') && !baseMetadata.type) {
+            baseMetadata.type = 'NORMAL';
+          }
+        }
+
+        const defaultPosition =
           position ?? {
-            x: (nodes.length % 4) * 200 + 50,
-            y: Math.floor(nodes.length / 4) * 150 + 40,
+            x: (current.length % 4) * 200 + 50,
+            y: Math.floor(current.length / 4) * 150 + 40,
+          };
+
+        const newNode: MermaidNode = {
+          id,
+          type: 'default',
+          position: defaultPosition,
+          data: {
+            diagramType,
+            variant: template.variant,
+            label: template.defaultLabel,
+            metadata: baseMetadata,
           },
-        data: {
-          diagramType,
-          variant: template.variant,
-          label: template.defaultLabel,
-          metadata: template.defaultMetadata ? { ...template.defaultMetadata } : {},
-        },
-      };
-      setNodes((current) => [...current, newNode]);
+        };
+
+        return [...current, newNode];
+      });
       setInspector({ type: 'node', id });
     },
-    [diagramType, nodes.length],
+    [diagramType],
   );
 
   const handleContextMenuAddNode = useCallback(
@@ -589,15 +611,35 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
             onChange={(event) => {
               const nextVariant = event.target.value;
               const template = nodeTemplates.find((item) => item.variant === nextVariant);
-              updateNode(selectedNode.id, (node) => ({
-                ...node,
-                data: {
-                  ...node.data,
-                  variant: nextVariant,
-                  label: template ? template.defaultLabel : node.data.label,
-                  metadata: template?.defaultMetadata ? { ...template.defaultMetadata } : {},
-                },
-              }));
+              updateNode(selectedNode.id, (node) => {
+                const previousMetadata = node.data.metadata || {};
+                const nextMetadata = template?.defaultMetadata ? { ...template.defaultMetadata } : {};
+                PERSISTENT_METADATA_KEYS.forEach((key) => {
+                  if (previousMetadata[key] === undefined) {
+                    return;
+                  }
+                  if (key === 'command' && nextVariant !== 'checkout' && nextVariant !== 'cherryPick') {
+                    return;
+                  }
+                  nextMetadata[key] = previousMetadata[key];
+                });
+                if (
+                  diagramType === 'gitGraph' &&
+                  (nextVariant === 'commit' || nextVariant === 'merge') &&
+                  !nextMetadata.type
+                ) {
+                  nextMetadata.type = 'NORMAL';
+                }
+                return {
+                  ...node,
+                  data: {
+                    ...node.data,
+                    variant: nextVariant,
+                    label: template ? template.defaultLabel : node.data.label,
+                    metadata: nextMetadata,
+                  },
+                };
+              });
             }}
           >
             {nodeTemplates.map((template) => (
@@ -743,64 +785,6 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
                 <p className="text-[11px] text-gray-500 dark:text-gray-400">
                   図の種類は一度選択すると変更できません。
                 </p>
-              )}
-            </div>
-          )}
-          {!isPaletteCollapsed && edgeTemplates.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs text-gray-500">接続を追加</p>
-              <select
-                className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
-                value={edgeDraft.source}
-                onChange={(event) => setEdgeDraft((current) => ({ ...current, source: event.target.value }))}
-              >
-                <option value="">接続元を選択</option>
-                {nodes.map((node) => (
-                  <option key={`source-${node.id}`} value={node.id}>
-                    {node.data.label || node.id}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
-                value={edgeDraft.target}
-                onChange={(event) => setEdgeDraft((current) => ({ ...current, target: event.target.value }))}
-              >
-                <option value="">接続先を選択</option>
-                {nodes.map((node) => (
-                  <option key={`target-${node.id}`} value={node.id}>
-                    {node.data.label || node.id}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
-                value={edgeDraft.variant}
-                onChange={(event) => setEdgeDraft((current) => ({ ...current, variant: event.target.value }))}
-              >
-                {edgeTemplates.map((template) => (
-                  <option key={template.variant} value={template.variant}>
-                    {template.label}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="text"
-                className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
-                placeholder="ラベル (任意)"
-                value={edgeDraft.label}
-                onChange={(event) => setEdgeDraft((current) => ({ ...current, label: event.target.value }))}
-              />
-              <button
-                type="button"
-                className={`w-full flex items-center justify-center px-2 py-1 rounded text-sm ${canAddEdge ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-500 cursor-not-allowed'}`}
-                onClick={handleAddEdge}
-                disabled={!canAddEdge}
-              >
-                <IoAdd className="mr-1" /> 接続を追加
-              </button>
-              {!canAddEdge && (
-                <p className="text-[11px] text-gray-500">接続を作成するには2つ以上のノードが必要です。</p>
               )}
             </div>
           )}
