@@ -32,10 +32,13 @@ import {
   compressToTarGz
 } from '@/lib/fileSystemUtils';
 import { getFileType } from '@/lib/editorUtils';
+import { getMermaidTemplate } from '@/lib/mermaid/diagramDefinitions';
 import { FileTreeItem, TabData } from '@/types';
 import ContextMenu from '@/components/modals/ContextMenu';
 import InputDialog from '@/components/modals/InputDialog';
 import ConfirmDialog from '@/components/modals/ConfirmDialog';
+import MermaidTemplateDialog from '@/components/modals/MermaidTemplateDialog';
+import type { MermaidDiagramType } from '@/lib/mermaid/types';
 
 /**
  * FileExplorerコンポーネント
@@ -54,6 +57,7 @@ const FileExplorer = () => {
     setRootFileTree, 
     setRootFolderName,
     addTab,
+    addTempTab,
     activeTabId,
     setActiveTabId,
     tabs,
@@ -76,6 +80,12 @@ const FileExplorer = () => {
   const [inputDialogMode, setInputDialogMode] = useState<'newFile' | 'newFolder' | 'rename' | 'tempFile'>('newFile');
   const [inputDialogInitialValue, setInputDialogInitialValue] = useState('');
   const [selectedItem, setSelectedItem] = useState<FileTreeItem | null>(null);
+  const [showMermaidTemplateDialog, setShowMermaidTemplateDialog] = useState(false);
+  const [pendingMermaidFile, setPendingMermaidFile] = useState<{
+    fileName: string;
+    directoryHandle: FileSystemDirectoryHandle | null;
+    mode: 'newFile' | 'tempFile';
+  } | null>(null);
   
   // コンポーネントマウント時にAPIサポートを確認
   useEffect(() => {
@@ -401,18 +411,33 @@ const FileExplorer = () => {
       }
 
       if (inputDialogMode === 'tempFile') {
-        // 一時ファイル作成
         const parts = finalValue.split('.');
         const fileType = parts.length > 1 ? parts[parts.length - 1].toLowerCase() : 'md';
-        useEditorStore.getState().addTempTab(fileType, finalValue);
+        if (fileType === 'mmd') {
+          setPendingMermaidFile({ fileName: finalValue, directoryHandle: null, mode: 'tempFile' });
+          setShowMermaidTemplateDialog(true);
+          return;
+        }
+        addTempTab(fileType, finalValue);
         return;
       }
 
       if (!selectedItem || !rootDirHandle) return;
 
       if (inputDialogMode === 'newFile') {
-        // 新規ファイル作成
         if (!selectedItem.directoryHandle) return;
+
+        const fileType = getFileType(finalValue);
+        if (fileType === 'mermaid' || finalValue.toLowerCase().endsWith('.mmd')) {
+          setPendingMermaidFile({
+            fileName: finalValue,
+            directoryHandle: selectedItem.directoryHandle,
+            mode: 'newFile',
+          });
+          setShowMermaidTemplateDialog(true);
+          return;
+        }
+
         await createNewFile(selectedItem.directoryHandle, finalValue, '');
         await refreshFolderContents();
       } else if (inputDialogMode === 'newFolder') {
@@ -450,6 +475,44 @@ const FileExplorer = () => {
       alert(`操作に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
+
+  const handleMermaidTemplateCancel = useCallback(() => {
+    setPendingMermaidFile(null);
+    setShowMermaidTemplateDialog(false);
+  }, []);
+
+  const handleMermaidTemplateConfirm = useCallback(
+    async (diagramType: MermaidDiagramType) => {
+      if (!pendingMermaidFile) return;
+
+      const template = getMermaidTemplate(diagramType);
+
+      try {
+        if (pendingMermaidFile.mode === 'newFile') {
+          const directoryHandle = pendingMermaidFile.directoryHandle;
+          if (!directoryHandle) {
+            throw new Error('ディレクトリハンドルが見つかりません');
+          }
+          const fileHandle = await createNewFile(directoryHandle, pendingMermaidFile.fileName, template);
+          if (!fileHandle) {
+            throw new Error('ファイルハンドルを取得できませんでした');
+          }
+          await refreshFolderContents();
+        } else {
+          const parts = pendingMermaidFile.fileName.split('.');
+          const fileType = parts.length > 1 ? parts[parts.length - 1].toLowerCase() : 'mmd';
+          addTempTab(fileType, pendingMermaidFile.fileName, template);
+        }
+      } catch (error) {
+        console.error('Failed to create Mermaid file:', error);
+        alert(`Mermaidファイルの作成に失敗しました: ${error instanceof Error ? error.message : '不明なエラー'}`);
+      } finally {
+        setPendingMermaidFile(null);
+        setShowMermaidTemplateDialog(false);
+      }
+    },
+    [addTempTab, pendingMermaidFile, refreshFolderContents],
+  );
   
   // 削除確認ダイアログの確認処理
   const handleDeleteConfirm = async () => {
@@ -688,7 +751,7 @@ const FileExplorer = () => {
         <InputDialog
           isOpen={showInputDialog}
           title={
-            inputDialogMode === 'newFile' 
+            inputDialogMode === 'newFile'
               ? '新規ファイル作成' 
               : inputDialogMode === 'newFolder' 
                 ? '新規フォルダ作成' 
@@ -713,7 +776,15 @@ const FileExplorer = () => {
           onCancel={() => setShowInputDialog(false)}
         />
       )}
-      
+
+      {showMermaidTemplateDialog && pendingMermaidFile && (
+        <MermaidTemplateDialog
+          isOpen={showMermaidTemplateDialog}
+          onCancel={handleMermaidTemplateCancel}
+          onConfirm={handleMermaidTemplateConfirm}
+        />
+      )}
+
       {/* 削除確認ダイアログ */}
       {showConfirmDialog && selectedItem && (
         <ConfirmDialog
