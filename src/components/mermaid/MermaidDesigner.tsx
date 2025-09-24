@@ -40,6 +40,7 @@ import type {
   MermaidNode,
 } from '@/lib/mermaid/types';
 import MermaidPreview from '@/components/preview/MermaidPreview';
+import InteractiveMermaidCanvas from './InteractiveMermaidCanvas';
 
 export interface MermaidDesignerProps {
   tabId: string;
@@ -162,7 +163,7 @@ const FieldInput: React.FC<{
   }
 };
 
-const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, content }) => {
+const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, content }) => {
   const { updateTab, getTab } = useTabActions();
   const reactFlowInstanceRef = useRef<ReactFlowInstance | null>(null);
   const flowWrapperRef = useRef<HTMLDivElement | null>(null);
@@ -251,6 +252,7 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
     lastSerializedRef.current = code;
     lastHydratedTabIdRef.current = tabId;
     setInspector(null);
+    setEdgeDraft({ source: '', target: '', variant: '', label: '' });
     hasInitialized.current = true;
     requestAnimationFrame(() => {
       isHydrating.current = false;
@@ -532,6 +534,12 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
     if (inspector.type === 'node') {
       setNodes((current) => current.filter((node) => node.id !== inspector.id));
       setEdges((current) => current.filter((edge) => edge.source !== inspector.id && edge.target !== inspector.id));
+      setEdgeDraft((current) => ({
+        source: current.source === inspector.id ? '' : current.source,
+        target: current.target === inspector.id ? '' : current.target,
+        variant: current.variant,
+        label: current.label,
+      }));
     } else {
       setEdges((current) => current.filter((edge) => edge.id !== inspector.id));
     }
@@ -739,6 +747,64 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
             </div>
           )}
           {!isPaletteCollapsed && edgeTemplates.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs text-gray-500">接続を追加</p>
+              <select
+                className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+                value={edgeDraft.source}
+                onChange={(event) => setEdgeDraft((current) => ({ ...current, source: event.target.value }))}
+              >
+                <option value="">接続元を選択</option>
+                {nodes.map((node) => (
+                  <option key={`source-${node.id}`} value={node.id}>
+                    {node.data.label || node.id}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+                value={edgeDraft.target}
+                onChange={(event) => setEdgeDraft((current) => ({ ...current, target: event.target.value }))}
+              >
+                <option value="">接続先を選択</option>
+                {nodes.map((node) => (
+                  <option key={`target-${node.id}`} value={node.id}>
+                    {node.data.label || node.id}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+                value={edgeDraft.variant}
+                onChange={(event) => setEdgeDraft((current) => ({ ...current, variant: event.target.value }))}
+              >
+                {edgeTemplates.map((template) => (
+                  <option key={template.variant} value={template.variant}>
+                    {template.label}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="text"
+                className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+                placeholder="ラベル (任意)"
+                value={edgeDraft.label}
+                onChange={(event) => setEdgeDraft((current) => ({ ...current, label: event.target.value }))}
+              />
+              <button
+                type="button"
+                className={`w-full flex items-center justify-center px-2 py-1 rounded text-sm ${canAddEdge ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-500 cursor-not-allowed'}`}
+                onClick={handleAddEdge}
+                disabled={!canAddEdge}
+              >
+                <IoAdd className="mr-1" /> 接続を追加
+              </button>
+              {!canAddEdge && (
+                <p className="text-[11px] text-gray-500">接続を作成するには2つ以上のノードが必要です。</p>
+              )}
+            </div>
+          )}
+          {!isPaletteCollapsed && edgeTemplates.length > 0 && (
             <div>
               <p className="text-xs text-gray-500 mb-2">接続種別一覧</p>
               <ul className="space-y-1 text-xs text-gray-600 dark:text-gray-300">
@@ -895,11 +961,5 @@ const MermaidDesignerInner: React.FC<MermaidDesignerProps> = ({ tabId, fileName,
     </div>
   );
 };
-
-const MermaidDesigner: React.FC<MermaidDesignerProps> = (props) => (
-  <ReactFlowProvider>
-    <MermaidDesignerInner {...props} />
-  </ReactFlowProvider>
-);
 
 export default MermaidDesigner;
