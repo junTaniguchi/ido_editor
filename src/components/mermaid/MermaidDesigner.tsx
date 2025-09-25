@@ -44,6 +44,7 @@ import MermaidPreview from '@/components/preview/MermaidPreview';
 import InteractiveMermaidCanvas from './InteractiveMermaidCanvas';
 import GroupOverlays from './GroupOverlays';
 import MermaidEdgeComponent from './MermaidEdge';
+import MermaidNodeComponent from './MermaidNode';
 
 export interface MermaidDesignerProps {
   tabId: string;
@@ -82,6 +83,7 @@ const createEdgeId = (): string => `edge_${Date.now().toString(36)}`;
 
 const PERSISTENT_METADATA_KEYS = ['sequence', 'command'];
 
+const MERMAID_NODE_TYPE = 'mermaid-node';
 const MERMAID_EDGE_TYPE = 'mermaid-edge';
 
 const expandShortHex = (value: string): string =>
@@ -747,7 +749,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
 
           const newNode: MermaidNode = {
             id,
-            type: 'default',
+            type: MERMAID_NODE_TYPE,
             position: defaultPosition,
             data: {
               diagramType,
@@ -1312,9 +1314,19 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     return edgeTemplates.find((template) => template.variant === selectedEdge.data.variant);
   }, [selectedEdge, edgeTemplates]);
 
-  const edgeTypes = useMemo(() => ({
-    [MERMAID_EDGE_TYPE]: MermaidEdgeComponent,
-  }), []);
+  const nodeTypes = useMemo(
+    () => ({
+      [MERMAID_NODE_TYPE]: MermaidNodeComponent,
+    }),
+    [],
+  );
+
+  const edgeTypes = useMemo(
+    () => ({
+      [MERMAID_EDGE_TYPE]: MermaidEdgeComponent,
+    }),
+    [],
+  );
 
   const defaultEdgeOptions = useMemo(
     () => ({
@@ -1828,6 +1840,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           <ReactFlow
             nodes={nodes}
             edges={edges}
+            nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
             defaultEdgeOptions={defaultEdgeOptions}
             onNodesChange={handleNodesChange}

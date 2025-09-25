@@ -75,7 +75,7 @@ const ensureNode = (model: MermaidGraphModel, id: string, variant: string, label
 
   const node: MermaidNode = {
     id,
-    type: 'default',
+    type: 'mermaid-node',
     position: createPosition(model.nodes.length),
     data: {
       diagramType: model.type,
@@ -629,7 +629,7 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
     const normalizedLabel = label.trim().length > 0 ? label.trim() : variant;
     const node: MermaidNode = {
       id: nodeId,
-      type: 'default',
+      type: 'mermaid-node',
       position: { x: 160, y: index * 100 },
       data: {
         diagramType: 'gitGraph',
