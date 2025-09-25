@@ -79,6 +79,28 @@ const toBooleanString = (value: boolean): string => (value ? 'true' : 'false');
 
 const parseBoolean = (value: string | undefined): boolean => value === 'true';
 
+
+const normalizeHandleId = (handleId: string | null | undefined, fallback: 'top' | 'bottom' | 'left' | 'right'): 'top' | 'bottom' | 'left' | 'right' => {
+  if (!handleId) {
+    return fallback;
+  }
+  const mapping: Record<string, 'top' | 'bottom' | 'left' | 'right'> = {
+    top: 'top',
+    bottom: 'bottom',
+    left: 'left',
+    right: 'right',
+    'source-top': 'top',
+    'target-top': 'top',
+    'source-bottom': 'bottom',
+    'target-bottom': 'bottom',
+    'source-left': 'left',
+    'target-left': 'left',
+    'source-right': 'right',
+    'target-right': 'right',
+  };
+  return mapping[handleId] ?? fallback;
+};
+
 const createEdgeId = (): string => `edge_${Date.now().toString(36)}`;
 
 const PERSISTENT_METADATA_KEYS = ['sequence', 'command'];
@@ -166,6 +188,20 @@ const applyNodeDefaults = (node: MermaidNode, fallbackDiagramType?: MermaidDiagr
   const fillColor = metadata.fillColor ? sanitizeColorValue(metadata.fillColor) : '#ffffff';
   const strokeColor = metadata.strokeColor ? sanitizeColorValue(metadata.strokeColor) : '#1f2937';
   const textColor = metadata.textColor ? sanitizeColorValue(metadata.textColor) : '#111827';
+  const isSpecialFlowchartShape =
+    diagramType === 'flowchart' && (node.data.variant === 'startEnd' || node.data.variant === 'decision');
+
+  const nextStyle: React.CSSProperties = {
+    ...node.style,
+    background: fillColor,
+    border: `2px solid ${strokeColor}`,
+    color: textColor,
+  };
+
+  if (isSpecialFlowchartShape) {
+    nextStyle.background = 'transparent';
+    nextStyle.border = 'none';
+  }
 
   return {
     ...node,
@@ -173,12 +209,7 @@ const applyNodeDefaults = (node: MermaidNode, fallbackDiagramType?: MermaidDiagr
       ...node.data,
       metadata,
     },
-    style: {
-      ...node.style,
-      background: fillColor,
-      border: `2px solid ${strokeColor}`,
-      color: textColor,
-    },
+    style: nextStyle,
   };
 };
 
@@ -215,6 +246,8 @@ const normalizeEdges = (edgeList: MermaidEdge[]): MermaidEdge[] => {
     const parallelCount = meta?.count ?? 1;
     const parallelIndex = meta && parallelCount > 1 ? meta.index : 0;
     const normalizedLabel = edge.data?.label ?? edge.label;
+    const sourceHandle = normalizeHandleId(edge.sourceHandle, 'bottom');
+    const targetHandle = normalizeHandleId(edge.targetHandle, 'top');
     const diagramType = (edge.data?.diagramType as MermaidDiagramType) || 'flowchart';
     const defaultMetadata = getEdgeTemplateDefaults(diagramType, edge.data?.variant ?? '');
     const metadata = { ...defaultMetadata, ...(edge.data?.metadata ?? {}) };
@@ -256,6 +289,8 @@ const normalizeEdges = (edgeList: MermaidEdge[]): MermaidEdge[] => {
         } as const),
       style: edge.style ? { ...baseStyle, ...edge.style } : { ...baseStyle },
       updatable: true,
+      sourceHandle,
+      targetHandle,
     };
   });
 };
@@ -385,33 +420,39 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const futureRef = useRef<Snapshot[]>([]);
   const suppressHistoryRef = useRef<number>(0);
 
-  const beginSuppressHistory = () => {
+  const beginSuppressHistory = useCallback(() => {
     suppressHistoryRef.current += 1;
-  };
+  }, []);
 
-  const endSuppressHistory = () => {
+  const endSuppressHistory = useCallback(() => {
     suppressHistoryRef.current = Math.max(0, suppressHistoryRef.current - 1);
-  };
+  }, []);
 
-  const runWithSuppressedHistory = (action: () => void) => {
-    beginSuppressHistory();
-    try {
-      action();
-    } finally {
-      queueMicrotask(() => {
-        endSuppressHistory();
-      });
-    }
-  };
+  const runWithSuppressedHistory = useCallback(
+    (action: () => void) => {
+      beginSuppressHistory();
+      try {
+        action();
+      } finally {
+        queueMicrotask(() => {
+          endSuppressHistory();
+        });
+      }
+    },
+    [beginSuppressHistory, endSuppressHistory],
+  );
 
-  const createSnapshot = useCallback((): Snapshot => ({
-    diagramType,
-    config: JSON.parse(JSON.stringify(config)) as MermaidDiagramConfig,
-    nodes: cloneNodeList(nodes),
-    edges: cloneEdgeList(edges),
-    subgraphs: subgraphs.map(subgraph => ({ ...subgraph, nodes: [...subgraph.nodes] })),
-    ganttSections: [...ganttSections],
-  }), [diagramType, config, nodes, edges, subgraphs, ganttSections]);
+  const createSnapshot = useCallback(
+    (): Snapshot => ({
+      diagramType,
+      config: JSON.parse(JSON.stringify(config)) as MermaidDiagramConfig,
+      nodes: cloneNodeList(nodes),
+      edges: cloneEdgeList(edges),
+      subgraphs: subgraphs.map((subgraph) => ({ ...subgraph, nodes: [...subgraph.nodes] })),
+      ganttSections: [...ganttSections],
+    }),
+    [diagramType, config, nodes, edges, subgraphs, ganttSections],
+  );
 
   const recordHistory = useCallback(() => {
     if (isRestoring.current) return;
@@ -657,13 +698,15 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
                   ...edge,
                   source: newConnection.source,
                   target: newConnection.target,
+                  sourceHandle: normalizeHandleId(newConnection.sourceHandle, 'bottom'),
+                  targetHandle: normalizeHandleId(newConnection.targetHandle, 'top'),
                 }
               : edge,
           ),
         );
       });
     },
-    [recordHistory, updateEdges],
+    [recordHistory, runWithSuppressedHistory, updateEdges],
   );
 
   const handleConnect = useCallback(
@@ -676,11 +719,11 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       const id = createEdgeId();
       runWithSuppressedHistory(() => {
         updateEdges((current) => {
-        const existing = current.filter(
-          (edge) => edge.source === connection.source && edge.target === connection.target,
-        );
-        const baseLabel = template?.defaultLabel ?? '';
-        const automaticLabel = baseLabel
+          const existing = current.filter(
+            (edge) => edge.source === connection.source && edge.target === connection.target,
+          );
+          const baseLabel = template?.defaultLabel ?? '';
+          const automaticLabel = baseLabel
           ? existing.length > 0
             ? `${baseLabel} ${existing.length + 1}`
             : baseLabel
@@ -691,6 +734,8 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           type: MERMAID_EDGE_TYPE,
           source: connection.source,
           target: connection.target,
+          sourceHandle: normalizeHandleId(connection.sourceHandle, 'bottom'),
+          targetHandle: normalizeHandleId(connection.targetHandle, 'top'),
           data: {
             diagramType,
             variant: template?.variant ?? variant,
@@ -705,7 +750,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       });
       setInspector({ type: 'edge', id });
     },
-    [diagramType, edgeTemplates, recordHistory, supportsEdges, updateEdges],
+    [diagramType, edgeTemplates, recordHistory, runWithSuppressedHistory, supportsEdges, updateEdges],
   );
 
   const handleSelectionChange = useCallback((params: { nodes: MermaidNode[]; edges: MermaidEdge[] }) => {
@@ -764,7 +809,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       });
       setInspector({ type: 'node', id });
     },
-    [diagramType, ganttSections, recordHistory],
+    [diagramType, ganttSections, recordHistory, runWithSuppressedHistory],
   );
 
   const handleContextMenuAddNode = useCallback(
@@ -808,7 +853,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         );
       });
     },
-    [diagramType, recordHistory],
+    [diagramType, recordHistory, runWithSuppressedHistory],
   );
 
   const updateEdge = useCallback(
@@ -818,7 +863,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         updateEdges((current) => current.map((edge) => (edge.id === edgeId ? updater(edge) : edge)));
       });
     },
-    [recordHistory, updateEdges],
+    [recordHistory, runWithSuppressedHistory, updateEdges],
   );
 
   const addSubgraph = useCallback(() => {
@@ -877,7 +922,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         );
       });
     },
-    [diagramType, recordHistory, subgraphs],
+    [diagramType, recordHistory, runWithSuppressedHistory, subgraphs],
   );
 
   const assignNodeToSubgraph = useCallback(
@@ -930,7 +975,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         }),
       );
     },
-    [diagramType, nodes, recordHistory],
+    [diagramType, nodes, recordHistory, runWithSuppressedHistory],
   );
 
   const addGanttSection = useCallback(() => {
@@ -986,7 +1031,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         return nextSections;
       });
     },
-    [ganttSections, recordHistory],
+    [ganttSections, recordHistory, runWithSuppressedHistory],
   );
 
   const removeGanttSection = useCallback((index: number) => {
@@ -1020,7 +1065,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       });
       return nextSections;
     });
-  }, [ganttSections, recordHistory]);
+  }, [ganttSections, recordHistory, runWithSuppressedHistory]);
 
   useEffect(() => {
     setSubgraphs((current) =>
@@ -1061,7 +1106,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         return hasChanges ? nextNodes : current;
       });
     });
-  }, [diagramType, ganttSections]);
+  }, [diagramType, ganttSections, runWithSuppressedHistory]);
 
   useEffect(() => {
     const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
@@ -1090,8 +1135,8 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           return currentNodes;
         }
 
-      const adjacency = new Map<string, Set<string>>();
-      const indegree = new Map<string, number>();
+        const adjacency = new Map<string, Set<string>>();
+        const indegree = new Map<string, number>();
 
       currentNodes.forEach((node) => {
         adjacency.set(node.id, new Set<string>());
@@ -1195,20 +1240,19 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
 
       const maxNodesPerLayer = sortedLayers.reduce((max, [, nodeIds]) => Math.max(max, nodeIds.length), 1);
       const baseSpacing = 220;
-      const horizontalSpacing = Math.max(160, baseSpacing - Math.max(0, maxNodesPerLayer - 4) * 12);
-      const verticalSpacing = 180;
+      const nodeSpacing = Math.max(160, baseSpacing - Math.max(0, maxNodesPerLayer - 4) * 12);
+      const layerSpacing = 180;
       const startX = 80;
       const startY = 40;
 
       const positionMap = new Map<string, { x: number; y: number }>();
       sortedLayers.forEach(([layerIndex]) => {
         const orderedIds = layerMap.get(layerIndex) ?? [];
-        const offsetX =
-          startX + ((Math.max(1, maxNodesPerLayer) - orderedIds.length) * horizontalSpacing) / 2;
+        const secondaryOffset = ((Math.max(1, maxNodesPerLayer) - orderedIds.length) * nodeSpacing) / 2;
         orderedIds.forEach((nodeId, index) => {
           positionMap.set(nodeId, {
-            x: offsetX + index * horizontalSpacing,
-            y: startY + layerIndex * verticalSpacing,
+            x: startX + secondaryOffset + index * nodeSpacing,
+            y: startY + layerIndex * layerSpacing,
           });
         });
       });
@@ -1216,8 +1260,8 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       return currentNodes.map((node, index) => {
         const fallbackRow = Math.floor(index / 4);
         const fallbackPosition = {
-          x: startX + (index % 4) * horizontalSpacing,
-          y: startY + fallbackRow * verticalSpacing,
+          x: startX + (index % 4) * nodeSpacing,
+          y: startY + fallbackRow * layerSpacing,
         };
         const target = positionMap.get(node.id) ?? fallbackPosition;
         return applyNodeDefaults(
@@ -1234,7 +1278,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     setTimeout(() => {
       fitViewToDiagram({ duration: 400 });
     }, 50);
-  }, [edges, fitViewToDiagram, recordHistory]);
+  }, [diagramType, edges, fitViewToDiagram, recordHistory, runWithSuppressedHistory]);
 
   const handleDiagramTypeChange = useCallback(
     (nextType: MermaidDiagramType) => {
@@ -1262,7 +1306,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         label: firstEdgeTemplate?.defaultLabel ?? '',
       });
     },
-    [diagramType, edges.length, nodes.length, recordHistory],
+    [diagramType, edges.length, nodes.length, recordHistory, updateEdges],
   );
 
   const handleDeleteSelection = useCallback(() => {
@@ -1293,7 +1337,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       });
     }
     setInspector(null);
-  }, [inspector, recordHistory, updateEdges]);
+  }, [inspector, recordHistory, runWithSuppressedHistory, updateEdges]);
 
   const selectedNode = useMemo(
     () => nodes.find((node) => inspector?.type === 'node' && node.id === inspector.id),

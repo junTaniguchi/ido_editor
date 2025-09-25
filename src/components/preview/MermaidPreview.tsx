@@ -298,7 +298,11 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({ content, fileName }) =>
       </div>
 
       {/* コンテンツ */}
-      <div className="flex-1 overflow-auto relative" ref={containerRef} style={{ minHeight: 0 }}>
+      <div
+        className="flex-1 relative overflow-x-auto overflow-y-auto"
+        ref={containerRef}
+        style={{ minHeight: 0 }}
+      >
         {error && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
@@ -319,9 +323,9 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({ content, fileName }) =>
         )}
 
         {!error && svg && (
-          <div 
-            className="p-4 overflow-auto"
-            style={{ 
+          <div
+            className="p-4"
+            style={{
               minWidth: 'max-content',
               minHeight: 'max-content'
             }}
