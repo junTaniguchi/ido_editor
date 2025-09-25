@@ -1,4 +1,5 @@
-const { app, BrowserWindow, Menu } = require('electron');
+const { app, BrowserWindow, Menu, nativeImage } = require('electron');
+const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const url = require('url');
@@ -6,8 +7,35 @@ const url = require('url');
 const isDev = !app.isPackaged || process.env.ELECTRON_DEV === '1';
 let nextServer = null;
 let httpServer = null;
+let cachedIcon = null;
+
+function loadAppIcon() {
+  if (cachedIcon !== null) {
+    return cachedIcon;
+  }
+
+  const basePaths = [app.getAppPath(), path.join(__dirname, '..')];
+  const candidates = ['favicon.png', 'favicon.ico', 'favicon.svg'];
+
+  for (const base of basePaths) {
+    const publicDir = path.join(base, 'public');
+    for (const name of candidates) {
+      const candidate = path.join(publicDir, name);
+      if (!fs.existsSync(candidate)) continue;
+      const image = nativeImage.createFromPath(candidate);
+      if (!image.isEmpty()) {
+        cachedIcon = image;
+        return cachedIcon;
+      }
+    }
+  }
+
+  cachedIcon = null;
+  return cachedIcon;
+}
 
 function createWindow(loadUrl) {
+  const icon = loadAppIcon();
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -18,6 +46,7 @@ function createWindow(loadUrl) {
     },
     show: false,
     autoHideMenuBar: process.platform !== 'darwin',
+    icon: icon || undefined,
   });
 
   if (process.platform !== 'darwin') {
@@ -32,6 +61,10 @@ function createWindow(loadUrl) {
   });
 
   win.loadURL(loadUrl);
+
+  if (process.platform === 'darwin' && icon) {
+    app.dock.setIcon(icon);
+  }
 }
 
 async function startNextInProd() {

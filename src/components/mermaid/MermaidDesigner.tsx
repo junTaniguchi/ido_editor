@@ -137,6 +137,15 @@ const sanitizeColorValue = (value: string): string => {
   return value;
 };
 
+const getHandleIdsForOrientation = (
+  orientation: EdgeHandleOrientation,
+): { source: 'top' | 'bottom' | 'left' | 'right'; target: 'top' | 'bottom' | 'left' | 'right' } => {
+  if (orientation === 'horizontal') {
+    return { source: 'right', target: 'left' };
+  }
+  return { source: 'bottom', target: 'top' };
+};
+
 const cloneNodeList = (nodes: MermaidNode[]): MermaidNode[] =>
   nodes.map(node => ({
     ...node,
@@ -452,8 +461,9 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       edges: cloneEdgeList(edges),
       subgraphs: subgraphs.map((subgraph) => ({ ...subgraph, nodes: [...subgraph.nodes] })),
       ganttSections: [...ganttSections],
+      edgeHandleOrientation,
     }),
-    [diagramType, config, nodes, edges, subgraphs, ganttSections],
+    [diagramType, config, nodes, edges, subgraphs, ganttSections, edgeHandleOrientation],
   );
 
   const recordHistory = useCallback(() => {
@@ -473,7 +483,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     setEdgesState(snapshot.edges);
     setSubgraphs(snapshot.subgraphs);
     setGanttSections(snapshot.ganttSections);
-    setEdgeHandleOrientation(snapshot.edgeHandleOrientation);
+    setEdgeHandleOrientation('vertical');
     requestAnimationFrame(() => {
       isRestoring.current = false;
     });
@@ -694,6 +704,11 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         return;
       }
       recordHistory();
+      console.debug('[MermaidDesigner][handleEdgeUpdate] orientation', edgeHandleOrientation);
+      if (typeof getHandleIdsForOrientation !== 'function') {
+        console.warn('[MermaidDesigner][handleEdgeUpdate] getHandleIdsForOrientation is not defined');
+        return;
+      }
       const handles = getHandleIdsForOrientation(edgeHandleOrientation);
       runWithSuppressedHistory(() => {
         updateEdges((current) =>
@@ -1082,6 +1097,11 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   }, [nodes]);
 
   useEffect(() => {
+    console.debug('[MermaidDesigner][useEffect] orientation changed', edgeHandleOrientation);
+    if (typeof getHandleIdsForOrientation !== 'function') {
+      console.warn('[MermaidDesigner][useEffect] getHandleIdsForOrientation is not defined');
+      return;
+    }
     const handles = getHandleIdsForOrientation(edgeHandleOrientation);
     runWithSuppressedHistory(() => {
       updateEdges((current) => {
@@ -1153,7 +1173,8 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     return () => window.removeEventListener('keydown', handleKey);
   }, [redo, undo]);
 
-  const handleAutoLayout = useCallback(() => {
+  const handleAutoLayout = useCallback((direction: 'vertical' | 'horizontal') => {
+    const isVertical = direction === 'vertical';
     recordHistory();
     runWithSuppressedHistory(() => {
       setNodes((currentNodes) => {
@@ -1264,40 +1285,48 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         });
       });
 
-      const maxNodesPerLayer = sortedLayers.reduce((max, [, nodeIds]) => Math.max(max, nodeIds.length), 1);
-      const baseSpacing = 220;
-      const nodeSpacing = Math.max(160, baseSpacing - Math.max(0, maxNodesPerLayer - 4) * 12);
-      const layerSpacing = 180;
-      const startX = 80;
-      const startY = 40;
+        const maxNodesPerLayer = sortedLayers.reduce((max, [, nodeIds]) => Math.max(max, nodeIds.length), 1);
+        const baseSpacing = 220;
+        const nodeSpacing = Math.max(160, baseSpacing - Math.max(0, maxNodesPerLayer - 4) * 12);
+        const layerSpacing = 180;
+        const originX = 80;
+        const originY = 40;
 
-      const positionMap = new Map<string, { x: number; y: number }>();
-      sortedLayers.forEach(([layerIndex]) => {
-        const orderedIds = layerMap.get(layerIndex) ?? [];
-        const secondaryOffset = ((Math.max(1, maxNodesPerLayer) - orderedIds.length) * nodeSpacing) / 2;
-        orderedIds.forEach((nodeId, index) => {
-          positionMap.set(nodeId, {
-            x: startX + secondaryOffset + index * nodeSpacing,
-            y: startY + layerIndex * layerSpacing,
+        const positionMap = new Map<string, { x: number; y: number }>();
+        sortedLayers.forEach(([layerIndex]) => {
+          const orderedIds = layerMap.get(layerIndex) ?? [];
+          const secondaryOffset = ((Math.max(1, maxNodesPerLayer) - orderedIds.length) * nodeSpacing) / 2;
+          orderedIds.forEach((nodeId, index) => {
+            const x = isVertical
+              ? originX + secondaryOffset + index * nodeSpacing
+              : originX + layerIndex * layerSpacing;
+            const y = isVertical
+              ? originY + layerIndex * layerSpacing
+              : originY + secondaryOffset + index * nodeSpacing;
+            positionMap.set(nodeId, { x, y });
           });
         });
-      });
 
-      return currentNodes.map((node, index) => {
-        const fallbackRow = Math.floor(index / 4);
-        const fallbackPosition = {
-          x: startX + (index % 4) * nodeSpacing,
-          y: startY + fallbackRow * layerSpacing,
-        };
-        const target = positionMap.get(node.id) ?? fallbackPosition;
-        return applyNodeDefaults(
-          {
-            ...node,
-            position: target,
-          },
-          diagramType,
-        );
-      });
+        return currentNodes.map((node, index) => {
+          const fallbackRow = Math.floor(index / 4);
+          const fallbackPosition = isVertical
+            ? {
+                x: originX + (index % 4) * nodeSpacing,
+                y: originY + fallbackRow * layerSpacing,
+              }
+            : {
+                x: originX + fallbackRow * layerSpacing,
+                y: originY + (index % 4) * nodeSpacing,
+              };
+          const target = positionMap.get(node.id) ?? fallbackPosition;
+          return applyNodeDefaults(
+            {
+              ...node,
+              position: target,
+            },
+            diagramType,
+          );
+        });
       });
     });
 
@@ -1769,31 +1798,6 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
               </select>
             </div>
           )}
-          {!isPaletteCollapsed && supportsEdges && (
-            <div className="space-y-1">
-              <label className="block text-xs text-gray-500">エッジ接合方向</label>
-              <select
-                className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm bg-white dark:bg-gray-900"
-                value={edgeHandleOrientation}
-                onChange={(event) =>
-                  handleEdgeOrientationChange(event.target.value as EdgeHandleOrientation)
-                }
-              >
-                <option value="vertical">上下</option>
-                <option value="horizontal">左右</option>
-              </select>
-            </div>
-          )}
-          {!isPaletteCollapsed && edgeTemplates.length > 0 && (
-            <div>
-              <p className="text-xs text-gray-500 mb-2">接続種別一覧</p>
-              <ul className="space-y-1 text-xs text-gray-600 dark:text-gray-300">
-                {edgeTemplates.map((template) => (
-                  <li key={`summary-${template.variant}`}>{template.label}</li>
-                ))}
-              </ul>
-            </div>
-          )}
           {!isPaletteCollapsed && configFields.length > 0 && (
             <div className="space-y-2">
               <p className="text-xs text-gray-500">図の設定</p>
@@ -1903,9 +1907,16 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
             <button
               type="button"
               className="px-3 py-1 text-xs rounded border border-blue-500 text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-300 dark:hover:bg-blue-950"
-              onClick={handleAutoLayout}
+              onClick={() => handleAutoLayout('vertical')}
             >
-              自動整列
+              自動整列（縦）
+            </button>
+            <button
+              type="button"
+              className="px-3 py-1 text-xs rounded border border-blue-500 text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-300 dark:hover:bg-blue-950"
+              onClick={() => handleAutoLayout('horizontal')}
+            >
+              自動整列（横）
             </button>
             <button
               type="button"

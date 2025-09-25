@@ -109,3 +109,11 @@ body {
 .animate-fade-in-out {
   animation: fadeInOut 3s ease-in-out;
 }
+
+.react-flow__node-mermaid-node {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+}

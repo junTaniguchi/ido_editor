@@ -24,30 +24,79 @@ const wrapLabel = (label: string, color: string) => (
 );
 
 const MermaidNodeComponent: React.FC<NodeProps<MermaidNodeData>> = ({ data, selected }) => {
-  const handlePositions = useMemo(
-    () => ({
+  const orientation = useEdgeHandleOrientation();
+  const isFlowchart = data.diagramType === 'flowchart';
+  const isDecision = isFlowchart && data.variant === 'decision';
+  const isCircular = isFlowchart && data.variant === 'startEnd';
+  const isProcessLike = isFlowchart && ['process', 'inputOutput', 'subroutine'].includes(data.variant);
+
+  const handlePositions = useMemo(() => {
+    const base: Record<'top' | 'bottom' | 'left' | 'right', CSSProperties> = {
       top: {
         ...handleStyle,
         left: '50%',
         transform: 'translate(-50%, -50%)',
-      } as CSSProperties,
+      },
       bottom: {
         ...handleStyle,
         left: '50%',
         transform: 'translate(-50%, 50%)',
-      } as CSSProperties,
+      },
       left: {
         ...handleStyle,
         top: '50%',
         transform: 'translate(-50%, -50%)',
-      } as CSSProperties,
+      },
       right: {
         ...handleStyle,
         top: '50%',
         transform: 'translate(50%, -50%)',
-      } as CSSProperties,
-    }),
-    [],
+      },
+    };
+
+    if (isDecision) {
+      base.top = {
+        ...handleStyle,
+        left: '50%',
+        top: 0,
+        transform: 'translate(-50%, -105%)',
+      };
+      base.bottom = {
+        ...handleStyle,
+        left: '50%',
+        top: '100%',
+        transform: 'translate(-50%, 105%)',
+      };
+      base.left = {
+        ...handleStyle,
+        top: '50%',
+        left: 0,
+        transform: 'translate(-105%, -50%)',
+      };
+      base.right = {
+        ...handleStyle,
+        top: '50%',
+        left: '100%',
+        transform: 'translate(105%, -50%)',
+      };
+    }
+
+    return base;
+  }, [isDecision]);
+
+  const handlesToRender = useMemo(
+    () => (
+      orientation === 'horizontal'
+        ? ([
+            { id: 'left', position: Position.Left, type: 'target' as const },
+            { id: 'right', position: Position.Right, type: 'source' as const },
+          ] as const)
+        : ([
+            { id: 'top', position: Position.Top, type: 'target' as const },
+            { id: 'bottom', position: Position.Bottom, type: 'source' as const },
+          ] as const)
+    ),
+    [orientation],
   );
 
   const { fillColor, strokeColor, textColor } = useMemo(() => {
@@ -60,12 +109,7 @@ const MermaidNodeComponent: React.FC<NodeProps<MermaidNodeData>> = ({ data, sele
 
   const baseBoxShadow = selected ? '0 0 0 3px rgba(37, 99, 235, 0.35)' : undefined;
 
-  const isFlowchart = data.diagramType === 'flowchart';
-
   let content: React.ReactNode;
-
-  const isCircular = isFlowchart && data.variant === 'startEnd';
-  const isDecision = isFlowchart && data.variant === 'decision';
 
   if (isCircular) {
     content = (
@@ -85,20 +129,29 @@ const MermaidNodeComponent: React.FC<NodeProps<MermaidNodeData>> = ({ data, sele
       </div>
     );
   } else if (isDecision) {
+    const decisionSize = 132;
     content = (
-      <div className="relative flex items-center justify-center" style={{ width: 120, height: 120 }}>
+      <div
+        className="relative flex items-center justify-center"
+        style={{ width: decisionSize, height: decisionSize, boxShadow: baseBoxShadow }}
+      >
         <div
           style={{
-            width: '100%',
-            height: '100%',
-            background: fillColor,
-            border: `2px solid ${strokeColor}`,
-            transform: 'rotate(45deg)',
-            borderRadius: 12,
-            boxShadow: baseBoxShadow,
+            position: 'absolute',
+            inset: 0,
+            background: strokeColor,
+            clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)',
           }}
         />
-        <div className="absolute inset-0 flex items-center justify-center" style={{ pointerEvents: 'none' }}>
+        <div
+          className="absolute inset-0 flex items-center justify-center"
+          style={{
+            inset: '6px',
+            background: fillColor,
+            clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)',
+            pointerEvents: 'none',
+          }}
+        >
           {wrapLabel(data.label, textColor)}
         </div>
       </div>
@@ -110,7 +163,7 @@ const MermaidNodeComponent: React.FC<NodeProps<MermaidNodeData>> = ({ data, sele
         style={{
           background: fillColor,
           border: `2px solid ${strokeColor}`,
-          borderRadius: 12,
+          borderRadius: isProcessLike ? 0 : 12,
           minWidth: isFlowchart ? 140 : undefined,
           minHeight: isFlowchart ? 72 : undefined,
           padding: isFlowchart ? '12px 16px' : '8px 12px',
@@ -129,34 +182,17 @@ const MermaidNodeComponent: React.FC<NodeProps<MermaidNodeData>> = ({ data, sele
   return (
     <div className="relative" style={containerStyle}>
       {content}
-      <Handle
-        id="top"
-        type="source"
-        position={Position.Top}
-        style={handlePositions.top}
-        isConnectableEnd
-      />
-      <Handle
-        id="bottom"
-        type="source"
-        position={Position.Bottom}
-        style={handlePositions.bottom}
-        isConnectableEnd
-      />
-      <Handle
-        id="left"
-        type="source"
-        position={Position.Left}
-        style={handlePositions.left}
-        isConnectableEnd
-      />
-      <Handle
-        id="right"
-        type="source"
-        position={Position.Right}
-        style={handlePositions.right}
-        isConnectableEnd
-      />
+      {handlesToRender.map((handle) => (
+        <Handle
+          key={handle.id}
+          id={handle.id}
+          type={handle.type}
+          position={handle.position}
+          style={handlePositions[handle.id]}
+          isConnectableStart={handle.type === 'source'}
+          isConnectableEnd={handle.type === 'target'}
+        />
+      ))}
     </div>
   );
 };
