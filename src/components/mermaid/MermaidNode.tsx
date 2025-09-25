@@ -4,6 +4,7 @@ import React, { useMemo } from 'react';
 import type { CSSProperties } from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
 import type { MermaidNodeData } from '@/lib/mermaid/types';
+import { useEdgeHandleOrientation } from './EdgeHandleOrientationContext';
 
 const handleStyle: CSSProperties = {
   width: 12,
@@ -23,16 +24,22 @@ const wrapLabel = (label: string, color: string) => (
 );
 
 const MermaidNodeComponent: React.FC<NodeProps<MermaidNodeData>> = ({ data, selected }) => {
-  const handlePositions = useMemo(() => ({
-    targetTop: { ...handleStyle, left: '30%' } as CSSProperties,
-    sourceTop: { ...handleStyle, left: '70%' } as CSSProperties,
-    targetBottom: { ...handleStyle, left: '30%' } as CSSProperties,
-    sourceBottom: { ...handleStyle, left: '70%' } as CSSProperties,
-    targetLeft: { ...handleStyle, top: '30%' } as CSSProperties,
-    sourceLeft: { ...handleStyle, top: '70%' } as CSSProperties,
-    targetRight: { ...handleStyle, top: '30%' } as CSSProperties,
-    sourceRight: { ...handleStyle, top: '70%' } as CSSProperties,
-  }), []);
+  const handlePositions = useMemo(
+    () => ({
+      targetTop: { ...handleStyle, left: '30%' } as CSSProperties,
+      sourceTop: { ...handleStyle, left: '70%' } as CSSProperties,
+      targetBottom: { ...handleStyle, left: '30%' } as CSSProperties,
+      sourceBottom: { ...handleStyle, left: '70%' } as CSSProperties,
+      targetLeft: { ...handleStyle, top: '30%' } as CSSProperties,
+      sourceLeft: { ...handleStyle, top: '70%' } as CSSProperties,
+      targetRight: { ...handleStyle, top: '30%' } as CSSProperties,
+      sourceRight: { ...handleStyle, top: '70%' } as CSSProperties,
+    }),
+    [],
+  );
+
+  const edgeHandleOrientation = useEdgeHandleOrientation();
+  const isVerticalHandles = edgeHandleOrientation === 'vertical';
 
   const { fillColor, strokeColor, textColor } = useMemo(() => {
     const metadata = data.metadata ?? {};
@@ -106,14 +113,21 @@ const MermaidNodeComponent: React.FC<NodeProps<MermaidNodeData>> = ({ data, sele
   return (
     <div className="relative">
       {content}
-      <Handle id="target-top" type="target" position={Position.Top} style={handlePositions.targetTop} />
-      <Handle id="target-bottom" type="target" position={Position.Bottom} style={handlePositions.targetBottom} />
-      <Handle id="target-left" type="target" position={Position.Left} style={handlePositions.targetLeft} />
-      <Handle id="target-right" type="target" position={Position.Right} style={handlePositions.targetRight} />
-      <Handle id="source-top" type="source" position={Position.Top} style={handlePositions.sourceTop} />
-      <Handle id="source-bottom" type="source" position={Position.Bottom} style={handlePositions.sourceBottom} />
-      <Handle id="source-left" type="source" position={Position.Left} style={handlePositions.sourceLeft} />
-      <Handle id="source-right" type="source" position={Position.Right} style={handlePositions.sourceRight} />
+      {isVerticalHandles ? (
+        <>
+          <Handle id="target-top" type="target" position={Position.Top} style={handlePositions.targetTop} />
+          <Handle id="target-bottom" type="target" position={Position.Bottom} style={handlePositions.targetBottom} />
+          <Handle id="source-top" type="source" position={Position.Top} style={handlePositions.sourceTop} />
+          <Handle id="source-bottom" type="source" position={Position.Bottom} style={handlePositions.sourceBottom} />
+        </>
+      ) : (
+        <>
+          <Handle id="target-left" type="target" position={Position.Left} style={handlePositions.targetLeft} />
+          <Handle id="target-right" type="target" position={Position.Right} style={handlePositions.targetRight} />
+          <Handle id="source-left" type="source" position={Position.Left} style={handlePositions.sourceLeft} />
+          <Handle id="source-right" type="source" position={Position.Right} style={handlePositions.sourceRight} />
+        </>
+      )}
     </div>
   );
 };
