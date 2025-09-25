@@ -48,6 +48,7 @@ npm run dev
 - Markdown プレビューはリアルタイム同期、見出し目次の自動生成、折り畳み、外部リンクの新規タブ開きを備えています。
 - Docx ライブラリを利用した Word 出力ボタンを搭載。Markdown 内の ```mermaid``` コードブロックは自動的にダイアグラム化されます。
 - Mermaid プレビューは初回アクセス時にライブラリを動的読み込みし、読み込み状況表示と自動リトライで安定化。ズーム、フィット、SVG/PNG での保存、クリップボードコピーをサポートしており、エディタとの分割表示でも利用できます。
+- Mermaid の GUI デザインモードは React Flow のデフォルトノードを用いており、開始・終了・分岐ノードを含め長方形で描画します。エッジ接続ハンドルは上下方向（上が target、下が source）のみを提供しています。
 
 ### データプレビューと編集
 - **対応形式**：CSV、TSV、JSON、YAML、Parquet*¹、Excel（.xlsx/.xls）、Jupyter Notebook (.ipynb)、PDF*²、HTML/Markdown。
