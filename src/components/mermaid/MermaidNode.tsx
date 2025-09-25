@@ -26,20 +26,29 @@ const wrapLabel = (label: string, color: string) => (
 const MermaidNodeComponent: React.FC<NodeProps<MermaidNodeData>> = ({ data, selected }) => {
   const handlePositions = useMemo(
     () => ({
-      targetTop: { ...handleStyle, left: '30%' } as CSSProperties,
-      sourceTop: { ...handleStyle, left: '70%' } as CSSProperties,
-      targetBottom: { ...handleStyle, left: '30%' } as CSSProperties,
-      sourceBottom: { ...handleStyle, left: '70%' } as CSSProperties,
-      targetLeft: { ...handleStyle, top: '30%' } as CSSProperties,
-      sourceLeft: { ...handleStyle, top: '70%' } as CSSProperties,
-      targetRight: { ...handleStyle, top: '30%' } as CSSProperties,
-      sourceRight: { ...handleStyle, top: '70%' } as CSSProperties,
+      top: {
+        ...handleStyle,
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+      } as CSSProperties,
+      bottom: {
+        ...handleStyle,
+        left: '50%',
+        transform: 'translate(-50%, 50%)',
+      } as CSSProperties,
+      left: {
+        ...handleStyle,
+        top: '50%',
+        transform: 'translate(-50%, -50%)',
+      } as CSSProperties,
+      right: {
+        ...handleStyle,
+        top: '50%',
+        transform: 'translate(50%, -50%)',
+      } as CSSProperties,
     }),
     [],
   );
-
-  const edgeHandleOrientation = useEdgeHandleOrientation();
-  const isVerticalHandles = edgeHandleOrientation === 'vertical';
 
   const { fillColor, strokeColor, textColor } = useMemo(() => {
     const metadata = data.metadata ?? {};
@@ -55,7 +64,10 @@ const MermaidNodeComponent: React.FC<NodeProps<MermaidNodeData>> = ({ data, sele
 
   let content: React.ReactNode;
 
-  if (isFlowchart && data.variant === 'startEnd') {
+  const isCircular = isFlowchart && data.variant === 'startEnd';
+  const isDecision = isFlowchart && data.variant === 'decision';
+
+  if (isCircular) {
     content = (
       <div
         className="flex items-center justify-center"
@@ -72,7 +84,7 @@ const MermaidNodeComponent: React.FC<NodeProps<MermaidNodeData>> = ({ data, sele
         {wrapLabel(data.label, textColor)}
       </div>
     );
-  } else if (isFlowchart && data.variant === 'decision') {
+  } else if (isDecision) {
     content = (
       <div className="relative flex items-center justify-center" style={{ width: 120, height: 120 }}>
         <div
@@ -110,24 +122,41 @@ const MermaidNodeComponent: React.FC<NodeProps<MermaidNodeData>> = ({ data, sele
     );
   }
 
+  const containerStyle: CSSProperties = isCircular || isDecision
+    ? { background: 'transparent', border: 'none', padding: 0 }
+    : {};
+
   return (
-    <div className="relative">
+    <div className="relative" style={containerStyle}>
       {content}
-      {isVerticalHandles ? (
-        <>
-          <Handle id="target-top" type="target" position={Position.Top} style={handlePositions.targetTop} />
-          <Handle id="target-bottom" type="target" position={Position.Bottom} style={handlePositions.targetBottom} />
-          <Handle id="source-top" type="source" position={Position.Top} style={handlePositions.sourceTop} />
-          <Handle id="source-bottom" type="source" position={Position.Bottom} style={handlePositions.sourceBottom} />
-        </>
-      ) : (
-        <>
-          <Handle id="target-left" type="target" position={Position.Left} style={handlePositions.targetLeft} />
-          <Handle id="target-right" type="target" position={Position.Right} style={handlePositions.targetRight} />
-          <Handle id="source-left" type="source" position={Position.Left} style={handlePositions.sourceLeft} />
-          <Handle id="source-right" type="source" position={Position.Right} style={handlePositions.sourceRight} />
-        </>
-      )}
+      <Handle
+        id="top"
+        type="source"
+        position={Position.Top}
+        style={handlePositions.top}
+        isConnectableEnd
+      />
+      <Handle
+        id="bottom"
+        type="source"
+        position={Position.Bottom}
+        style={handlePositions.bottom}
+        isConnectableEnd
+      />
+      <Handle
+        id="left"
+        type="source"
+        position={Position.Left}
+        style={handlePositions.left}
+        isConnectableEnd
+      />
+      <Handle
+        id="right"
+        type="source"
+        position={Position.Right}
+        style={handlePositions.right}
+        isConnectableEnd
+      />
     </div>
   );
 };

@@ -80,10 +80,26 @@ const toBooleanString = (value: boolean): string => (value ? 'true' : 'false');
 
 const parseBoolean = (value: string | undefined): boolean => value === 'true';
 
-const getHandleIdsForOrientation = (orientation: EdgeHandleOrientation) =>
-  orientation === 'vertical'
-    ? { source: 'source-bottom' as const, target: 'target-top' as const }
-    : { source: 'source-right' as const, target: 'target-left' as const };
+const normalizeHandleId = (handleId: string | null | undefined, fallback: 'top' | 'bottom' | 'left' | 'right'): 'top' | 'bottom' | 'left' | 'right' => {
+  if (!handleId) {
+    return fallback;
+  }
+  const mapping: Record<string, 'top' | 'bottom' | 'left' | 'right'> = {
+    top: 'top',
+    bottom: 'bottom',
+    left: 'left',
+    right: 'right',
+    'source-top': 'top',
+    'target-top': 'top',
+    'source-bottom': 'bottom',
+    'target-bottom': 'bottom',
+    'source-left': 'left',
+    'target-left': 'left',
+    'source-right': 'right',
+    'target-right': 'right',
+  };
+  return mapping[handleId] ?? fallback;
+};
 
 const createEdgeId = (): string => `edge_${Date.now().toString(36)}`;
 
@@ -173,6 +189,20 @@ const applyNodeDefaults = (node: MermaidNode, fallbackDiagramType?: MermaidDiagr
   const fillColor = metadata.fillColor ? sanitizeColorValue(metadata.fillColor) : '#ffffff';
   const strokeColor = metadata.strokeColor ? sanitizeColorValue(metadata.strokeColor) : '#1f2937';
   const textColor = metadata.textColor ? sanitizeColorValue(metadata.textColor) : '#111827';
+  const isSpecialFlowchartShape =
+    diagramType === 'flowchart' && (node.data.variant === 'startEnd' || node.data.variant === 'decision');
+
+  const nextStyle: React.CSSProperties = {
+    ...node.style,
+    background: fillColor,
+    border: `2px solid ${strokeColor}`,
+    color: textColor,
+  };
+
+  if (isSpecialFlowchartShape) {
+    nextStyle.background = 'transparent';
+    nextStyle.border = 'none';
+  }
 
   return {
     ...node,
@@ -180,12 +210,7 @@ const applyNodeDefaults = (node: MermaidNode, fallbackDiagramType?: MermaidDiagr
       ...node.data,
       metadata,
     },
-    style: {
-      ...node.style,
-      background: fillColor,
-      border: `2px solid ${strokeColor}`,
-      color: textColor,
-    },
+    style: nextStyle,
   };
 };
 
@@ -222,6 +247,8 @@ const normalizeEdges = (edgeList: MermaidEdge[]): MermaidEdge[] => {
     const parallelCount = meta?.count ?? 1;
     const parallelIndex = meta && parallelCount > 1 ? meta.index : 0;
     const normalizedLabel = edge.data?.label ?? edge.label;
+    const sourceHandle = normalizeHandleId(edge.sourceHandle, 'bottom');
+    const targetHandle = normalizeHandleId(edge.targetHandle, 'top');
     const diagramType = (edge.data?.diagramType as MermaidDiagramType) || 'flowchart';
     const defaultMetadata = getEdgeTemplateDefaults(diagramType, edge.data?.variant ?? '');
     const metadata = { ...defaultMetadata, ...(edge.data?.metadata ?? {}) };
@@ -263,6 +290,8 @@ const normalizeEdges = (edgeList: MermaidEdge[]): MermaidEdge[] => {
         } as const),
       style: edge.style ? { ...baseStyle, ...edge.style } : { ...baseStyle },
       updatable: true,
+      sourceHandle,
+      targetHandle,
     };
   });
 };
@@ -423,9 +452,8 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       edges: cloneEdgeList(edges),
       subgraphs: subgraphs.map((subgraph) => ({ ...subgraph, nodes: [...subgraph.nodes] })),
       ganttSections: [...ganttSections],
-      edgeHandleOrientation,
     }),
-    [diagramType, config, nodes, edges, subgraphs, ganttSections, edgeHandleOrientation],
+    [diagramType, config, nodes, edges, subgraphs, ganttSections],
   );
 
   const recordHistory = useCallback(() => {
@@ -675,15 +703,15 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
                   ...edge,
                   source: newConnection.source,
                   target: newConnection.target,
-                  sourceHandle: handles.source,
-                  targetHandle: handles.target,
+                  sourceHandle: normalizeHandleId(newConnection.sourceHandle, 'bottom'),
+                  targetHandle: normalizeHandleId(newConnection.targetHandle, 'top'),
                 }
               : edge,
           ),
         );
       });
     },
-    [edgeHandleOrientation, recordHistory, runWithSuppressedHistory, updateEdges],
+    [recordHistory, runWithSuppressedHistory, updateEdges],
   );
 
   const handleConnect = useCallback(
@@ -696,7 +724,6 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       const id = createEdgeId();
       runWithSuppressedHistory(() => {
         updateEdges((current) => {
-          const handles = getHandleIdsForOrientation(edgeHandleOrientation);
           const existing = current.filter(
             (edge) => edge.source === connection.source && edge.target === connection.target,
           );
@@ -712,8 +739,8 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           type: MERMAID_EDGE_TYPE,
           source: connection.source,
           target: connection.target,
-          sourceHandle: handles.source,
-          targetHandle: handles.target,
+          sourceHandle: normalizeHandleId(connection.sourceHandle, 'bottom'),
+          targetHandle: normalizeHandleId(connection.targetHandle, 'top'),
           data: {
             diagramType,
             variant: template?.variant ?? variant,
@@ -728,7 +755,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       });
       setInspector({ type: 'edge', id });
     },
-    [diagramType, edgeHandleOrientation, edgeTemplates, recordHistory, runWithSuppressedHistory, supportsEdges, updateEdges],
+    [diagramType, edgeTemplates, recordHistory, runWithSuppressedHistory, supportsEdges, updateEdges],
   );
 
   const handleSelectionChange = useCallback((params: { nodes: MermaidNode[]; edges: MermaidEdge[] }) => {
@@ -1134,7 +1161,6 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           return currentNodes;
         }
 
-        const isHorizontalLayout = edgeHandleOrientation === 'horizontal';
         const adjacency = new Map<string, Set<string>>();
         const indegree = new Map<string, number>();
 
@@ -1241,7 +1267,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       const maxNodesPerLayer = sortedLayers.reduce((max, [, nodeIds]) => Math.max(max, nodeIds.length), 1);
       const baseSpacing = 220;
       const nodeSpacing = Math.max(160, baseSpacing - Math.max(0, maxNodesPerLayer - 4) * 12);
-      const layerSpacing = isHorizontalLayout ? baseSpacing : 180;
+      const layerSpacing = 180;
       const startX = 80;
       const startY = 40;
 
@@ -1250,31 +1276,19 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         const orderedIds = layerMap.get(layerIndex) ?? [];
         const secondaryOffset = ((Math.max(1, maxNodesPerLayer) - orderedIds.length) * nodeSpacing) / 2;
         orderedIds.forEach((nodeId, index) => {
-          if (isHorizontalLayout) {
-            positionMap.set(nodeId, {
-              x: startX + layerIndex * layerSpacing,
-              y: startY + secondaryOffset + index * nodeSpacing,
-            });
-          } else {
-            positionMap.set(nodeId, {
-              x: startX + secondaryOffset + index * nodeSpacing,
-              y: startY + layerIndex * layerSpacing,
-            });
-          }
+          positionMap.set(nodeId, {
+            x: startX + secondaryOffset + index * nodeSpacing,
+            y: startY + layerIndex * layerSpacing,
+          });
         });
       });
 
       return currentNodes.map((node, index) => {
         const fallbackRow = Math.floor(index / 4);
-        const fallbackPosition = isHorizontalLayout
-          ? {
-              x: startX + fallbackRow * layerSpacing,
-              y: startY + (index % 4) * nodeSpacing,
-            }
-          : {
-              x: startX + (index % 4) * nodeSpacing,
-              y: startY + fallbackRow * layerSpacing,
-            };
+        const fallbackPosition = {
+          x: startX + (index % 4) * nodeSpacing,
+          y: startY + fallbackRow * layerSpacing,
+        };
         const target = positionMap.get(node.id) ?? fallbackPosition;
         return applyNodeDefaults(
           {
@@ -1290,7 +1304,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     setTimeout(() => {
       fitViewToDiagram({ duration: 400 });
     }, 50);
-  }, [diagramType, edgeHandleOrientation, edges, fitViewToDiagram, recordHistory, runWithSuppressedHistory]);
+  }, [diagramType, edges, fitViewToDiagram, recordHistory, runWithSuppressedHistory]);
 
   const handleDiagramTypeChange = useCallback(
     (nextType: MermaidDiagramType) => {
@@ -1319,19 +1333,6 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       });
     },
     [diagramType, edges.length, nodes.length, recordHistory, updateEdges],
-  );
-
-  const handleEdgeOrientationChange = useCallback(
-    (nextOrientation: EdgeHandleOrientation) => {
-      setEdgeHandleOrientation((current) => {
-        if (current === nextOrientation) {
-          return current;
-        }
-        recordHistory();
-        return nextOrientation;
-      });
-    },
-    [recordHistory],
   );
 
   const handleDeleteSelection = useCallback(() => {
