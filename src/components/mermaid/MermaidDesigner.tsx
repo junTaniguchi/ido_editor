@@ -45,6 +45,7 @@ import InteractiveMermaidCanvas from './InteractiveMermaidCanvas';
 import GroupOverlays from './GroupOverlays';
 import MermaidEdgeComponent from './MermaidEdge';
 import MermaidNodeComponent from './MermaidNode';
+import { EdgeHandleOrientationContext, type EdgeHandleOrientation } from './EdgeHandleOrientationContext';
 
 export interface MermaidDesignerProps {
   tabId: string;
@@ -78,6 +79,11 @@ const getDefaultEdgeVariant = (type: MermaidDiagramType): string => {
 const toBooleanString = (value: boolean): string => (value ? 'true' : 'false');
 
 const parseBoolean = (value: string | undefined): boolean => value === 'true';
+
+const getHandleIdsForOrientation = (orientation: EdgeHandleOrientation) =>
+  orientation === 'vertical'
+    ? { source: 'source-bottom' as const, target: 'target-top' as const }
+    : { source: 'source-right' as const, target: 'target-left' as const };
 
 const createEdgeId = (): string => `edge_${Date.now().toString(36)}`;
 
@@ -145,6 +151,7 @@ interface Snapshot {
   edges: MermaidEdge[];
   subgraphs: MermaidSubgraph[];
   ganttSections: string[];
+  edgeHandleOrientation: EdgeHandleOrientation;
 }
 
 const getNodeTemplateDefaults = (diagramType: MermaidDiagramType, variant: string) => {
@@ -370,6 +377,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const [inspector, setInspector] = useState<InspectorState | null>(null);
   const [isPaletteCollapsed, setIsPaletteCollapsed] = useState<boolean>(false);
   const [contextMenu, setContextMenu] = useState<CanvasContextMenuState | null>(null);
+  const [edgeHandleOrientation, setEdgeHandleOrientation] = useState<EdgeHandleOrientation>('vertical');
   const [, setEdgeDraft] = useState<EdgeDraft>({
     source: '',
     target: '',
@@ -385,33 +393,40 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const futureRef = useRef<Snapshot[]>([]);
   const suppressHistoryRef = useRef<number>(0);
 
-  const beginSuppressHistory = () => {
+  const beginSuppressHistory = useCallback(() => {
     suppressHistoryRef.current += 1;
-  };
+  }, []);
 
-  const endSuppressHistory = () => {
+  const endSuppressHistory = useCallback(() => {
     suppressHistoryRef.current = Math.max(0, suppressHistoryRef.current - 1);
-  };
+  }, []);
 
-  const runWithSuppressedHistory = (action: () => void) => {
-    beginSuppressHistory();
-    try {
-      action();
-    } finally {
-      queueMicrotask(() => {
-        endSuppressHistory();
-      });
-    }
-  };
+  const runWithSuppressedHistory = useCallback(
+    (action: () => void) => {
+      beginSuppressHistory();
+      try {
+        action();
+      } finally {
+        queueMicrotask(() => {
+          endSuppressHistory();
+        });
+      }
+    },
+    [beginSuppressHistory, endSuppressHistory],
+  );
 
-  const createSnapshot = useCallback((): Snapshot => ({
-    diagramType,
-    config: JSON.parse(JSON.stringify(config)) as MermaidDiagramConfig,
-    nodes: cloneNodeList(nodes),
-    edges: cloneEdgeList(edges),
-    subgraphs: subgraphs.map(subgraph => ({ ...subgraph, nodes: [...subgraph.nodes] })),
-    ganttSections: [...ganttSections],
-  }), [diagramType, config, nodes, edges, subgraphs, ganttSections]);
+  const createSnapshot = useCallback(
+    (): Snapshot => ({
+      diagramType,
+      config: JSON.parse(JSON.stringify(config)) as MermaidDiagramConfig,
+      nodes: cloneNodeList(nodes),
+      edges: cloneEdgeList(edges),
+      subgraphs: subgraphs.map((subgraph) => ({ ...subgraph, nodes: [...subgraph.nodes] })),
+      ganttSections: [...ganttSections],
+      edgeHandleOrientation,
+    }),
+    [diagramType, config, nodes, edges, subgraphs, ganttSections, edgeHandleOrientation],
+  );
 
   const recordHistory = useCallback(() => {
     if (isRestoring.current) return;
@@ -430,6 +445,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     setEdgesState(snapshot.edges);
     setSubgraphs(snapshot.subgraphs);
     setGanttSections(snapshot.ganttSections);
+    setEdgeHandleOrientation(snapshot.edgeHandleOrientation);
     requestAnimationFrame(() => {
       isRestoring.current = false;
     });
@@ -570,12 +586,13 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           edges: cloneEdgeList(normalizedEdges),
           subgraphs: parsedSubgraphs.map((subgraph) => ({ ...subgraph, nodes: [...subgraph.nodes] })),
           ganttSections: [...nextGanttSections],
+          edgeHandleOrientation,
         };
         historyRef.current = [initialSnapshot];
         futureRef.current = [];
       });
     });
-  }, [content, tabId, fitViewToDiagram]);
+  }, [content, tabId, fitViewToDiagram, edgeHandleOrientation]);
 
   useEffect(() => {
     if (!hasInitialized.current) return;
@@ -649,6 +666,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         return;
       }
       recordHistory();
+      const handles = getHandleIdsForOrientation(edgeHandleOrientation);
       runWithSuppressedHistory(() => {
         updateEdges((current) =>
           current.map((edge) =>
@@ -657,13 +675,15 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
                   ...edge,
                   source: newConnection.source,
                   target: newConnection.target,
+                  sourceHandle: handles.source,
+                  targetHandle: handles.target,
                 }
               : edge,
           ),
         );
       });
     },
-    [recordHistory, updateEdges],
+    [edgeHandleOrientation, recordHistory, runWithSuppressedHistory, updateEdges],
   );
 
   const handleConnect = useCallback(
@@ -676,11 +696,12 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       const id = createEdgeId();
       runWithSuppressedHistory(() => {
         updateEdges((current) => {
-        const existing = current.filter(
-          (edge) => edge.source === connection.source && edge.target === connection.target,
-        );
-        const baseLabel = template?.defaultLabel ?? '';
-        const automaticLabel = baseLabel
+          const handles = getHandleIdsForOrientation(edgeHandleOrientation);
+          const existing = current.filter(
+            (edge) => edge.source === connection.source && edge.target === connection.target,
+          );
+          const baseLabel = template?.defaultLabel ?? '';
+          const automaticLabel = baseLabel
           ? existing.length > 0
             ? `${baseLabel} ${existing.length + 1}`
             : baseLabel
@@ -691,6 +712,8 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           type: MERMAID_EDGE_TYPE,
           source: connection.source,
           target: connection.target,
+          sourceHandle: handles.source,
+          targetHandle: handles.target,
           data: {
             diagramType,
             variant: template?.variant ?? variant,
@@ -705,7 +728,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       });
       setInspector({ type: 'edge', id });
     },
-    [diagramType, edgeTemplates, recordHistory, supportsEdges, updateEdges],
+    [diagramType, edgeHandleOrientation, edgeTemplates, recordHistory, runWithSuppressedHistory, supportsEdges, updateEdges],
   );
 
   const handleSelectionChange = useCallback((params: { nodes: MermaidNode[]; edges: MermaidEdge[] }) => {
@@ -764,7 +787,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       });
       setInspector({ type: 'node', id });
     },
-    [diagramType, ganttSections, recordHistory],
+    [diagramType, ganttSections, recordHistory, runWithSuppressedHistory],
   );
 
   const handleContextMenuAddNode = useCallback(
@@ -808,7 +831,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         );
       });
     },
-    [diagramType, recordHistory],
+    [diagramType, recordHistory, runWithSuppressedHistory],
   );
 
   const updateEdge = useCallback(
@@ -818,7 +841,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         updateEdges((current) => current.map((edge) => (edge.id === edgeId ? updater(edge) : edge)));
       });
     },
-    [recordHistory, updateEdges],
+    [recordHistory, runWithSuppressedHistory, updateEdges],
   );
 
   const addSubgraph = useCallback(() => {
@@ -877,7 +900,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         );
       });
     },
-    [diagramType, recordHistory, subgraphs],
+    [diagramType, recordHistory, runWithSuppressedHistory, subgraphs],
   );
 
   const assignNodeToSubgraph = useCallback(
@@ -930,7 +953,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         }),
       );
     },
-    [diagramType, nodes, recordHistory],
+    [diagramType, nodes, recordHistory, runWithSuppressedHistory],
   );
 
   const addGanttSection = useCallback(() => {
@@ -986,7 +1009,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         return nextSections;
       });
     },
-    [ganttSections, recordHistory],
+    [ganttSections, recordHistory, runWithSuppressedHistory],
   );
 
   const removeGanttSection = useCallback((index: number) => {
@@ -1020,7 +1043,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       });
       return nextSections;
     });
-  }, [ganttSections, recordHistory]);
+  }, [ganttSections, recordHistory, runWithSuppressedHistory]);
 
   useEffect(() => {
     setSubgraphs((current) =>
@@ -1030,6 +1053,27 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       })),
     );
   }, [nodes]);
+
+  useEffect(() => {
+    const handles = getHandleIdsForOrientation(edgeHandleOrientation);
+    runWithSuppressedHistory(() => {
+      updateEdges((current) => {
+        let hasChanges = false;
+        const nextEdges = current.map((edge) => {
+          if (edge.sourceHandle === handles.source && edge.targetHandle === handles.target) {
+            return edge;
+          }
+          hasChanges = true;
+          return {
+            ...edge,
+            sourceHandle: handles.source,
+            targetHandle: handles.target,
+          };
+        });
+        return hasChanges ? nextEdges : current;
+      });
+    });
+  }, [edgeHandleOrientation, runWithSuppressedHistory, updateEdges]);
 
   useEffect(() => {
     if (diagramType !== 'gantt') {
@@ -1061,7 +1105,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         return hasChanges ? nextNodes : current;
       });
     });
-  }, [diagramType, ganttSections]);
+  }, [diagramType, ganttSections, runWithSuppressedHistory]);
 
   useEffect(() => {
     const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
@@ -1090,8 +1134,9 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           return currentNodes;
         }
 
-      const adjacency = new Map<string, Set<string>>();
-      const indegree = new Map<string, number>();
+        const isHorizontalLayout = edgeHandleOrientation === 'horizontal';
+        const adjacency = new Map<string, Set<string>>();
+        const indegree = new Map<string, number>();
 
       currentNodes.forEach((node) => {
         adjacency.set(node.id, new Set<string>());
@@ -1195,30 +1240,41 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
 
       const maxNodesPerLayer = sortedLayers.reduce((max, [, nodeIds]) => Math.max(max, nodeIds.length), 1);
       const baseSpacing = 220;
-      const horizontalSpacing = Math.max(160, baseSpacing - Math.max(0, maxNodesPerLayer - 4) * 12);
-      const verticalSpacing = 180;
+      const nodeSpacing = Math.max(160, baseSpacing - Math.max(0, maxNodesPerLayer - 4) * 12);
+      const layerSpacing = isHorizontalLayout ? baseSpacing : 180;
       const startX = 80;
       const startY = 40;
 
       const positionMap = new Map<string, { x: number; y: number }>();
       sortedLayers.forEach(([layerIndex]) => {
         const orderedIds = layerMap.get(layerIndex) ?? [];
-        const offsetX =
-          startX + ((Math.max(1, maxNodesPerLayer) - orderedIds.length) * horizontalSpacing) / 2;
+        const secondaryOffset = ((Math.max(1, maxNodesPerLayer) - orderedIds.length) * nodeSpacing) / 2;
         orderedIds.forEach((nodeId, index) => {
-          positionMap.set(nodeId, {
-            x: offsetX + index * horizontalSpacing,
-            y: startY + layerIndex * verticalSpacing,
-          });
+          if (isHorizontalLayout) {
+            positionMap.set(nodeId, {
+              x: startX + layerIndex * layerSpacing,
+              y: startY + secondaryOffset + index * nodeSpacing,
+            });
+          } else {
+            positionMap.set(nodeId, {
+              x: startX + secondaryOffset + index * nodeSpacing,
+              y: startY + layerIndex * layerSpacing,
+            });
+          }
         });
       });
 
       return currentNodes.map((node, index) => {
         const fallbackRow = Math.floor(index / 4);
-        const fallbackPosition = {
-          x: startX + (index % 4) * horizontalSpacing,
-          y: startY + fallbackRow * verticalSpacing,
-        };
+        const fallbackPosition = isHorizontalLayout
+          ? {
+              x: startX + fallbackRow * layerSpacing,
+              y: startY + (index % 4) * nodeSpacing,
+            }
+          : {
+              x: startX + (index % 4) * nodeSpacing,
+              y: startY + fallbackRow * layerSpacing,
+            };
         const target = positionMap.get(node.id) ?? fallbackPosition;
         return applyNodeDefaults(
           {
@@ -1234,7 +1290,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     setTimeout(() => {
       fitViewToDiagram({ duration: 400 });
     }, 50);
-  }, [edges, fitViewToDiagram, recordHistory]);
+  }, [diagramType, edgeHandleOrientation, edges, fitViewToDiagram, recordHistory, runWithSuppressedHistory]);
 
   const handleDiagramTypeChange = useCallback(
     (nextType: MermaidDiagramType) => {
@@ -1262,7 +1318,20 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         label: firstEdgeTemplate?.defaultLabel ?? '',
       });
     },
-    [diagramType, edges.length, nodes.length, recordHistory],
+    [diagramType, edges.length, nodes.length, recordHistory, updateEdges],
+  );
+
+  const handleEdgeOrientationChange = useCallback(
+    (nextOrientation: EdgeHandleOrientation) => {
+      setEdgeHandleOrientation((current) => {
+        if (current === nextOrientation) {
+          return current;
+        }
+        recordHistory();
+        return nextOrientation;
+      });
+    },
+    [recordHistory],
   );
 
   const handleDeleteSelection = useCallback(() => {
@@ -1293,7 +1362,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       });
     }
     setInspector(null);
-  }, [inspector, recordHistory, updateEdges]);
+  }, [inspector, recordHistory, runWithSuppressedHistory, updateEdges]);
 
   const selectedNode = useMemo(
     () => nodes.find((node) => inspector?.type === 'node' && node.id === inspector.id),
@@ -1699,6 +1768,21 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
               </select>
             </div>
           )}
+          {!isPaletteCollapsed && supportsEdges && (
+            <div className="space-y-1">
+              <label className="block text-xs text-gray-500">エッジ接合方向</label>
+              <select
+                className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm bg-white dark:bg-gray-900"
+                value={edgeHandleOrientation}
+                onChange={(event) =>
+                  handleEdgeOrientationChange(event.target.value as EdgeHandleOrientation)
+                }
+              >
+                <option value="vertical">上下</option>
+                <option value="horizontal">左右</option>
+              </select>
+            </div>
+          )}
           {!isPaletteCollapsed && edgeTemplates.length > 0 && (
             <div>
               <p className="text-xs text-gray-500 mb-2">接続種別一覧</p>
@@ -1837,29 +1921,31 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           onContextMenu={handleCanvasContextMenu}
           onMouseDown={handleCanvasMouseDown}
         >
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
-            defaultEdgeOptions={defaultEdgeOptions}
-            onNodesChange={handleNodesChange}
-            onEdgesChange={handleEdgesChange}
-            onConnect={handleConnect}
-            onEdgeUpdate={handleEdgeUpdate}
-            onSelectionChange={handleSelectionChange}
-            onInit={(instance) => {
-              reactFlowInstanceRef.current = instance;
-              fitViewToDiagram();
-            }}
-            fitView
-            fitViewOptions={{ padding: 0.2 }}
-            edgeUpdaterRadius={12}
-          >
-            <Background />
-            <MiniMap />
-            <Controls />
-          </ReactFlow>
+          <EdgeHandleOrientationContext.Provider value={edgeHandleOrientation}>
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              defaultEdgeOptions={defaultEdgeOptions}
+              onNodesChange={handleNodesChange}
+              onEdgesChange={handleEdgesChange}
+              onConnect={handleConnect}
+              onEdgeUpdate={handleEdgeUpdate}
+              onSelectionChange={handleSelectionChange}
+              onInit={(instance) => {
+                reactFlowInstanceRef.current = instance;
+                fitViewToDiagram();
+              }}
+              fitView
+              fitViewOptions={{ padding: 0.2 }}
+              edgeUpdaterRadius={12}
+            >
+              <Background />
+              <MiniMap />
+              <Controls />
+            </ReactFlow>
+          </EdgeHandleOrientationContext.Provider>
           <GroupOverlays
             diagramType={diagramType}
             subgraphs={subgraphs}
