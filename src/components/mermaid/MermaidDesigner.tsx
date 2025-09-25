@@ -21,7 +21,7 @@ import ReactFlow, {
 } from 'reactflow';
 import type { FitViewOptions, ReactFlowInstance, XYPosition } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { IoAlertCircleOutline, IoTrash } from 'react-icons/io5';
+import { IoAlertCircleOutline, IoSave, IoTrash } from 'react-icons/io5';
 import { useEditorStore } from '@/store/editorStore';
 import {
   diagramDefinitions,
@@ -46,6 +46,7 @@ import GroupOverlays from './GroupOverlays';
 import MermaidEdgeComponent from './MermaidEdge';
 import MermaidNodeComponent from './MermaidNode';
 import { EdgeHandleOrientationContext, type EdgeHandleOrientation } from './EdgeHandleOrientationContext';
+import { writeFileContent } from '@/lib/fileSystemUtils';
 
 export interface MermaidDesignerProps {
   tabId: string;
@@ -402,6 +403,10 @@ const FieldInput: React.FC<{
 
 const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, content }) => {
   const { updateTab, getTab } = useTabActions();
+  const currentTab = useEditorStore(
+    useCallback((state) => state.tabs.get(tabId), [tabId])
+  );
+  const rootDirHandle = useEditorStore((state) => state.rootDirHandle);
   const reactFlowInstanceRef = useRef<ReactFlowInstance | null>(null);
   const flowWrapperRef = useRef<HTMLDivElement | null>(null);
   const [diagramType, setDiagramType] = useState<MermaidDiagramType>('flowchart');
@@ -1335,6 +1340,76 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     }, 50);
   }, [diagramType, edges, fitViewToDiagram, recordHistory, runWithSuppressedHistory]);
 
+  const handleSaveDiagram = useCallback(async () => {
+    const tab = getTab(tabId);
+    if (!tab) {
+      alert('現在のタブ情報を取得できませんでした。');
+      return;
+    }
+
+    if (tab.isReadOnly) {
+      alert('このファイルは読み取り専用のため保存できません。');
+      return;
+    }
+
+    if (!tab.isDirty && tab.originalContent === generatedCode) {
+      return;
+    }
+
+    const contentToSave = generatedCode;
+    let fileHandle: FileSystemFileHandle | null = null;
+    const existingHandle = tab.file;
+
+    if (existingHandle && typeof (existingHandle as FileSystemFileHandle).createWritable === 'function') {
+      fileHandle = existingHandle as FileSystemFileHandle;
+    } else if (rootDirHandle) {
+      const candidatePath = tab.id && !tab.id.startsWith('temp_') ? tab.id : tab.name;
+
+      if (candidatePath) {
+        const segments = candidatePath.split('/').filter(Boolean);
+
+        if (segments.length > 0) {
+          try {
+            let directoryHandle: FileSystemDirectoryHandle = rootDirHandle;
+            for (let i = 0; i < segments.length - 1; i += 1) {
+              directoryHandle = await directoryHandle.getDirectoryHandle(segments[i]);
+            }
+
+            const targetFileName = segments[segments.length - 1];
+            fileHandle = await directoryHandle.getFileHandle(targetFileName, { create: true });
+          } catch (error) {
+            console.error('Failed to resolve file handle for saving:', error);
+          }
+        }
+      }
+    }
+
+    if (!fileHandle) {
+      alert('ファイルの保存先を特定できませんでした。フォルダを開き直してください。');
+      return;
+    }
+
+    try {
+      const didWrite = await writeFileContent(fileHandle, contentToSave);
+      if (!didWrite) {
+        throw new Error('ファイルの書き込みに失敗しました');
+      }
+
+      const latestTab = useEditorStore.getState().tabs.get(tabId);
+      const latestContent = typeof latestTab?.content === 'string' ? latestTab.content : contentToSave;
+      const hasPendingChanges = typeof latestContent === 'string' && latestContent !== contentToSave;
+
+      updateTab(tabId, {
+        originalContent: contentToSave,
+        isDirty: hasPendingChanges,
+        file: fileHandle,
+      });
+    } catch (error) {
+      console.error('Failed to save mermaid diagram:', error);
+      alert(`ファイルの保存に失敗しました: ${error instanceof Error ? error.message : '不明なエラー'}`);
+    }
+  }, [generatedCode, getTab, rootDirHandle, tabId, updateTab]);
+
   const handleDiagramTypeChange = useCallback(
     (nextType: MermaidDiagramType) => {
       if (nextType === diagramType) return;
@@ -1394,6 +1469,28 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     setInspector(null);
   }, [inspector, recordHistory, runWithSuppressedHistory, updateEdges]);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Delete') {
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+      if (!inspector) {
+        return;
+      }
+      event.preventDefault();
+      handleDeleteSelection();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [handleDeleteSelection, inspector]);
+
   const selectedNode = useMemo(
     () => nodes.find((node) => inspector?.type === 'node' && node.id === inspector.id),
     [inspector, nodes],
@@ -1445,6 +1542,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   );
 
   const paletteClasses = isPaletteCollapsed ? 'w-12' : 'w-36';
+  const canSaveDiagram = !!(currentTab && !currentTab.isReadOnly && currentTab.isDirty);
 
   const renderNodeInspector = () => {
     if (!selectedNode) {
@@ -1904,6 +2002,14 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-800">
           <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">キャンバス</h3>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="px-3 py-1 text-xs rounded bg-green-600 text-white hover:bg-green-700 flex items-center disabled:opacity-60 disabled:cursor-not-allowed"
+              onClick={() => void handleSaveDiagram()}
+              disabled={!canSaveDiagram}
+            >
+              <IoSave className="mr-1" size={16} /> 保存
+            </button>
             <button
               type="button"
               className="px-3 py-1 text-xs rounded border border-blue-500 text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-300 dark:hover:bg-blue-950"
