@@ -4,6 +4,7 @@ import React, { useMemo } from 'react';
 import type { CSSProperties } from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
 import type { MermaidNodeData } from '@/lib/mermaid/types';
+import { useEdgeHandleOrientation } from './EdgeHandleOrientationContext';
 
 const handleStyle: CSSProperties = {
   width: 12,

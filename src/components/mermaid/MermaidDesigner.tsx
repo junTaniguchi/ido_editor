@@ -45,6 +45,7 @@ import InteractiveMermaidCanvas from './InteractiveMermaidCanvas';
 import GroupOverlays from './GroupOverlays';
 import MermaidEdgeComponent from './MermaidEdge';
 import MermaidNodeComponent from './MermaidNode';
+import { EdgeHandleOrientationContext, type EdgeHandleOrientation } from './EdgeHandleOrientationContext';
 
 export interface MermaidDesignerProps {
   tabId: string;
@@ -78,7 +79,6 @@ const getDefaultEdgeVariant = (type: MermaidDiagramType): string => {
 const toBooleanString = (value: boolean): string => (value ? 'true' : 'false');
 
 const parseBoolean = (value: string | undefined): boolean => value === 'true';
-
 
 const normalizeHandleId = (handleId: string | null | undefined, fallback: 'top' | 'bottom' | 'left' | 'right'): 'top' | 'bottom' | 'left' | 'right' => {
   if (!handleId) {
@@ -167,6 +167,7 @@ interface Snapshot {
   edges: MermaidEdge[];
   subgraphs: MermaidSubgraph[];
   ganttSections: string[];
+  edgeHandleOrientation: EdgeHandleOrientation;
 }
 
 const getNodeTemplateDefaults = (diagramType: MermaidDiagramType, variant: string) => {
@@ -405,6 +406,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const [inspector, setInspector] = useState<InspectorState | null>(null);
   const [isPaletteCollapsed, setIsPaletteCollapsed] = useState<boolean>(false);
   const [contextMenu, setContextMenu] = useState<CanvasContextMenuState | null>(null);
+  const [edgeHandleOrientation, setEdgeHandleOrientation] = useState<EdgeHandleOrientation>('vertical');
   const [, setEdgeDraft] = useState<EdgeDraft>({
     source: '',
     target: '',
@@ -471,6 +473,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     setEdgesState(snapshot.edges);
     setSubgraphs(snapshot.subgraphs);
     setGanttSections(snapshot.ganttSections);
+    setEdgeHandleOrientation(snapshot.edgeHandleOrientation);
     requestAnimationFrame(() => {
       isRestoring.current = false;
     });
@@ -611,12 +614,13 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           edges: cloneEdgeList(normalizedEdges),
           subgraphs: parsedSubgraphs.map((subgraph) => ({ ...subgraph, nodes: [...subgraph.nodes] })),
           ganttSections: [...nextGanttSections],
+          edgeHandleOrientation,
         };
         historyRef.current = [initialSnapshot];
         futureRef.current = [];
       });
     });
-  }, [content, tabId, fitViewToDiagram]);
+  }, [content, tabId, fitViewToDiagram, edgeHandleOrientation]);
 
   useEffect(() => {
     if (!hasInitialized.current) return;
@@ -690,6 +694,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         return;
       }
       recordHistory();
+      const handles = getHandleIdsForOrientation(edgeHandleOrientation);
       runWithSuppressedHistory(() => {
         updateEdges((current) =>
           current.map((edge) =>
@@ -1075,6 +1080,27 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       })),
     );
   }, [nodes]);
+
+  useEffect(() => {
+    const handles = getHandleIdsForOrientation(edgeHandleOrientation);
+    runWithSuppressedHistory(() => {
+      updateEdges((current) => {
+        let hasChanges = false;
+        const nextEdges = current.map((edge) => {
+          if (edge.sourceHandle === handles.source && edge.targetHandle === handles.target) {
+            return edge;
+          }
+          hasChanges = true;
+          return {
+            ...edge,
+            sourceHandle: handles.source,
+            targetHandle: handles.target,
+          };
+        });
+        return hasChanges ? nextEdges : current;
+      });
+    });
+  }, [edgeHandleOrientation, runWithSuppressedHistory, updateEdges]);
 
   useEffect(() => {
     if (diagramType !== 'gantt') {
@@ -1743,6 +1769,21 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
               </select>
             </div>
           )}
+          {!isPaletteCollapsed && supportsEdges && (
+            <div className="space-y-1">
+              <label className="block text-xs text-gray-500">エッジ接合方向</label>
+              <select
+                className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm bg-white dark:bg-gray-900"
+                value={edgeHandleOrientation}
+                onChange={(event) =>
+                  handleEdgeOrientationChange(event.target.value as EdgeHandleOrientation)
+                }
+              >
+                <option value="vertical">上下</option>
+                <option value="horizontal">左右</option>
+              </select>
+            </div>
+          )}
           {!isPaletteCollapsed && edgeTemplates.length > 0 && (
             <div>
               <p className="text-xs text-gray-500 mb-2">接続種別一覧</p>
@@ -1881,29 +1922,31 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           onContextMenu={handleCanvasContextMenu}
           onMouseDown={handleCanvasMouseDown}
         >
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
-            defaultEdgeOptions={defaultEdgeOptions}
-            onNodesChange={handleNodesChange}
-            onEdgesChange={handleEdgesChange}
-            onConnect={handleConnect}
-            onEdgeUpdate={handleEdgeUpdate}
-            onSelectionChange={handleSelectionChange}
-            onInit={(instance) => {
-              reactFlowInstanceRef.current = instance;
-              fitViewToDiagram();
-            }}
-            fitView
-            fitViewOptions={{ padding: 0.2 }}
-            edgeUpdaterRadius={12}
-          >
-            <Background />
-            <MiniMap />
-            <Controls />
-          </ReactFlow>
+          <EdgeHandleOrientationContext.Provider value={edgeHandleOrientation}>
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              defaultEdgeOptions={defaultEdgeOptions}
+              onNodesChange={handleNodesChange}
+              onEdgesChange={handleEdgesChange}
+              onConnect={handleConnect}
+              onEdgeUpdate={handleEdgeUpdate}
+              onSelectionChange={handleSelectionChange}
+              onInit={(instance) => {
+                reactFlowInstanceRef.current = instance;
+                fitViewToDiagram();
+              }}
+              fitView
+              fitViewOptions={{ padding: 0.2 }}
+              edgeUpdaterRadius={12}
+            >
+              <Background />
+              <MiniMap />
+              <Controls />
+            </ReactFlow>
+          </EdgeHandleOrientationContext.Provider>
           <GroupOverlays
             diagramType={diagramType}
             subgraphs={subgraphs}
