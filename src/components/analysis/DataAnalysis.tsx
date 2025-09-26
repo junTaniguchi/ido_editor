@@ -4,11 +4,12 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useEditorStore } from '@/store/editorStore';
 import { parseCSV, parseJSON, parseYAML, parseParquet, parseExcel, flattenNestedObjects } from '@/lib/dataPreviewUtils';
 import { executeQuery, calculateStatistics, aggregateData, prepareChartData, calculateInfo, downloadData } from '@/lib/dataAnalysisUtils';
-import { IoAlertCircleOutline, IoAnalyticsOutline, IoBarChartOutline, IoStatsChartOutline, IoCodeSlash, IoEye, IoLayersOutline, IoCreate, IoSave, IoGitNetwork, IoChevronUpOutline, IoChevronDownOutline, IoBookOutline, IoAddOutline, IoPlay, IoPlayForward, IoTrashOutline, IoDownloadOutline } from 'react-icons/io5';
+import { IoAlertCircleOutline, IoAnalyticsOutline, IoBarChartOutline, IoStatsChartOutline, IoCodeSlash, IoEye, IoLayersOutline, IoCreate, IoSave, IoGitNetwork, IoChevronUpOutline, IoChevronDownOutline, IoBookOutline, IoAddOutline, IoPlay, IoPlayForward, IoTrashOutline, IoDownloadOutline, IoMapOutline } from 'react-icons/io5';
 import QueryResultTable from './QueryResultTable';
 import InfoResultTable from './InfoResultTable';
 import EditableQueryResultTable from './EditableQueryResultTable';
 import ResultChartPanel from './ResultChartPanel';
+import GeoAnalysisMapPanel from './GeoAnalysisMapPanel';
 import { 
   Chart as ChartJS, 
   CategoryScale, 
@@ -60,8 +61,10 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
     tabs, 
     analysisData, 
     setAnalysisData, 
-    chartSettings, 
+    chartSettings,
     updateChartSettings,
+    mapSettings,
+    updateMapSettings,
     paneState,
     updatePaneState,
     getViewMode,
@@ -104,7 +107,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
   const [statisticsResult, setStatisticsResult] = useState<Record<string, any> | null>(null);
   const [infoResult, setInfoResult] = useState<Record<string, any> | null>(null);
   const [chartData, setChartData] = useState<any | null>(null);
-  const [activeTab, setActiveTab] = useState<'query' | 'stats' | 'chart' | 'relationship'>('query');
+  const [activeTab, setActiveTab] = useState<'query' | 'stats' | 'chart' | 'map' | 'relationship'>('query');
   const [isQueryEditing, setIsQueryEditing] = useState(false);
   const [editedQueryResult, setEditedQueryResult] = useState<any[] | null>(null);
   const [notebookSnapshotMeta, setNotebookSnapshotMeta] = useState<{ name: string; exportedAt?: string } | null>(null);
@@ -140,6 +143,29 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
   const [isNotebookMode, setIsNotebookMode] = useState(false);
   const [runAllInProgress, setRunAllInProgress] = useState(false);
   const [cellViewModes, setCellViewModes] = useState<Record<string, 'table' | 'chart'>>({});
+
+  const queryColumns = useMemo(() => {
+    if (queryResult && queryResult.length > 0) {
+      return Object.keys(queryResult[0]);
+    }
+    return [] as string[];
+  }, [queryResult]);
+
+  const mapDataSources = useMemo(() => {
+    const sources: Array<{ id: string; label: string; rows: any[]; columns: string[] }> = [];
+    const originalColumns = columns && columns.length > 0
+      ? columns
+      : parsedData && parsedData.length > 0
+        ? Object.keys(parsedData[0])
+        : [];
+    if (parsedData && parsedData.length > 0) {
+      sources.push({ id: 'originalData', label: '元データ', rows: parsedData, columns: originalColumns });
+    }
+    if (queryResult && queryResult.length > 0) {
+      sources.push({ id: 'queryResult', label: 'クエリ結果', rows: queryResult, columns: queryColumns });
+    }
+    return sources;
+  }, [parsedData, queryResult, columns, queryColumns]);
 
   const notebookCells = useMemo(() => sqlNotebook[tabId] || [], [sqlNotebook, tabId]);
   const hasNotebookCells = notebookCells.length > 0;
@@ -3716,6 +3742,19 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
         </button>
         <button
           className={`px-4 py-2 ${
+            activeTab === 'map'
+              ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
+              : 'text-gray-600 dark:text-gray-400'
+          }`}
+          onClick={() => setActiveTab('map')}
+        >
+          <div className="flex items-center">
+            <IoMapOutline className="mr-1" size={18} />
+            マップ
+          </div>
+        </button>
+        <button
+          className={`px-4 py-2 ${
             activeTab === 'relationship'
               ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
               : 'text-gray-600 dark:text-gray-400'
@@ -4284,7 +4323,19 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
             {renderChart()}
           </div>
         )}
-        
+
+        {/* マップタブ */}
+        {activeTab === 'map' && (
+          <div className="h-full overflow-hidden">
+            <GeoAnalysisMapPanel
+              dataSources={mapDataSources}
+              mapSettings={mapSettings}
+              onUpdateSettings={updateMapSettings}
+              noCoordinateMessage="緯度・経度列やGeoJSON/WKT列が見つからない場合は、上部のセレクタから列を選択してください。"
+            />
+          </div>
+        )}
+
         {/* 関係グラフタブ */}
         {activeTab === 'relationship' && (
           <div className="h-full overflow-auto p-4" ref={graphContainerRef}>
