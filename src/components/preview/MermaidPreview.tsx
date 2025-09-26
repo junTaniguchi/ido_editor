@@ -49,37 +49,6 @@ const addPaddingToSvg = (svgString: string): string => {
       return svgString;
     }
 
-    if (!svgElement.getAttribute('xmlns')) {
-      svgElement.setAttribute('xmlns', SVG_NAMESPACE);
-    }
-
-    const imageElements = svgElement.querySelectorAll('image') as NodeListOf<SVGImageElement>;
-
-    if (imageElements.length > 0) {
-      const hasXlinkNamespace =
-        svgElement.hasAttributeNS(XMLNS_NAMESPACE, 'xlink') ||
-        !!svgElement.getAttribute('xmlns:xlink');
-
-      if (!hasXlinkNamespace) {
-        svgElement.setAttributeNS(XMLNS_NAMESPACE, 'xmlns:xlink', XLINK_NAMESPACE);
-      }
-
-      imageElements.forEach(image => {
-        const hrefValue =
-          image.getAttributeNS(XLINK_NAMESPACE, 'href') ??
-          image.getAttribute('xlink:href') ??
-          image.getAttribute('href');
-
-        if (hrefValue) {
-          image.setAttributeNS(XLINK_NAMESPACE, 'xlink:href', hrefValue);
-
-          if (!image.getAttribute('href')) {
-            image.setAttribute('href', hrefValue);
-          }
-        }
-      });
-    }
-
     // 現在のviewBoxを取得
     const viewBox = svgElement.getAttribute('viewBox');
     if (viewBox) {
