@@ -127,6 +127,37 @@ const getDefaultEdgeVariant = (type: MermaidDiagramType): string => {
   return definition.edgeTemplates[0]?.variant || 'arrow';
 };
 
+const resolveGitGraphEdgeVariant = (
+  templates: MermaidEdgeTemplate[],
+  sourceNode?: MermaidNode,
+  targetNode?: MermaidNode,
+): string => {
+  const available = new Set(templates.map((template) => template.variant));
+  const fallback = templates[0]?.variant ?? 'arrow';
+  const prefer = (variant: string): string => (available.has(variant) ? variant : fallback);
+
+  if (!sourceNode || !targetNode) {
+    return fallback;
+  }
+
+  const sourceVariant = sourceNode.data.variant;
+  const targetVariant = targetNode.data.variant;
+
+  if (sourceVariant === 'checkout' || targetVariant === 'checkout') {
+    return prefer('gitCheckout');
+  }
+
+  if (sourceVariant === 'merge' || targetVariant === 'merge') {
+    return prefer('gitMerge');
+  }
+
+  if (targetVariant === 'branch' || sourceVariant === 'branch') {
+    return prefer('gitBranchCreate');
+  }
+
+  return prefer('gitCommit');
+};
+
 const toBooleanString = (value: boolean): string => (value ? 'true' : 'false');
 
 const parseBoolean = (value: string | undefined): boolean => value === 'true';
@@ -939,9 +970,11 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     (connection: Connection) => {
       if (!supportsEdges || edgeTemplates.length === 0) return;
       if (!connection.source || !connection.target) return;
+      let sourceNode: MermaidNode | undefined;
+      let targetNode: MermaidNode | undefined;
       if (diagramType === 'gitGraph') {
-        const sourceNode = nodes.find((node) => node.id === connection.source);
-        const targetNode = nodes.find((node) => node.id === connection.target);
+        sourceNode = nodes.find((node) => node.id === connection.source);
+        targetNode = nodes.find((node) => node.id === connection.target);
         if (sourceNode && targetNode) {
           const getNodeBranch = (node: MermaidNode): string | null => {
             if (node.data.diagramType !== 'gitGraph') return null;
@@ -968,7 +1001,10 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         }
       }
       recordHistory();
-      const variant = getDefaultEdgeVariant(diagramType);
+      const variant =
+        diagramType === 'gitGraph'
+          ? resolveGitGraphEdgeVariant(edgeTemplates, sourceNode, targetNode)
+          : getDefaultEdgeVariant(diagramType);
       const template = edgeTemplates.find((item) => item.variant === variant) ?? edgeTemplates[0];
       const id = createEdgeId();
       runWithSuppressedHistory(() => {
