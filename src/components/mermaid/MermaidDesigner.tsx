@@ -1244,110 +1244,168 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           return currentNodes;
         }
 
+        const nodeIdSet = new Set(currentNodes.map((node) => node.id));
         const adjacency = new Map<string, Set<string>>();
         const indegree = new Map<string, number>();
+        const incoming = new Map<string, Set<string>>();
+        const outgoing = new Map<string, Set<string>>();
 
-      currentNodes.forEach((node) => {
-        adjacency.set(node.id, new Set<string>());
-        indegree.set(node.id, 0);
-      });
+        currentNodes.forEach((node) => {
+          adjacency.set(node.id, new Set<string>());
+          indegree.set(node.id, 0);
+          incoming.set(node.id, new Set<string>());
+          outgoing.set(node.id, new Set<string>());
+        });
 
-      edges.forEach((edge) => {
-        if (!adjacency.has(edge.source)) {
-          adjacency.set(edge.source, new Set<string>());
-        }
-        adjacency.get(edge.source)?.add(edge.target);
-        if (indegree.has(edge.target)) {
+        edges.forEach((edge) => {
+          if (!nodeIdSet.has(edge.source) || !nodeIdSet.has(edge.target)) {
+            return;
+          }
+          adjacency.get(edge.source)?.add(edge.target);
+          outgoing.get(edge.source)?.add(edge.target);
+          incoming.get(edge.target)?.add(edge.source);
           indegree.set(edge.target, (indegree.get(edge.target) ?? 0) + 1);
+        });
+
+        const levels = new Map<string, number>();
+        currentNodes.forEach((node) => {
+          levels.set(node.id, 0);
+        });
+
+        const queue: string[] = [];
+        const indegreeSnapshot = new Map(indegree);
+        indegreeSnapshot.forEach((value, nodeId) => {
+          if (value === 0) {
+            queue.push(nodeId);
+          }
+        });
+
+        const visited = new Set<string>();
+        while (queue.length > 0) {
+          const nodeId = queue.shift()!;
+          visited.add(nodeId);
+          const baseLevel = levels.get(nodeId) ?? 0;
+          const neighbors = adjacency.get(nodeId);
+          neighbors?.forEach((targetId) => {
+            const nextLevel = Math.max(levels.get(targetId) ?? 0, baseLevel + 1);
+            levels.set(targetId, nextLevel);
+            const nextIndegree = (indegreeSnapshot.get(targetId) ?? 0) - 1;
+            indegreeSnapshot.set(targetId, nextIndegree);
+            if (nextIndegree <= 0 && !visited.has(targetId)) {
+              queue.push(targetId);
+            }
+          });
         }
-      });
 
-      const levels = new Map<string, number>();
-      currentNodes.forEach((node) => {
-        levels.set(node.id, 0);
-      });
-
-      const queue: string[] = [];
-      const indegreeSnapshot = new Map(indegree);
-      indegreeSnapshot.forEach((value, nodeId) => {
-        if (value === 0) {
-          queue.push(nodeId);
+        if (visited.size === 0) {
+          currentNodes.forEach((node, index) => {
+            levels.set(node.id, Math.floor(index / 4));
+          });
+        } else if (visited.size < currentNodes.length) {
+          let maxLevel = 0;
+          levels.forEach((value) => {
+            maxLevel = Math.max(maxLevel, value);
+          });
+          const remaining = currentNodes.filter((node) => !visited.has(node.id));
+          remaining.forEach((node, index) => {
+            const additionalLevel = maxLevel + 1 + Math.floor(index / 4);
+            levels.set(node.id, additionalLevel);
+          });
         }
-      });
 
-      const visited = new Set<string>();
-      while (queue.length > 0) {
-        const nodeId = queue.shift()!;
-        visited.add(nodeId);
-        const baseLevel = levels.get(nodeId) ?? 0;
-        const neighbors = adjacency.get(nodeId);
-        neighbors?.forEach((targetId) => {
-          const nextLevel = Math.max(levels.get(targetId) ?? 0, baseLevel + 1);
-          levels.set(targetId, nextLevel);
-          const nextIndegree = (indegreeSnapshot.get(targetId) ?? 0) - 1;
-          indegreeSnapshot.set(targetId, nextIndegree);
-          if (nextIndegree <= 0 && !visited.has(targetId)) {
-            queue.push(targetId);
+        const layerMap = new Map<number, string[]>();
+        currentNodes.forEach((node) => {
+          const level = levels.get(node.id) ?? 0;
+          const entry = layerMap.get(level) ?? [];
+          entry.push(node.id);
+          layerMap.set(level, entry);
+        });
+
+        const layers = Array.from(layerMap.entries())
+          .sort((a, b) => a[0] - b[0])
+          .map(([level, nodeIds]) => ({ level, nodeIds: [...nodeIds] }));
+
+        if (layers.length > 1) {
+          const baseLayerOrders = layers.map((layer) => {
+            const order = new Map<string, number>();
+            layer.nodeIds.forEach((nodeId, index) => order.set(nodeId, index));
+            return order;
+          });
+          const dynamicOrders = layers.map((layer) => {
+            const order = new Map<string, number>();
+            layer.nodeIds.forEach((nodeId, index) => order.set(nodeId, index));
+            return order;
+          });
+
+          const sweepCount = Math.min(8, Math.max(2, layers.length * 2));
+          for (let iteration = 0; iteration < sweepCount; iteration += 1) {
+            const downward = iteration % 2 === 0;
+            const start = downward ? 1 : layers.length - 2;
+            const end = downward ? layers.length : -1;
+            const step = downward ? 1 : -1;
+
+            for (let layerIndex = start; layerIndex !== end; layerIndex += step) {
+              const layer = layers[layerIndex];
+              if (!layer) continue;
+              const adjacentIndex = layerIndex - step;
+              const adjacentLayer = layers[adjacentIndex];
+              if (!adjacentLayer) continue;
+
+              const adjacentOrder = dynamicOrders[adjacentIndex];
+              const currentOrder = dynamicOrders[layerIndex];
+              const baseOrder = baseLayerOrders[layerIndex];
+              const expectedNeighborLevel = downward ? layer.level - 1 : layer.level + 1;
+
+              const ranked = layer.nodeIds.map((nodeId) => {
+                const neighborSet = downward ? incoming.get(nodeId) : outgoing.get(nodeId);
+                let relevantNeighbors: string[] = [];
+                if (neighborSet) {
+                  relevantNeighbors = Array.from(neighborSet).filter((neighborId) => (
+                    levels.get(neighborId) ?? expectedNeighborLevel
+                  ) === expectedNeighborLevel);
+                  if (relevantNeighbors.length === 0) {
+                    relevantNeighbors = Array.from(neighborSet);
+                  }
+                }
+
+                let barycenter: number;
+                if (relevantNeighbors.length > 0) {
+                  barycenter = relevantNeighbors.reduce((sum, neighborId) => {
+                    const neighborPosition = adjacentOrder.get(neighborId);
+                    if (neighborPosition === undefined) {
+                      return sum + (baseOrder.get(nodeId) ?? 0);
+                    }
+                    return sum + neighborPosition;
+                  }, 0) / relevantNeighbors.length;
+                } else {
+                  barycenter = currentOrder.get(nodeId) ?? (baseOrder.get(nodeId) ?? 0);
+                }
+
+                const spreadPenalty = relevantNeighbors.length > 0 ? 1 / relevantNeighbors.length : 1;
+
+                return {
+                  nodeId,
+                  barycenter,
+                  spreadPenalty,
+                };
+              });
+
+              ranked.sort((a, b) => (
+                a.barycenter - b.barycenter
+                || a.spreadPenalty - b.spreadPenalty
+                || (baseOrder.get(a.nodeId) ?? 0) - (baseOrder.get(b.nodeId) ?? 0)
+                || a.nodeId.localeCompare(b.nodeId)
+              ));
+
+              layer.nodeIds = ranked.map((item) => item.nodeId);
+              layer.nodeIds.forEach((nodeId, index) => {
+                dynamicOrders[layerIndex].set(nodeId, index);
+              });
+            }
           }
-        });
-      }
+        }
 
-      if (visited.size === 0) {
-        currentNodes.forEach((node, index) => {
-          levels.set(node.id, Math.floor(index / 4));
-        });
-      } else if (visited.size < currentNodes.length) {
-        let maxLevel = 0;
-        levels.forEach((value) => {
-          maxLevel = Math.max(maxLevel, value);
-        });
-        const remaining = currentNodes.filter((node) => !visited.has(node.id));
-        remaining.forEach((node, index) => {
-          const additionalLevel = maxLevel + 1 + Math.floor(index / 4);
-          levels.set(node.id, additionalLevel);
-        });
-      }
-
-      const layerMap = new Map<number, string[]>();
-      currentNodes.forEach((node) => {
-        const level = levels.get(node.id) ?? 0;
-        const entry = layerMap.get(level) ?? [];
-        entry.push(node.id);
-        layerMap.set(level, entry);
-      });
-
-      const sortedLayers = Array.from(layerMap.entries()).sort((a, b) => a[0] - b[0]);
-      const previousLayerOrder = new Map<string, number>();
-      sortedLayers.forEach(([layerIndex, nodeIds]) => {
-        const ranked = nodeIds.map((nodeId, rawIndex) => {
-          const inbound = edges.filter(
-            (edge) => edge.target === nodeId && (levels.get(edge.source) ?? 0) < layerIndex,
-          );
-          if (inbound.length > 0) {
-            const score = inbound.reduce((sum, edge) => sum + (previousLayerOrder.get(edge.source) ?? rawIndex), 0);
-            return { nodeId, score: score / inbound.length };
-          }
-
-          const outbound = edges.filter(
-            (edge) => edge.source === nodeId && (levels.get(edge.target) ?? 0) < layerIndex,
-          );
-          if (outbound.length > 0) {
-            const score = outbound.reduce((sum, edge) => sum + (previousLayerOrder.get(edge.target) ?? rawIndex), 0);
-            return { nodeId, score: score / outbound.length + 0.3 };
-          }
-
-          return { nodeId, score: rawIndex + layerIndex * 0.01 };
-        });
-
-        ranked.sort((a, b) => a.score - b.score || a.nodeId.localeCompare(b.nodeId));
-        const orderedIds = ranked.map((item) => item.nodeId);
-        layerMap.set(layerIndex, orderedIds);
-        orderedIds.forEach((nodeId, index) => {
-          previousLayerOrder.set(nodeId, index);
-        });
-      });
-
-        const maxNodesPerLayer = sortedLayers.reduce((max, [, nodeIds]) => Math.max(max, nodeIds.length), 1);
+        const maxNodesPerLayer = layers.reduce((max, layer) => Math.max(max, layer.nodeIds.length), 1);
         const baseSpacing = 220;
         const nodeSpacing = Math.max(160, baseSpacing - Math.max(0, maxNodesPerLayer - 4) * 12);
         const layerSpacing = 180;
@@ -1355,15 +1413,14 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         const originY = 40;
 
         const positionMap = new Map<string, { x: number; y: number }>();
-        sortedLayers.forEach(([layerIndex]) => {
-          const orderedIds = layerMap.get(layerIndex) ?? [];
-          const secondaryOffset = ((Math.max(1, maxNodesPerLayer) - orderedIds.length) * nodeSpacing) / 2;
-          orderedIds.forEach((nodeId, index) => {
+        layers.forEach((layer) => {
+          const secondaryOffset = ((Math.max(1, maxNodesPerLayer) - layer.nodeIds.length) * nodeSpacing) / 2;
+          layer.nodeIds.forEach((nodeId, index) => {
             const x = isVertical
               ? originX + secondaryOffset + index * nodeSpacing
-              : originX + layerIndex * layerSpacing;
+              : originX + layer.level * layerSpacing;
             const y = isVertical
-              ? originY + layerIndex * layerSpacing
+              ? originY + layer.level * layerSpacing
               : originY + secondaryOffset + index * nodeSpacing;
             positionMap.set(nodeId, { x, y });
           });
