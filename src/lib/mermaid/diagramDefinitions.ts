@@ -582,25 +582,10 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         ],
       },
       {
-        variant: 'branch',
-        label: 'ブランチ作成',
-        description: '新しいブランチを作成して現在のブランチにする',
-        defaultLabel: 'develop',
-        fields: [
-          { key: 'order', label: '表示順序 (order)', type: 'number', placeholder: '例: 1' },
-        ],
-      },
-      {
-        variant: 'checkout',
-        label: 'チェックアウト',
-        description: '既存のブランチへ切り替え',
-        defaultLabel: 'main',
-      },
-      {
         variant: 'merge',
-        label: 'マージ',
-        description: '指定ブランチを現在のブランチへマージ',
-        defaultLabel: 'develop',
+        label: 'マージコミット',
+        description: '他ブランチをマージしたコミットを追加',
+        defaultLabel: 'Merge',
         defaultMetadata: { type: 'NORMAL' },
         fields: [
           { key: 'id', label: 'マージコミットID', type: 'text' },
@@ -628,7 +613,19 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         ],
       },
     ],
-    edgeTemplates: [],
+    edgeTemplates: [
+      {
+        variant: 'gitCheckout',
+        label: 'チェックアウト',
+        description: 'ブランチの切り替えを表現するエッジ',
+        defaultMetadata: { command: 'checkout' },
+      },
+      {
+        variant: 'gitMerge',
+        label: 'マージ',
+        description: '他ブランチからのマージを表現するエッジ',
+      },
+    ],
     defaultConfig: { type: 'gitGraph', orientation: 'LR' },
     defaultTemplate: `gitGraph LR:
   commit id: "A"
@@ -650,7 +647,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         ],
       },
     ],
-    supportsEdges: false,
+    supportsEdges: true,
     createNodeId: () => `git_${createId()}`,
   },
   pie: {

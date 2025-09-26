@@ -36,6 +36,7 @@ import type {
   MermaidDiagramConfig,
   MermaidDiagramType,
   MermaidEdge,
+  MermaidGitBranch,
   MermaidGraphModel,
   MermaidNode,
   MermaidSubgraph,
@@ -229,6 +230,7 @@ interface Snapshot {
   subgraphs: MermaidSubgraph[];
   ganttSections: string[];
   edgeHandleOrientation: EdgeHandleOrientation;
+  gitBranches: MermaidGitBranch[];
 }
 
 const getNodeTemplateDefaults = (diagramType: MermaidDiagramType, variant: string) => {
@@ -373,6 +375,44 @@ const normalizeEdges = (edgeList: MermaidEdge[]): MermaidEdge[] => {
   });
 };
 
+const parseSequenceNumber = (value: string | undefined): number | undefined => {
+  if (!value) return undefined;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : undefined;
+};
+
+const getNextGitSequenceValue = (
+  nodes: MermaidNode[],
+  edges: MermaidEdge[],
+  branches: MermaidGitBranch[],
+): number => {
+  const sequenceValues: number[] = [];
+  nodes.forEach((node) => {
+    if (node.data.diagramType !== 'gitGraph') return;
+    const value = parseSequenceNumber(node.data.metadata?.sequence as string | undefined);
+    if (value !== undefined) {
+      sequenceValues.push(value);
+    }
+  });
+  edges.forEach((edge) => {
+    if (edge.data?.diagramType !== 'gitGraph') return;
+    const value = parseSequenceNumber(edge.data.metadata?.sequence as string | undefined);
+    if (value !== undefined) {
+      sequenceValues.push(value);
+    }
+  });
+  branches.forEach((branch) => {
+    const value = parseSequenceNumber(branch.sequence);
+    if (value !== undefined) {
+      sequenceValues.push(value);
+    }
+  });
+  if (sequenceValues.length === 0) {
+    return 0;
+  }
+  return Math.max(...sequenceValues) + 1;
+};
+
 const useTabActions = () => {
   const updateTab = useEditorStore((state) => state.updateTab);
   const getTab = useEditorStore((state) => state.getTab);
@@ -385,6 +425,7 @@ const buildModel = (
   nodes: MermaidNode[],
   edges: MermaidEdge[],
   subgraphs: MermaidSubgraph[],
+  gitBranches: MermaidGitBranch[],
 ): MermaidGraphModel => ({
   type,
   config,
@@ -392,6 +433,7 @@ const buildModel = (
   edges,
   warnings: [],
   subgraphs,
+  gitBranches,
 });
 
 const FieldInput: React.FC<{
@@ -488,6 +530,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const [edges, setEdgesState] = useState<MermaidEdge[]>([]);
   const [subgraphs, setSubgraphs] = useState<MermaidSubgraph[]>([]);
   const [ganttSections, setGanttSections] = useState<string[]>(['General']);
+  const [gitBranches, setGitBranches] = useState<MermaidGitBranch[]>([]);
   const [generatedCode, setGeneratedCode] = useState<string>('');
   const [warnings, setWarnings] = useState<string[]>([]);
   const [inspector, setInspector] = useState<InspectorState | null>(null);
@@ -500,6 +543,30 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     variant: '',
     label: '',
   });
+  const gitBranchIdCounter = useRef(0);
+  const createGitBranchId = useCallback(() => {
+    gitBranchIdCounter.current += 1;
+    return `git_branch_${gitBranchIdCounter.current.toString(36)}`;
+  }, []);
+  useEffect(() => {
+    if (gitBranches.length === 0) {
+      return;
+    }
+    let maxSuffix = 0;
+    gitBranches.forEach((branch) => {
+      const match = /^git_branch_([0-9a-z]+)$/i.exec(branch.id);
+      if (!match) {
+        return;
+      }
+      const value = parseInt(match[1], 36);
+      if (Number.isFinite(value)) {
+        maxSuffix = Math.max(maxSuffix, value);
+      }
+    });
+    if (maxSuffix > gitBranchIdCounter.current) {
+      gitBranchIdCounter.current = maxSuffix;
+    }
+  }, [gitBranches]);
   const lastSerializedRef = useRef<string>('');
   const lastHydratedTabIdRef = useRef<string | null>(null);
   const isHydrating = useRef<boolean>(false);
@@ -552,8 +619,9 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       subgraphs: subgraphs.map((subgraph) => ({ ...subgraph, nodes: [...subgraph.nodes] })),
       ganttSections: [...ganttSections],
       edgeHandleOrientation,
+      gitBranches: gitBranches.map((branch) => ({ ...branch })),
     }),
-    [diagramType, config, nodes, edges, subgraphs, ganttSections, edgeHandleOrientation],
+    [diagramType, config, nodes, edges, subgraphs, ganttSections, edgeHandleOrientation, gitBranches],
   );
 
   const recordHistory = useCallback(() => {
@@ -644,7 +712,8 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     setEdgesState(snapshot.edges);
     setSubgraphs(snapshot.subgraphs);
     setGanttSections(snapshot.ganttSections);
-    setEdgeHandleOrientation('vertical');
+    setGitBranches(snapshot.gitBranches);
+    setEdgeHandleOrientation(snapshot.edgeHandleOrientation);
     requestAnimationFrame(() => {
       isRestoring.current = false;
     });
@@ -682,7 +751,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const supportsEdges = useMemo(() => diagramDefinitions[diagramType].supportsEdges, [diagramType]);
 
   const refreshGeneratedCode = useCallback(() => {
-    const model = buildModel(diagramType, config, nodes, edges, subgraphs);
+    const model = buildModel(diagramType, config, nodes, edges, subgraphs, gitBranches);
     const { code, warnings: serializationWarnings } = serializeMermaid(model);
     setGeneratedCode(code);
     setWarnings(serializationWarnings);
@@ -694,7 +763,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         updateTab(tabId, { content: code, isDirty });
       }
     }
-  }, [diagramType, config, nodes, edges, subgraphs, getTab, tabId, updateTab]);
+  }, [diagramType, config, nodes, edges, subgraphs, gitBranches, getTab, tabId, updateTab]);
 
   const fitViewToDiagram = useCallback(
     (options?: FitViewOptions) => {
@@ -739,6 +808,59 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       });
       return Array.from(sectionSet);
     })();
+    const nextGitBranches = (() => {
+      if (parsed.gitBranches && parsed.gitBranches.length > 0) {
+        return parsed.gitBranches.map((branch) => ({ ...branch }));
+      }
+      if (parsed.type !== 'gitGraph') {
+        return [];
+      }
+      const branchMap = new Map<string, MermaidGitBranch>();
+      const ensureBranch = (id: string | undefined, name: string | undefined) => {
+        const fallbackName = name?.trim() || 'main';
+        const branchId = id?.trim() || `branch_${branchMap.size.toString(36)}`;
+        const existing = branchMap.get(branchId);
+        if (existing) {
+          if (!existing.name && fallbackName) {
+            existing.name = fallbackName;
+          }
+          return existing;
+        }
+        const branch: MermaidGitBranch = { id: branchId, name: fallbackName };
+        branchMap.set(branchId, branch);
+        return branch;
+      };
+      hydratedNodes.forEach((node) => {
+        if (node.data.diagramType !== 'gitGraph') return;
+        const metadata = node.data.metadata || {};
+        if (typeof metadata.branchId === 'string' || typeof metadata.branchName === 'string') {
+          ensureBranch(
+            typeof metadata.branchId === 'string' ? metadata.branchId : undefined,
+            typeof metadata.branchName === 'string' ? metadata.branchName : undefined,
+          );
+        }
+        if (typeof metadata.mergeBranch === 'string') {
+          ensureBranch(undefined, metadata.mergeBranch);
+        }
+      });
+      parsed.edges.forEach((edge) => {
+        if (edge.data?.diagramType !== 'gitGraph') return;
+        const metadata = edge.data.metadata || {};
+        if (typeof metadata.toBranchId === 'string' || typeof metadata.toBranch === 'string') {
+          ensureBranch(
+            typeof metadata.toBranchId === 'string' ? metadata.toBranchId : undefined,
+            typeof metadata.toBranch === 'string' ? metadata.toBranch : undefined,
+          );
+        }
+        if (typeof metadata.sourceBranchId === 'string' || typeof metadata.sourceBranch === 'string') {
+          ensureBranch(
+            typeof metadata.sourceBranchId === 'string' ? metadata.sourceBranchId : undefined,
+            typeof metadata.sourceBranch === 'string' ? metadata.sourceBranch : undefined,
+          );
+        }
+      });
+      return Array.from(branchMap.values());
+    })();
 
     setDiagramType(parsed.type);
     setConfig(parsed.config);
@@ -746,9 +868,17 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     setEdgesState(normalizedEdges);
     setSubgraphs(parsedSubgraphs);
     setGanttSections(nextGanttSections);
+    setGitBranches(nextGitBranches);
     setWarnings(parsed.warnings);
 
-    const model = buildModel(parsed.type, parsed.config, hydratedNodes, normalizedEdges, parsedSubgraphs);
+    const model = buildModel(
+      parsed.type,
+      parsed.config,
+      hydratedNodes,
+      normalizedEdges,
+      parsedSubgraphs,
+      nextGitBranches,
+    );
     const { code } = serializeMermaid(model);
     setGeneratedCode(code);
     lastSerializedRef.current = code;
@@ -775,6 +905,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           subgraphs: parsedSubgraphs.map((subgraph) => ({ ...subgraph, nodes: [...subgraph.nodes] })),
           ganttSections: [...nextGanttSections],
           edgeHandleOrientation,
+          gitBranches: nextGitBranches.map((branch) => ({ ...branch })),
         };
         historyRef.current = [initialSnapshot];
         futureRef.current = [];
@@ -786,7 +917,17 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     if (!hasInitialized.current) return;
     if (isHydrating.current) return;
     refreshGeneratedCode();
-  }, [diagramType, config, nodes, edges, subgraphs, refreshGeneratedCode]);
+  }, [diagramType, config, nodes, edges, subgraphs, gitBranches, refreshGeneratedCode]);
+
+  useEffect(() => {
+    if (diagramType === 'gitGraph') {
+      if (gitBranches.length === 0) {
+        setGitBranches([{ id: createGitBranchId(), name: 'main' }]);
+      }
+    } else if (gitBranches.length > 0) {
+      setGitBranches([]);
+    }
+  }, [diagramType, gitBranches.length, createGitBranchId]);
 
   useEffect(() => {
     const handleWindowClick = (event: MouseEvent) => {
@@ -892,6 +1033,73 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       const template = edgeTemplates.find((item) => item.variant === variant) ?? edgeTemplates[0];
       const id = createEdgeId();
       runWithSuppressedHistory(() => {
+        const edgeMetadata = template?.defaultMetadata ? { ...template.defaultMetadata } : {};
+        let mergeSourceBranchName: string | undefined;
+        if (diagramType === 'gitGraph') {
+          const nextSequence = getNextGitSequenceValue(nodes, edges, gitBranches);
+          edgeMetadata.sequence = nextSequence.toString();
+          const effectiveVariant = template?.variant ?? variant;
+          if (effectiveVariant === 'gitCheckout') {
+            const sourceNode = nodes.find((node) => node.id === connection.source);
+            const targetNode = nodes.find((node) => node.id === connection.target);
+            const sourceBranchId = typeof sourceNode?.data.metadata?.branchId === 'string'
+              ? (sourceNode.data.metadata?.branchId as string)
+              : undefined;
+            const targetBranchId = typeof targetNode?.data.metadata?.branchId === 'string'
+              ? (targetNode.data.metadata?.branchId as string)
+              : undefined;
+            const sourceBranchName = sourceBranchId
+              ? gitBranches.find((branch) => branch.id === sourceBranchId)?.name ??
+                (typeof sourceNode?.data.metadata?.branchName === 'string'
+                  ? (sourceNode.data.metadata?.branchName as string)
+                  : undefined)
+              : typeof sourceNode?.data.metadata?.branchName === 'string'
+              ? (sourceNode.data.metadata?.branchName as string)
+              : undefined;
+            const targetBranchName = targetBranchId
+              ? gitBranches.find((branch) => branch.id === targetBranchId)?.name ??
+                (typeof targetNode?.data.metadata?.branchName === 'string'
+                  ? (targetNode.data.metadata?.branchName as string)
+                  : undefined)
+              : typeof targetNode?.data.metadata?.branchName === 'string'
+              ? (targetNode.data.metadata?.branchName as string)
+              : undefined;
+            if (sourceBranchId) {
+              edgeMetadata.fromBranchId = sourceBranchId;
+            }
+            if (sourceBranchName) {
+              edgeMetadata.fromBranch = sourceBranchName;
+            }
+            if (targetBranchId) {
+              edgeMetadata.toBranchId = targetBranchId;
+            }
+            if (targetBranchName) {
+              edgeMetadata.toBranch = targetBranchName;
+            }
+          }
+          if (effectiveVariant === 'gitMerge') {
+            const sourceNode = nodes.find((node) => node.id === connection.source);
+            const sourceBranchId = typeof sourceNode?.data.metadata?.branchId === 'string'
+              ? (sourceNode.data.metadata?.branchId as string)
+              : undefined;
+            const sourceBranchName = sourceBranchId
+              ? gitBranches.find((branch) => branch.id === sourceBranchId)?.name ??
+                (typeof sourceNode?.data.metadata?.branchName === 'string'
+                  ? (sourceNode.data.metadata?.branchName as string)
+                  : undefined)
+              : typeof sourceNode?.data.metadata?.branchName === 'string'
+              ? (sourceNode.data.metadata?.branchName as string)
+              : undefined;
+            if (sourceBranchId) {
+              edgeMetadata.sourceBranchId = sourceBranchId;
+            }
+            if (sourceBranchName) {
+              edgeMetadata.sourceBranch = sourceBranchName;
+              mergeSourceBranchName = sourceBranchName;
+            }
+          }
+        }
+
         updateEdges((current) => {
           const existing = current.filter(
             (edge) => edge.source === connection.source && edge.target === connection.target,
@@ -914,17 +1122,35 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
             diagramType,
             variant: template?.variant ?? variant,
             label: automaticLabel,
-            metadata: template?.defaultMetadata ? { ...template.defaultMetadata } : {},
+            metadata: edgeMetadata,
           },
           label: automaticLabel,
         };
 
         return [...current, newEdge];
         });
+        if (diagramType === 'gitGraph' && (template?.variant ?? variant) === 'gitMerge' && mergeSourceBranchName) {
+          setNodes((currentNodes) =>
+            currentNodes.map((node) => {
+              if (node.id !== connection.target) {
+                return node;
+              }
+              const metadata = { ...(node.data.metadata || {}) } as Record<string, string>;
+              metadata.mergeBranch = mergeSourceBranchName ?? metadata.mergeBranch;
+              return {
+                ...node,
+                data: {
+                  ...node.data,
+                  metadata,
+                },
+              };
+            }),
+          );
+        }
       });
       setInspector({ type: 'edge', id });
     },
-    [diagramType, edgeTemplates, recordHistory, runWithSuppressedHistory, supportsEdges, updateEdges],
+    [diagramType, edgeTemplates, edges, gitBranches, nodes, recordHistory, runWithSuppressedHistory, supportsEdges, updateEdges],
   );
 
   const handleSelectionChange = useCallback((params: { nodes: MermaidNode[]; edges: MermaidEdge[] }) => {
@@ -946,11 +1172,13 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         setNodes((current) => {
           const baseMetadata = template.defaultMetadata ? { ...template.defaultMetadata } : {};
           if (diagramType === 'gitGraph') {
-            const sequenceValues = current
-              .map((node) => Number(node.data.metadata?.sequence))
-              .filter((value) => Number.isFinite(value));
-            const nextSequence = sequenceValues.length > 0 ? Math.max(...sequenceValues) + 1 : 0;
+            const nextSequence = getNextGitSequenceValue(current, edges, gitBranches);
             baseMetadata.sequence = nextSequence.toString();
+            const defaultBranch = gitBranches[0];
+            if (defaultBranch) {
+              baseMetadata.branchId = defaultBranch.id;
+              baseMetadata.branchName = defaultBranch.name;
+            }
             if ((template.variant === 'commit' || template.variant === 'merge') && !baseMetadata.type) {
               baseMetadata.type = 'NORMAL';
             }
@@ -983,7 +1211,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       });
       setInspector({ type: 'node', id });
     },
-    [diagramType, ganttSections, recordHistory, runWithSuppressedHistory],
+    [diagramType, edges, ganttSections, gitBranches, recordHistory, runWithSuppressedHistory],
   );
 
   const handleContextMenuAddNode = useCallback(
@@ -1098,6 +1326,186 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       });
     },
     [diagramType, recordHistory, runWithSuppressedHistory, subgraphs],
+  );
+
+  const addGitBranch = useCallback(() => {
+    if (diagramType !== 'gitGraph') return;
+    recordHistory();
+    runWithSuppressedHistory(() => {
+      setGitBranches((current) => {
+        const sequence = getNextGitSequenceValue(nodes, edges, current).toString();
+        const defaultName = `branch-${current.length + 1}`;
+        return [
+          ...current.map((branch) => ({ ...branch })),
+          { id: createGitBranchId(), name: defaultName, sequence },
+        ];
+      });
+    });
+  }, [createGitBranchId, diagramType, edges, nodes, recordHistory, runWithSuppressedHistory]);
+
+  const updateGitBranchName = useCallback(
+    (branchId: string, nextName: string) => {
+      if (diagramType !== 'gitGraph') return;
+      const trimmed = nextName.trim() || 'main';
+      const existingBranch = gitBranches.find((branch) => branch.id === branchId);
+      if (!existingBranch) return;
+      recordHistory();
+      runWithSuppressedHistory(() => {
+        setGitBranches((current) =>
+          current.map((branch) => (branch.id === branchId ? { ...branch, name: trimmed } : { ...branch })),
+        );
+        setNodes((currentNodes) =>
+          currentNodes.map((node) => {
+            if (node.data.diagramType !== 'gitGraph') return node;
+            const metadata = { ...(node.data.metadata || {}) } as Record<string, string>;
+            const belongsToBranch = metadata.branchId === branchId;
+            const usesMergeSource = metadata.mergeBranch === existingBranch.name;
+            if (!belongsToBranch && !usesMergeSource) {
+              return node;
+            }
+            if (belongsToBranch) {
+              metadata.branchName = trimmed;
+            }
+            if (usesMergeSource) {
+              metadata.mergeBranch = trimmed;
+            }
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                metadata,
+              },
+            };
+          }),
+        );
+        setEdgesState((currentEdges) =>
+          currentEdges.map((edge) => {
+            if (edge.data?.diagramType !== 'gitGraph') return edge;
+            const metadata = { ...(edge.data.metadata || {}) } as Record<string, string>;
+            let changed = false;
+            if (metadata.fromBranchId === branchId) {
+              metadata.fromBranch = trimmed;
+              changed = true;
+            }
+            if (metadata.toBranchId === branchId) {
+              metadata.toBranch = trimmed;
+              changed = true;
+            }
+            if (metadata.sourceBranchId === branchId) {
+              metadata.sourceBranch = trimmed;
+              changed = true;
+            }
+            if (!changed) {
+              return edge;
+            }
+            return {
+              ...edge,
+              data: {
+                ...edge.data,
+                metadata,
+              },
+            };
+          }),
+        );
+      });
+    },
+    [diagramType, gitBranches, recordHistory, runWithSuppressedHistory],
+  );
+
+  const updateGitBranchOrder = useCallback(
+    (branchId: string, nextOrder: string) => {
+      if (diagramType !== 'gitGraph') return;
+      const trimmed = nextOrder.trim();
+      recordHistory();
+      runWithSuppressedHistory(() => {
+        setGitBranches((current) =>
+          current.map((branch) => (branch.id === branchId ? { ...branch, order: trimmed } : { ...branch })),
+        );
+      });
+    },
+    [diagramType, recordHistory, runWithSuppressedHistory],
+  );
+
+  const removeGitBranch = useCallback(
+    (branchId: string) => {
+      if (diagramType !== 'gitGraph') return;
+      const existing = gitBranches.find((branch) => branch.id === branchId);
+      if (!existing) return;
+      recordHistory();
+      runWithSuppressedHistory(() => {
+        const filtered = gitBranches
+          .filter((branch) => branch.id !== branchId)
+          .map((branch) => ({ ...branch }));
+        const fallbackBranch = filtered.length > 0
+          ? filtered[0]
+          : {
+              id: createGitBranchId(),
+              name: 'main',
+              sequence: existing.sequence ?? getNextGitSequenceValue(nodes, edges, gitBranches).toString(),
+            };
+        const nextBranches = filtered.length > 0 ? filtered : [fallbackBranch];
+        setGitBranches(nextBranches);
+        setNodes((currentNodes) =>
+          currentNodes.map((node) => {
+            if (node.data.diagramType !== 'gitGraph') return node;
+            const metadata = { ...(node.data.metadata || {}) } as Record<string, string>;
+            let changed = false;
+            if (metadata.branchId === branchId) {
+              metadata.branchId = fallbackBranch.id;
+              metadata.branchName = fallbackBranch.name;
+              changed = true;
+            }
+            if (metadata.mergeBranch === existing.name) {
+              metadata.mergeBranch = fallbackBranch.name;
+              changed = true;
+            }
+            if (!changed) {
+              return node;
+            }
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                metadata,
+              },
+            };
+          }),
+        );
+        setEdgesState((currentEdges) =>
+          currentEdges.map((edge) => {
+            if (edge.data?.diagramType !== 'gitGraph') return edge;
+            const metadata = { ...(edge.data.metadata || {}) } as Record<string, string>;
+            let changed = false;
+            if (metadata.fromBranchId === branchId) {
+              metadata.fromBranchId = fallbackBranch.id;
+              metadata.fromBranch = fallbackBranch.name;
+              changed = true;
+            }
+            if (metadata.toBranchId === branchId) {
+              metadata.toBranchId = fallbackBranch.id;
+              metadata.toBranch = fallbackBranch.name;
+              changed = true;
+            }
+            if (metadata.sourceBranchId === branchId) {
+              metadata.sourceBranchId = fallbackBranch.id;
+              metadata.sourceBranch = fallbackBranch.name;
+              changed = true;
+            }
+            if (!changed) {
+              return edge;
+            }
+            return {
+              ...edge,
+              data: {
+                ...edge.data,
+                metadata,
+              },
+            };
+          }),
+        );
+      });
+    },
+    [createGitBranchId, diagramType, edges, gitBranches, nodes, recordHistory, runWithSuppressedHistory],
   );
 
   const assignNodeToSubgraphs = useCallback(
@@ -1771,6 +2179,8 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     const fillColorValue = toHexColor(getMetadataString(nodeMetadata, 'fillColor'), '#ffffff');
     const strokeColorValue = toHexColor(getMetadataString(nodeMetadata, 'strokeColor'), '#1f2937');
     const textColorValue = toHexColor(getMetadataString(nodeMetadata, 'textColor'), '#1f2937');
+    const currentBranchId =
+      typeof nodeMetadata.branchId === 'string' ? nodeMetadata.branchId : gitBranches[0]?.id ?? '';
 
     const handleNodeColorChange = (key: 'fillColor' | 'strokeColor' | 'textColor', color: string | null) => {
       updateNode(selectedNode.id, (node) => {
@@ -1791,6 +2201,38 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     };
     return (
       <div className="space-y-3">
+        {diagramType === 'gitGraph' && gitBranches.length > 0 && (
+          <div>
+            <label className="block text-xs text-gray-500">ブランチ</label>
+            <select
+              className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+              value={currentBranchId}
+              onChange={(event) => {
+                const nextBranchId = event.target.value;
+                const branch = gitBranches.find((item) => item.id === nextBranchId);
+                if (!branch) return;
+                updateNode(selectedNode.id, (node) => {
+                  const metadata = { ...(node.data.metadata || {}) } as NodeMetadata;
+                  metadata.branchId = branch.id;
+                  metadata.branchName = branch.name;
+                  return {
+                    ...node,
+                    data: {
+                      ...node.data,
+                      metadata,
+                    },
+                  };
+                });
+              }}
+            >
+              {gitBranches.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <div>
           <label className="block text-xs text-gray-500">ノード種別</label>
           <select
@@ -2036,6 +2478,84 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     };
     return (
       <div className="space-y-3">
+        {diagramType === 'gitGraph' && gitBranches.length > 0 && selectedEdge.data.variant === 'gitCheckout' && (
+          <div>
+            <label className="block text-xs text-gray-500">切り替え先ブランチ</label>
+            <select
+              className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+              value={(edgeMetadata.toBranchId as string) ?? gitBranches[0]?.id ?? ''}
+              onChange={(event) => {
+                const branch = gitBranches.find((item) => item.id === event.target.value);
+                if (!branch) return;
+                updateEdge(selectedEdge.id, (edge) => {
+                  const metadata = { ...(edge.data.metadata || {}) } as Record<string, string>;
+                  metadata.toBranchId = branch.id;
+                  metadata.toBranch = branch.name;
+                  return {
+                    ...edge,
+                    data: {
+                      ...edge.data,
+                      metadata,
+                    },
+                  };
+                });
+              }}
+            >
+              {gitBranches.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        {diagramType === 'gitGraph' && gitBranches.length > 0 && selectedEdge.data.variant === 'gitMerge' && (
+          <div>
+            <label className="block text-xs text-gray-500">マージ元ブランチ</label>
+            <select
+              className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+              value={(edgeMetadata.sourceBranchId as string) ?? gitBranches[0]?.id ?? ''}
+              onChange={(event) => {
+                const branch = gitBranches.find((item) => item.id === event.target.value);
+                if (!branch) return;
+                updateEdge(selectedEdge.id, (edge) => {
+                  const metadata = { ...(edge.data.metadata || {}) } as Record<string, string>;
+                  metadata.sourceBranchId = branch.id;
+                  metadata.sourceBranch = branch.name;
+                  return {
+                    ...edge,
+                    data: {
+                      ...edge.data,
+                      metadata,
+                    },
+                  };
+                });
+                setNodes((currentNodes) =>
+                  currentNodes.map((node) => {
+                    if (node.id !== selectedEdge.target || node.data.diagramType !== 'gitGraph') {
+                      return node;
+                    }
+                    const metadata = { ...(node.data.metadata || {}) } as Record<string, string>;
+                    metadata.mergeBranch = branch.name;
+                    return {
+                      ...node,
+                      data: {
+                        ...node.data,
+                        metadata,
+                      },
+                    };
+                  }),
+                );
+              }}
+            >
+              {gitBranches.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <div>
           <label className="block text-xs text-gray-500">エッジ種別</label>
           <select
@@ -2235,6 +2755,59 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
               )}
             </div>
           )}
+          {!isPaletteCollapsed && diagramType === 'gitGraph' && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-gray-500">ブランチ</p>
+                <button
+                  type="button"
+                  className="rounded border border-blue-500 px-2 py-1 text-[11px] text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-300 dark:hover:bg-blue-900"
+                  onClick={addGitBranch}
+                >
+                  追加
+                </button>
+              </div>
+              {gitBranches.length === 0 ? (
+                <p className="text-[11px] text-gray-500">ブランチはまだありません。</p>
+              ) : (
+                <div className="space-y-2">
+                  {gitBranches.map((branch) => {
+                    const usageCount = nodes.filter(
+                      (node) =>
+                        node.data.diagramType === 'gitGraph' &&
+                        (node.data.metadata?.branchId as string | undefined) === branch.id,
+                    ).length;
+                    return (
+                      <div key={branch.id} className="rounded border border-gray-200 p-2 text-xs dark:border-gray-700">
+                        <label className="block text-[11px] text-gray-500">ブランチ名</label>
+                        <input
+                          type="text"
+                          className="mt-1 w-full rounded border border-gray-300 p-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                          value={branch.name}
+                          onChange={(event) => updateGitBranchName(branch.id, event.target.value)}
+                        />
+                        <label className="mt-2 block text-[11px] text-gray-500">表示順序 (order)</label>
+                        <input
+                          type="text"
+                          className="mt-1 w-full rounded border border-gray-300 p-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                          value={branch.order ?? ''}
+                          onChange={(event) => updateGitBranchOrder(branch.id, event.target.value)}
+                        />
+                        <p className="mt-1 text-[10px] text-gray-400">関連ノード: {usageCount}</p>
+                        <button
+                          type="button"
+                          className="mt-2 flex items-center text-[11px] text-red-500 hover:text-red-600"
+                          onClick={() => removeGitBranch(branch.id)}
+                        >
+                          <IoTrash className="mr-1" /> 削除
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
           {!isPaletteCollapsed && diagramType === 'gantt' && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -2347,6 +2920,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
             diagramType={diagramType}
             subgraphs={subgraphs}
             ganttSections={ganttSections}
+            gitBranches={gitBranches}
           />
           {contextMenu && (
             <div
