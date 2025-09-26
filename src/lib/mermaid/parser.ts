@@ -99,6 +99,8 @@ export const detectDiagramType = (source: string): MermaidDiagramType => {
   if (firstLine.startsWith('gantt')) return 'gantt';
   if (firstLine.startsWith('pie')) return 'pie';
   if (firstLine.startsWith('gitgraph')) return 'gitGraph';
+  if (/^c4(context|container|component|dynamic)/.test(firstLine)) return 'c4';
+  if (firstLine.startsWith('architecture-beta') || firstLine.startsWith('architecture')) return 'architecture';
   return 'flowchart';
 };
 
@@ -1082,6 +1084,406 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
   return model;
 };
 
+const parseC4 = (source: string): MermaidGraphModel => {
+  const model = createBaseModel('c4');
+  const lines = source.split(/\r?\n/);
+  const config =
+    model.config.type === 'c4'
+      ? { ...model.config }
+      : ({ type: 'c4', diagramVariant: 'C4Context' } as const);
+
+  interface BoundaryState {
+    id: string;
+    title: string;
+    type: string;
+    nodes: Set<string>;
+  }
+
+  const boundaryMap = new Map<string, BoundaryState>();
+  const boundaryStack: BoundaryState[] = [];
+
+  const openBoundary = (keyword: string, rawId: string, rawTitle: string) => {
+    const id = sanitizeId(rawId);
+    const title = sanitizeLabel(rawTitle || rawId);
+    const type = /_boundary$/i.test(keyword) ? keyword : `${keyword}_Boundary`;
+    let state = boundaryMap.get(id);
+    if (!state) {
+      state = { id, title, type, nodes: new Set<string>() };
+      boundaryMap.set(id, state);
+    } else {
+      state.title = title || state.title;
+      state.type = type;
+    }
+    boundaryStack.push(state);
+  };
+
+  const closeBoundary = () => {
+    boundaryStack.pop();
+  };
+
+  const registerNodeWithBoundary = (node: MermaidNode) => {
+    if (boundaryStack.length === 0) return;
+    const current = boundaryStack[boundaryStack.length - 1];
+    current.nodes.add(node.id);
+    appendSubgraphId(node, current.id);
+  };
+
+  const resolveNodeVariant = (keyword: string): string => {
+    const normalized = keyword.replace(/[^A-Za-z0-9]/g, '').toLowerCase();
+    switch (normalized) {
+      case 'person':
+        return 'person';
+      case 'personext':
+        return 'personExternal';
+      case 'system':
+        return 'system';
+      case 'systemext':
+        return 'systemExternal';
+      case 'systemdb':
+      case 'systemdbext':
+        return 'systemDatabase';
+      case 'container':
+        return 'container';
+      case 'containerext':
+        return 'containerExternal';
+      case 'containerdb':
+      case 'containerdbext':
+        return 'containerDatabase';
+      case 'component':
+        return 'component';
+      case 'componentext':
+        return 'componentExternal';
+      case 'componentdb':
+      case 'componentdbext':
+        return 'componentDatabase';
+      default:
+        return 'system';
+    }
+  };
+
+  const normalizeDirectionSuffix = (suffix: string | undefined): string | undefined => {
+    if (!suffix) return undefined;
+    const normalized = suffix.trim().toUpperCase();
+    if (!normalized) return undefined;
+    return normalized;
+  };
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    if (trimmed.startsWith('%%')) return;
+
+    const headerMatch = trimmed.match(/^C4(context|container|component|dynamic)\b/i);
+    if (headerMatch) {
+      const variantKey = headerMatch[1];
+      const formatted = `C4${variantKey.charAt(0).toUpperCase()}${variantKey.slice(1).toLowerCase()}` as
+        | 'C4Context'
+        | 'C4Container'
+        | 'C4Component'
+        | 'C4Dynamic';
+      config.diagramVariant = formatted;
+      return;
+    }
+
+    if (/^title\b/i.test(trimmed)) {
+      const titleText = trimmed.slice(5).trim();
+      if (titleText) {
+        config.title = sanitizeLabel(titleText);
+      }
+      return;
+    }
+
+    if (trimmed === '}') {
+      closeBoundary();
+      return;
+    }
+
+    const boundaryMatch = trimmed.match(/^([A-Za-z]+)_Boundary\s*\(\s*([^,]+)\s*,\s*"([^"]*)"\s*\)\s*\{?$/i);
+    if (boundaryMatch) {
+      openBoundary(boundaryMatch[1], boundaryMatch[2], boundaryMatch[3]);
+      return;
+    }
+
+    const nodeMatch = trimmed.match(
+      /^(Person|Person_Ext|System|System_Ext|SystemDb|SystemDb_Ext|Container|Container_Ext|ContainerDb|ContainerDb_Ext|Component|Component_Ext|ComponentDb)\s*\(\s*([^,]+)\s*,\s*"([^"]*)"(?:\s*,\s*"([^"]*)")?(?:\s*,\s*"([^"]*)")?\s*\)/i,
+    );
+    if (nodeMatch) {
+      const variant = resolveNodeVariant(nodeMatch[1]);
+      const id = sanitizeId(nodeMatch[2]);
+      const label = sanitizeLabel(nodeMatch[3]) || id;
+      const description = nodeMatch[4] ? sanitizeLabel(nodeMatch[4]) : undefined;
+      const technology = nodeMatch[5] ? sanitizeLabel(nodeMatch[5]) : undefined;
+      const metadata: Record<string, string> = {};
+      if (description) metadata.description = description;
+      if (technology) metadata.technology = technology;
+      const node = ensureNode(model, id, variant, label, metadata);
+      registerNodeWithBoundary(node);
+      return;
+    }
+
+    const edgeMatch = trimmed.match(
+      /^(Bi)?Rel(?:_([A-Za-z]+))?\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*"([^"]*)"(?:\s*,\s*"([^"]*)")?\s*\)/i,
+    );
+    if (edgeMatch) {
+      const isBi = Boolean(edgeMatch[1]);
+      const suffix = edgeMatch[2] ? edgeMatch[2].toLowerCase() : '';
+      const source = sanitizeId(edgeMatch[3]);
+      const target = sanitizeId(edgeMatch[4]);
+      const label = sanitizeLabel(edgeMatch[5] ?? '');
+      const technology = edgeMatch[6] ? sanitizeLabel(edgeMatch[6]) : undefined;
+
+      const metadata: Record<string, string> = {};
+      if (technology) {
+        metadata.technology = technology;
+      }
+
+      let variant: string;
+      if (isBi) {
+        variant = 'relationshipBidirectional';
+      } else {
+        variant = 'relationship';
+      }
+
+      if (suffix === 'dashed') {
+        if (isBi) {
+          metadata.direction = 'DASHED';
+        } else {
+          variant = 'relationshipDashed';
+        }
+      } else {
+        const direction = normalizeDirectionSuffix(suffix);
+        if (direction) {
+          metadata.direction = direction;
+        }
+      }
+
+      const sourceNode = ensureNode(model, source, 'system', source);
+      const targetNode = ensureNode(model, target, 'system', target);
+      registerNodeWithBoundary(sourceNode);
+      registerNodeWithBoundary(targetNode);
+
+      addEdge(model, source, target, variant, label || undefined, metadata);
+      return;
+    }
+
+    if (trimmed.endsWith('{')) {
+      // 未対応の境界表現
+      model.warnings.push(`未対応の境界宣言をスキップしました: ${trimmed}`);
+      return;
+    }
+
+    model.warnings.push(`解釈できない行をスキップしました: ${trimmed}`);
+  });
+
+  if (boundaryMap.size > 0) {
+    model.subgraphs = Array.from(boundaryMap.values()).map((boundary) => ({
+      id: boundary.id,
+      title: boundary.title,
+      nodes: Array.from(boundary.nodes),
+      metadata: { boundaryType: boundary.type },
+    }));
+  }
+
+  model.config = config;
+  return model;
+};
+
+const parseArchitecture = (source: string): MermaidGraphModel => {
+  const model = createBaseModel('architecture');
+  const lines = source.split(/\r?\n/);
+  const config =
+    model.config.type === 'architecture'
+      ? { ...model.config }
+      : ({ type: 'architecture', diagramVariant: 'architecture-beta' } as const);
+
+  interface GroupState {
+    id: string;
+    title: string;
+    icon?: string;
+    nodes: Set<string>;
+  }
+
+  const groupMap = new Map<string, GroupState>();
+
+  const ensureGroup = (id: string, title: string, icon?: string): GroupState => {
+    const normalizedTitle = title.trim().length > 0 ? title : id;
+    let state = groupMap.get(id);
+    if (!state) {
+      state = { id, title: normalizedTitle, icon: icon?.trim(), nodes: new Set<string>() };
+      groupMap.set(id, state);
+    } else {
+      state.title = normalizedTitle;
+      if (icon && icon.trim().length > 0) {
+        state.icon = icon.trim();
+      }
+    }
+    return state;
+  };
+
+  const resolveArchitectureVariant = (directive: string, icon: string): string => {
+    const normalizedDirective = directive.trim().toLowerCase();
+    const normalizedIcon = icon.trim().toLowerCase();
+    switch (normalizedDirective) {
+      case 'database':
+        return 'database';
+      case 'queue':
+      case 'topic':
+        return 'queue';
+      case 'cache':
+        return 'cache';
+      case 'storage':
+        return 'storage';
+      case 'user':
+        return 'user';
+      case 'device':
+        return 'device';
+      case 'component':
+        return 'component';
+      case 'junction':
+        return 'junction';
+      default:
+        break;
+    }
+
+    if (normalizedIcon.includes('database')) return 'database';
+    if (normalizedIcon.includes('queue') || normalizedIcon.includes('topic')) return 'queue';
+    if (normalizedIcon.includes('cache')) return 'cache';
+    if (normalizedIcon.includes('disk') || normalizedIcon.includes('storage') || normalizedIcon.includes('bucket')) {
+      return 'storage';
+    }
+    if (normalizedIcon.includes('user') || normalizedIcon.includes('person')) return 'user';
+    if (normalizedIcon.includes('device') || normalizedIcon.includes('mobile')) return 'device';
+    if (normalizedIcon.includes('app') || normalizedIcon.includes('component')) return 'component';
+    return 'service';
+  };
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    if (trimmed.startsWith('%%')) return;
+
+    const headerMatch = trimmed.match(/^architecture(?:-beta)?\b/i);
+    if (headerMatch) {
+      const variantText = headerMatch[0].toLowerCase();
+      config.diagramVariant = variantText === 'architecture' ? 'architecture' : 'architecture-beta';
+      return;
+    }
+
+    if (/^title\b/i.test(trimmed)) {
+      const titleText = trimmed.slice(5).trim();
+      if (titleText) {
+        config.title = sanitizeLabel(titleText);
+      }
+      return;
+    }
+
+    const groupMatch = trimmed.match(/^group\s+([A-Za-z0-9_-]+)(?:\{([A-Za-z0-9_-]+)\})?\s*\(([^)]+)\)\s*\[([^\]]+)\]\s*(?:in\s+([A-Za-z0-9_-]+))?$/i);
+    if (groupMatch) {
+      const id = sanitizeId(groupMatch[1]);
+      const icon = sanitizeLabel(groupMatch[3]);
+      const title = sanitizeLabel(groupMatch[4]);
+      ensureGroup(id, title, icon);
+      return;
+    }
+
+    const junctionMatch = trimmed.match(/^junction\s+([A-Za-z0-9_-]+)(?:\s+in\s+([A-Za-z0-9_-]+))?$/i);
+    if (junctionMatch) {
+      const id = sanitizeId(junctionMatch[1]);
+      const groupId = junctionMatch[2] ? sanitizeId(junctionMatch[2]) : undefined;
+      const node = ensureNode(model, id, 'junction', id, { directive: 'junction' });
+      if (groupId) {
+        const group = ensureGroup(groupId, groupId, undefined);
+        group.nodes.add(node.id);
+        appendSubgraphId(node, groupId);
+      }
+      return;
+    }
+
+    const nodeMatch = trimmed.match(
+      /^(service|database|queue|cache|storage|user|device|component|function|app)\s+([A-Za-z0-9_-]+)\s*\(([^)]+)\)\s*\[([^\]]+)\](?:\s+in\s+([A-Za-z0-9_-]+))?/i,
+    );
+    if (nodeMatch) {
+      const directive = nodeMatch[1];
+      const id = sanitizeId(nodeMatch[2]);
+      const icon = sanitizeLabel(nodeMatch[3]);
+      const label = sanitizeLabel(nodeMatch[4]) || id;
+      const groupId = nodeMatch[5] ? sanitizeId(nodeMatch[5]) : undefined;
+
+      const variant = resolveArchitectureVariant(directive, icon);
+      const metadata: Record<string, string> = { icon, directive: directive.toLowerCase() };
+      const node = ensureNode(model, id, variant, label, metadata);
+
+      if (groupId) {
+        const group = ensureGroup(groupId, groupId, undefined);
+        group.nodes.add(node.id);
+        appendSubgraphId(node, groupId);
+      }
+
+      return;
+    }
+
+    const edgeParts = trimmed.split(/\s+/).filter((part) => part.length > 0);
+    if (edgeParts.length === 3) {
+      const [rawSource, rawConnector, rawTarget] = edgeParts;
+
+      const sourceMatch = rawSource.match(/^([A-Za-z0-9_-]+)(?:\{([A-Za-z0-9_-]+)\})?(?::([LRBT]))?$/i);
+      const targetPrefixedMatch = rawTarget.match(/^([LRBT]):([A-Za-z0-9_-]+)(?:\{([A-Za-z0-9_-]+)\})?$/i);
+      const targetSuffixMatch = rawTarget.match(/^([A-Za-z0-9_-]+)(?:\{([A-Za-z0-9_-]+)\})?(?::([LRBT]))?$/i);
+
+      if (sourceMatch && (targetPrefixedMatch || targetSuffixMatch)) {
+        const sourceId = sanitizeId(sourceMatch[1]);
+        const sourceGroup = sourceMatch[2] ? sanitizeId(sourceMatch[2]) : undefined;
+        const sourceAnchor = sourceMatch[3] ? sourceMatch[3].toUpperCase() : undefined;
+
+        const targetAnchorRaw = targetPrefixedMatch ? targetPrefixedMatch[1] : targetSuffixMatch?.[3];
+        const targetAnchor = targetAnchorRaw ? targetAnchorRaw.toUpperCase() : undefined;
+        const targetIdRaw = targetPrefixedMatch ? targetPrefixedMatch[2] : targetSuffixMatch?.[1];
+        const targetId = targetIdRaw ? sanitizeId(targetIdRaw) : '';
+        const targetGroupRaw = targetPrefixedMatch ? targetPrefixedMatch[3] : targetSuffixMatch?.[2];
+        const targetGroup = targetGroupRaw ? sanitizeId(targetGroupRaw) : undefined;
+
+        if (targetId) {
+          const connectorText = rawConnector.trim();
+          const hasSourceArrow = connectorText.startsWith('<');
+          const hasTargetArrow = connectorText.endsWith('>');
+          const connectorCore = connectorText.replace(/[<>]/g, '') || '--';
+          const normalizedConnector = connectorCore === '-' ? '-' : '--';
+
+          const metadata: Record<string, string> = { connector: normalizedConnector };
+          if (sourceAnchor) metadata.sourceAnchor = sourceAnchor;
+          if (targetAnchor) metadata.targetAnchor = targetAnchor;
+          if (sourceGroup) metadata.sourceGroup = sourceGroup;
+          if (targetGroup) metadata.targetGroup = targetGroup;
+          if (hasSourceArrow) metadata.sourceArrow = 'true';
+          if (hasTargetArrow) metadata.targetArrow = 'true';
+
+          ensureNode(model, sourceId, 'service', sourceId);
+          ensureNode(model, targetId, 'service', targetId);
+
+          const variant = hasSourceArrow || hasTargetArrow ? 'connectionDirected' : 'connectionUndirected';
+
+          addEdge(model, sourceId, targetId, variant, undefined, metadata);
+          return;
+        }
+      }
+    }
+
+    model.warnings.push(`解釈できない行をスキップしました: ${trimmed}`);
+  });
+
+  if (groupMap.size > 0) {
+    model.subgraphs = Array.from(groupMap.values()).map((group) => ({
+      id: group.id,
+      title: group.title,
+      nodes: Array.from(group.nodes),
+      metadata: group.icon ? { icon: group.icon } : undefined,
+    }));
+  }
+
+  model.config = config;
+  return model;
+};
+
 
 
 const parsePie = (source: string): MermaidGraphModel => {
@@ -1174,6 +1576,10 @@ export const parseMermaidSource = (source: string): MermaidGraphModel => {
       return parseGitGraph(trimmed);
     case 'pie':
       return parsePie(trimmed);
+    case 'c4':
+      return parseC4(trimmed);
+    case 'architecture':
+      return parseArchitecture(trimmed);
     default:
       return parseFlowchart(trimmed);
   }
