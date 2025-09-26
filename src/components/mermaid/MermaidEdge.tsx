@@ -17,6 +17,112 @@ const DEFAULT_STROKE = '#1f2937';
 const DEFAULT_STROKE_WIDTH = 1.6;
 const PARALLEL_OFFSET = 38;
 
+type EdgeAnimationKey = 'flow' | 'fast' | 'strong' | 'pulse';
+
+interface EdgeAnimationPreset {
+  className: string;
+  widthScale: number;
+  opacity: number;
+  dashArray: string;
+  duration: string;
+  timing: string;
+  animationName: 'mermaidEdgeFlow' | 'mermaidEdgePulse';
+}
+
+const animationPresets: Record<EdgeAnimationKey, EdgeAnimationPreset> = {
+  flow: {
+    className: 'edge-animation-flow',
+    widthScale: 0.55,
+    opacity: 0.55,
+    dashArray: '6 18',
+    duration: '2s',
+    timing: 'linear',
+    animationName: 'mermaidEdgeFlow',
+  },
+  fast: {
+    className: 'edge-animation-fast',
+    widthScale: 0.45,
+    opacity: 0.5,
+    dashArray: '4 12',
+    duration: '1.1s',
+    timing: 'linear',
+    animationName: 'mermaidEdgeFlow',
+  },
+  strong: {
+    className: 'edge-animation-strong',
+    widthScale: 0.65,
+    opacity: 0.6,
+    dashArray: '8 24',
+    duration: '2.4s',
+    timing: 'linear',
+    animationName: 'mermaidEdgeFlow',
+  },
+  pulse: {
+    className: 'edge-animation-pulse',
+    widthScale: 0.5,
+    opacity: 0.7,
+    dashArray: '3 36',
+    duration: '1.8s',
+    timing: 'ease-in-out',
+    animationName: 'mermaidEdgePulse',
+  },
+};
+
+const variantAnimationMap: Record<string, EdgeAnimationKey> = {
+  arrow: 'flow',
+  dashed: 'fast',
+  thick: 'strong',
+  solid: 'flow',
+  open: 'pulse',
+  inheritance: 'strong',
+  composition: 'strong',
+  aggregation: 'flow',
+  association: 'flow',
+  dependency: 'fast',
+  transition: 'flow',
+  identifying: 'strong',
+  nonidentifying: 'fast',
+  onetomany: 'strong',
+  manytomany: 'pulse',
+};
+
+const normalizeAnimationKey = (value: string | undefined): EdgeAnimationKey | null => {
+  if (!value) return null;
+  const key = value.trim().toLowerCase();
+  if (key === 'none' || key === 'off') {
+    return null;
+  }
+  if (key in animationPresets) {
+    return key as EdgeAnimationKey;
+  }
+  switch (key) {
+    case 'fast-flow':
+    case 'quick':
+      return 'fast';
+    case 'strong-flow':
+    case 'heavy':
+      return 'strong';
+    case 'glow':
+      return 'pulse';
+    default:
+      return null;
+  }
+};
+
+const resolveEdgeAnimation = (
+  variant: string | undefined,
+  metadataAnimation: string | undefined,
+): EdgeAnimationPreset | null => {
+  const override = normalizeAnimationKey(metadataAnimation);
+  if (override) {
+    return animationPresets[override];
+  }
+  const normalizedVariant = variant ? variant.toLowerCase() : '';
+  const mapped = variantAnimationMap[normalizedVariant];
+  if (!mapped) return animationPresets.flow;
+  return animationPresets[mapped];
+};
+
 const expandShortHex = (value: string): string =>
   `#${value
     .slice(1)
@@ -116,6 +222,7 @@ const MermaidEdge: React.FC<EdgeProps<MermaidEdgeData>> = ({
   const strokeColor = pickMetadata('strokeColor');
   const labelTextColor = pickMetadata('textColor');
   const labelBackground = pickMetadata('fillColor');
+  const metadataAnimation = pickMetadata('animation') ?? pickMetadata('edgeAnimation');
 
   const midpointX = (sourceX + targetX) / 2;
   const midpointY = (sourceY + targetY) / 2;
@@ -185,6 +292,10 @@ const MermaidEdge: React.FC<EdgeProps<MermaidEdgeData>> = ({
   };
 
   const markerColor = typeof mergedStyle.stroke === 'string' ? mergedStyle.stroke : DEFAULT_STROKE;
+  const animationPreset = resolveEdgeAnimation(data?.variant, metadataAnimation);
+  const baseStrokeWidth = typeof mergedStyle.strokeWidth === 'number'
+    ? mergedStyle.strokeWidth
+    : DEFAULT_STROKE_WIDTH;
 
   const resolvedMarkerEnd = markerEnd ?? {
     type: MarkerType.ArrowClosed,
@@ -278,6 +389,23 @@ const MermaidEdge: React.FC<EdgeProps<MermaidEdgeData>> = ({
   return (
     <>
       <BaseEdge id={id} path={path} markerEnd={resolvedMarkerEnd} style={mergedStyle} />
+      {animationPreset && (
+        <path
+          d={path}
+          className={`pointer-events-none ${animationPreset.className}`}
+          style={{
+            stroke: markerColor,
+            strokeWidth: baseStrokeWidth * animationPreset.widthScale,
+            opacity: animationPreset.opacity,
+            fill: 'none',
+            strokeLinecap: 'round',
+            strokeDasharray: animationPreset.dashArray,
+            strokeDashoffset: 0,
+            animation: `${animationPreset.animationName} ${animationPreset.duration} ${animationPreset.timing} infinite`,
+            mixBlendMode: 'screen',
+          }}
+        />
+      )}
       {label && (
         <EdgeLabelRenderer>
           <div

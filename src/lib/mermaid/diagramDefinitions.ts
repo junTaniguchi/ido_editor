@@ -207,6 +207,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         variant: 'solid',
         label: '同期メッセージ',
         defaultLabel: 'Message',
+        defaultMetadata: { strokeColor: '#2563EB' },
         fields: [
           { key: 'label', label: 'メッセージ', type: 'text', placeholder: 'メッセージ内容' },
         ],
@@ -215,6 +216,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         variant: 'dashed',
         label: '非同期メッセージ',
         defaultLabel: 'Async',
+        defaultMetadata: { strokeColor: '#0EA5E9' },
         fields: [
           { key: 'label', label: 'メッセージ', type: 'text' },
         ],
@@ -223,6 +225,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         variant: 'open',
         label: 'オープン矢印',
         defaultLabel: 'Signal',
+        defaultMetadata: { strokeColor: '#DB2777' },
         fields: [
           { key: 'label', label: 'メッセージ', type: 'text' },
         ],

@@ -333,6 +333,13 @@ const normalizeEdges = (edgeList: MermaidEdge[]): MermaidEdge[] => {
       strokeWidth: edge.data?.variant === 'thick' ? 2.6 : 1.6,
     } as const;
 
+    const sanitizedStyle = edge.style ? { ...edge.style } : undefined;
+    if (sanitizedStyle) {
+      delete (sanitizedStyle as any).stroke;
+      delete (sanitizedStyle as any).strokeWidth;
+      delete (sanitizedStyle as any).strokeDasharray;
+    }
+
     return {
       ...edge,
       id,
@@ -353,7 +360,7 @@ const normalizeEdges = (edgeList: MermaidEdge[]): MermaidEdge[] => {
           height: 18,
           color: strokeColor,
         } as const),
-      style: edge.style ? { ...baseStyle, ...edge.style } : { ...baseStyle },
+      style: sanitizedStyle ? { ...baseStyle, ...sanitizedStyle } : { ...baseStyle },
       updatable: true,
       sourceHandle,
       targetHandle,
