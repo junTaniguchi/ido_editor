@@ -28,7 +28,6 @@ const MermaidNodeComponent: React.FC<NodeProps<MermaidNodeData>> = ({ data, sele
   const isFlowchart = data.diagramType === 'flowchart';
   const isDecision = isFlowchart && data.variant === 'decision';
   const isCircular = isFlowchart && data.variant === 'startEnd';
-  const isProcessLike = isFlowchart && ['process', 'inputOutput', 'subroutine'].includes(data.variant);
 
   const handlePositions = useMemo(() => {
     const base: Record<'top' | 'bottom' | 'left' | 'right', CSSProperties> = {
@@ -171,7 +170,7 @@ const MermaidNodeComponent: React.FC<NodeProps<MermaidNodeData>> = ({ data, sele
         style={{
           background: fillColor,
           border: `2px solid ${strokeColor}`,
-          borderRadius: isProcessLike ? 0 : 12,
+          borderRadius: 0,
           minWidth: isFlowchart ? 140 : undefined,
           minHeight: isFlowchart ? 72 : undefined,
           padding: isFlowchart ? '12px 16px' : '8px 12px',
