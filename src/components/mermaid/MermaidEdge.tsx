@@ -1,9 +1,17 @@
 'use client';
 
-import React from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { BaseEdge, EdgeLabelRenderer, MarkerType, getBezierPath, type EdgeProps } from 'reactflow';
+import {
+  BaseEdge,
+  EdgeLabelRenderer,
+  MarkerType,
+  getBezierPath,
+  type EdgeProps,
+  useReactFlow,
+} from 'reactflow';
 import type { MermaidEdgeData } from '@/lib/mermaid/types';
+import { useEdgeControlContext, type EdgeControlOffset } from './EdgeControlContext';
 
 const DEFAULT_STROKE = '#1f2937';
 const DEFAULT_STROKE_WIDTH = 1.6;
@@ -69,7 +77,31 @@ const MermaidEdge: React.FC<EdgeProps<MermaidEdgeData>> = ({
   markerEnd,
   style,
   label,
+  selected,
 }) => {
+  const reactFlow = useReactFlow();
+  const { beginEdgeControlAdjustment, updateEdgeControlPoint } = useEdgeControlContext();
+
+  const [isDragging, setIsDragging] = useState(false);
+  const cleanupRef = useRef<(() => void) | null>(null);
+  const lastOffsetRef = useRef<EdgeControlOffset | null>(null);
+
+  const manualCurve = data?.manualCurve ?? null;
+
+  useEffect(() => {
+    lastOffsetRef.current = manualCurve ? { ...manualCurve } : null;
+  }, [manualCurve]);
+
+  useEffect(
+    () => () => {
+      if (cleanupRef.current) {
+        cleanupRef.current();
+        updateEdgeControlPoint(id, lastOffsetRef.current, { commit: true });
+      }
+    },
+    [id, updateEdgeControlPoint],
+  );
+
   const metadata = (data?.metadata || {}) as Record<string, string | string[]>;
   const pickMetadata = (key: string): string | undefined => {
     const value = metadata[key];
@@ -85,11 +117,16 @@ const MermaidEdge: React.FC<EdgeProps<MermaidEdgeData>> = ({
   const labelTextColor = pickMetadata('textColor');
   const labelBackground = pickMetadata('fillColor');
 
-  let path = '';
-  let labelX = (sourceX + targetX) / 2;
-  let labelY = (sourceY + targetY) / 2;
+  const midpointX = (sourceX + targetX) / 2;
+  const midpointY = (sourceY + targetY) / 2;
+  const isSelfLoop = sourceX === targetX && sourceY === targetY;
 
-  if (sourceX === targetX && sourceY === targetY) {
+  let path = '';
+  let labelX = midpointX;
+  let labelY = midpointY;
+  let handleCandidate: { x: number; y: number } | null = null;
+
+  if (isSelfLoop) {
     const radius = 40;
     const offsetX = sourcePosition === 'right' ? radius : -radius;
     const offsetY = -radius;
@@ -100,14 +137,21 @@ const MermaidEdge: React.FC<EdgeProps<MermaidEdgeData>> = ({
     path = `M ${sourceX},${sourceY} C ${control1X},${control1Y} ${control2X},${control2Y} ${targetX},${targetY}`;
     labelX = sourceX + offsetX;
     labelY = sourceY + offsetY;
+  } else if (manualCurve) {
+    const controlX = midpointX + manualCurve.offsetX;
+    const controlY = midpointY + manualCurve.offsetY;
+    path = `M ${sourceX},${sourceY} Q ${controlX},${controlY} ${targetX},${targetY}`;
+    labelX = 0.25 * sourceX + 0.5 * controlX + 0.25 * targetX;
+    labelY = 0.25 * sourceY + 0.5 * controlY + 0.25 * targetY;
+    handleCandidate = { x: controlX, y: controlY };
   } else if (parallelCount > 1) {
     const dx = targetX - sourceX;
     const dy = targetY - sourceY;
     const length = Math.hypot(dx, dy) || 1;
     const normalX = -dy / length;
     const normalY = dx / length;
-    const middleX = (sourceX + targetX) / 2;
-    const middleY = (sourceY + targetY) / 2;
+    const middleX = midpointX;
+    const middleY = midpointY;
     const offsetIndex = parallelIndex - (parallelCount - 1) / 2;
     const curvature = offsetIndex * PARALLEL_OFFSET;
     const controlX = middleX + normalX * curvature;
@@ -115,6 +159,7 @@ const MermaidEdge: React.FC<EdgeProps<MermaidEdgeData>> = ({
     path = `M ${sourceX},${sourceY} Q ${controlX},${controlY} ${targetX},${targetY}`;
     labelX = controlX;
     labelY = controlY;
+    handleCandidate = { x: controlX, y: controlY };
   } else {
     const [bezierPath, x, y] = getBezierPath({
       sourceX,
@@ -127,6 +172,7 @@ const MermaidEdge: React.FC<EdgeProps<MermaidEdgeData>> = ({
     path = bezierPath;
     labelX = x;
     labelY = y;
+    handleCandidate = { x, y };
   }
 
   const strokeColorValue = strokeColor ? sanitizeColorValue(strokeColor) : undefined;
@@ -147,6 +193,88 @@ const MermaidEdge: React.FC<EdgeProps<MermaidEdgeData>> = ({
     color: markerColor,
   };
 
+  const showControlHandle = !isSelfLoop && !!handleCandidate && selected;
+  const handlePosition = handleCandidate ?? { x: labelX, y: labelY };
+  const handleTransform = manualCurve
+    ? `translate(-50%, -50%) translate(${handlePosition.x}px, ${handlePosition.y}px)`
+    : `translate(-50%, -50%) translate(${handlePosition.x}px, ${handlePosition.y}px) translate(0px, -18px)`;
+
+  const handlePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!reactFlow) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (cleanupRef.current) {
+        cleanupRef.current();
+      }
+
+      beginEdgeControlAdjustment(id);
+      setIsDragging(true);
+
+      const pointerId = event.pointerId;
+
+      const handleMove = (moveEvent: PointerEvent) => {
+        if (moveEvent.pointerId !== pointerId) return;
+        const flowPoint = reactFlow.screenToFlowPosition({ x: moveEvent.clientX, y: moveEvent.clientY });
+        const offset: EdgeControlOffset = {
+          offsetX: flowPoint.x - midpointX,
+          offsetY: flowPoint.y - midpointY,
+        };
+        lastOffsetRef.current = offset;
+        updateEdgeControlPoint(id, offset);
+      };
+
+      const finishDrag = () => {
+        window.removeEventListener('pointermove', handleMove);
+        window.removeEventListener('pointerup', handleUp);
+        window.removeEventListener('pointercancel', handleCancel);
+        cleanupRef.current = null;
+        setIsDragging(false);
+      };
+
+      const handleUp = (upEvent: PointerEvent) => {
+        if (upEvent.pointerId !== pointerId) return;
+        finishDrag();
+        updateEdgeControlPoint(id, lastOffsetRef.current, { commit: true });
+      };
+
+      const handleCancel = (cancelEvent: PointerEvent) => {
+        if (cancelEvent.pointerId !== pointerId) return;
+        finishDrag();
+        updateEdgeControlPoint(id, lastOffsetRef.current, { commit: true });
+      };
+
+      window.addEventListener('pointermove', handleMove);
+      window.addEventListener('pointerup', handleUp);
+      window.addEventListener('pointercancel', handleCancel);
+      cleanupRef.current = () => {
+        finishDrag();
+      };
+    },
+    [beginEdgeControlAdjustment, id, midpointX, midpointY, reactFlow, updateEdgeControlPoint],
+  );
+
+  const handleDoubleClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      beginEdgeControlAdjustment(id);
+      lastOffsetRef.current = null;
+      updateEdgeControlPoint(id, null, { commit: true });
+    },
+    [beginEdgeControlAdjustment, id, updateEdgeControlPoint],
+  );
+
+  const controlHandleStyle: React.CSSProperties = {
+    width: 18,
+    height: 18,
+    background: '#2563eb',
+    borderRadius: '9999px',
+    border: '2px solid #ffffff',
+    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.35)',
+    cursor: isDragging ? 'grabbing' : 'grab',
+  };
+
   return (
     <>
       <BaseEdge id={id} path={path} markerEnd={resolvedMarkerEnd} style={mergedStyle} />
@@ -164,10 +292,29 @@ const MermaidEdge: React.FC<EdgeProps<MermaidEdgeData>> = ({
               color: labelTextColor ? sanitizeColorValue(labelTextColor) : '#1f2937',
               boxShadow: '0 1px 3px rgba(15, 23, 42, 0.18)',
               whiteSpace: 'nowrap',
-              maxWidth: 200,
+              maxWidth: 220,
             }}
           >
             {label}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+      {showControlHandle && (
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              position: 'absolute',
+              transform: handleTransform,
+              pointerEvents: 'auto',
+              zIndex: 5,
+            }}
+            onPointerDown={handlePointerDown}
+            onDoubleClick={handleDoubleClick}
+            role="button"
+            tabIndex={-1}
+            title="ドラッグで曲線を調整 / ダブルクリックでリセット"
+          >
+            <div style={controlHandleStyle} />
           </div>
         </EdgeLabelRenderer>
       )}

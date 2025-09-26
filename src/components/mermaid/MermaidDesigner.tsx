@@ -46,6 +46,7 @@ import GroupOverlays from './GroupOverlays';
 import MermaidEdgeComponent from './MermaidEdge';
 import MermaidNodeComponent from './MermaidNode';
 import { EdgeHandleOrientationContext, type EdgeHandleOrientation } from './EdgeHandleOrientationContext';
+import EdgeControlContext, { type EdgeControlOffset } from './EdgeControlContext';
 import { writeFileContent } from '@/lib/fileSystemUtils';
 
 export interface MermaidDesignerProps {
@@ -215,6 +216,7 @@ const cloneEdgeList = (edges: MermaidEdge[]): MermaidEdge[] =>
     markerEnd: edge.markerEnd ? { ...edge.markerEnd } : edge.markerEnd,
     data: {
       ...edge.data,
+      manualCurve: edge.data?.manualCurve ? { ...edge.data.manualCurve } : undefined,
       metadata: edge.data.metadata ? { ...edge.data.metadata } : undefined,
     },
   }));
@@ -488,6 +490,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const historyRef = useRef<Snapshot[]>([]);
   const futureRef = useRef<Snapshot[]>([]);
   const suppressHistoryRef = useRef<number>(0);
+  const activeEdgeControlRef = useRef<string | null>(null);
 
   const beginSuppressHistory = useCallback(() => {
     suppressHistoryRef.current += 1;
@@ -511,6 +514,17 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     [beginSuppressHistory, endSuppressHistory],
   );
 
+  const updateEdges = useCallback(
+    (updater: React.SetStateAction<MermaidEdge[]>) => {
+      setEdgesState((current) => {
+        const next =
+          typeof updater === 'function' ? (updater as (prev: MermaidEdge[]) => MermaidEdge[])(current) : updater;
+        return normalizeEdges(Array.isArray(next) ? next : []);
+      });
+    },
+    [],
+  );
+
   const createSnapshot = useCallback(
     (): Snapshot => ({
       diagramType,
@@ -532,6 +546,77 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     }
     futureRef.current = [];
   }, [createSnapshot]);
+
+  const beginEdgeControlAdjustment = useCallback(
+    (edgeId: string) => {
+      if (activeEdgeControlRef.current !== edgeId) {
+        activeEdgeControlRef.current = edgeId;
+        recordHistory();
+      }
+    },
+    [recordHistory],
+  );
+
+  const updateEdgeControlPoint = useCallback(
+    (edgeId: string, offset: EdgeControlOffset | null, options?: { commit?: boolean }) => {
+      runWithSuppressedHistory(() => {
+        updateEdges((current) => {
+          const threshold = 0.1;
+          let didChange = false;
+          const nextEdges = current.map((edge) => {
+            if (edge.id !== edgeId) {
+              return edge;
+            }
+            const existing = edge.data.manualCurve;
+            if (!offset || (Math.abs(offset.offsetX) <= threshold && Math.abs(offset.offsetY) <= threshold)) {
+              if (!existing) {
+                return edge;
+              }
+              const nextData = { ...edge.data };
+              delete nextData.manualCurve;
+              didChange = true;
+              return {
+                ...edge,
+                data: nextData,
+              };
+            }
+
+            if (
+              existing
+              && Math.abs(existing.offsetX - offset.offsetX) <= threshold
+              && Math.abs(existing.offsetY - offset.offsetY) <= threshold
+            ) {
+              return edge;
+            }
+
+            const nextData = {
+              ...edge.data,
+              manualCurve: { offsetX: offset.offsetX, offsetY: offset.offsetY },
+            };
+            didChange = true;
+            return {
+              ...edge,
+              data: nextData,
+            };
+          });
+          return didChange ? nextEdges : current;
+        });
+      });
+
+      if (options?.commit) {
+        activeEdgeControlRef.current = null;
+      }
+    },
+    [runWithSuppressedHistory, updateEdges],
+  );
+
+  const edgeControlContextValue = useMemo(
+    () => ({
+      beginEdgeControlAdjustment,
+      updateEdgeControlPoint,
+    }),
+    [beginEdgeControlAdjustment, updateEdgeControlPoint],
+  );
 
   const restoreSnapshot = useCallback((snapshot: Snapshot) => {
     isRestoring.current = true;
@@ -560,17 +645,6 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     historyRef.current.push(createSnapshot());
     restoreSnapshot(next);
   }, [createSnapshot, restoreSnapshot]);
-
-  const updateEdges = useCallback(
-    (updater: React.SetStateAction<MermaidEdge[]>) => {
-      setEdgesState((current) => {
-        const next =
-          typeof updater === 'function' ? (updater as (prev: MermaidEdge[]) => MermaidEdge[])(current) : updater;
-        return normalizeEdges(Array.isArray(next) ? next : []);
-      });
-    },
-    [],
-  );
 
   const nodeTemplates = useMemo<MermaidNodeTemplate[]>(
     () => diagramDefinitions[diagramType].nodeTemplates,
@@ -778,13 +852,17 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
                   target: newConnection.target,
                   sourceHandle: normalizeHandleId(newConnection.sourceHandle, 'bottom'),
                   targetHandle: normalizeHandleId(newConnection.targetHandle, 'top'),
+                  data: {
+                    ...edge.data,
+                    manualCurve: undefined,
+                  },
                 }
               : edge,
           ),
         );
       });
     },
-    [recordHistory, runWithSuppressedHistory, updateEdges],
+    [edgeHandleOrientation, recordHistory, runWithSuppressedHistory, updateEdges],
   );
 
   const handleConnect = useCallback(
@@ -2184,12 +2262,13 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           onMouseDown={handleCanvasMouseDown}
         >
           <EdgeHandleOrientationContext.Provider value={edgeHandleOrientation}>
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              nodeTypes={nodeTypes}
-              edgeTypes={edgeTypes}
-              defaultEdgeOptions={defaultEdgeOptions}
+            <EdgeControlContext.Provider value={edgeControlContextValue}>
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                nodeTypes={nodeTypes}
+                edgeTypes={edgeTypes}
+                defaultEdgeOptions={defaultEdgeOptions}
               onNodesChange={handleNodesChange}
               onEdgesChange={handleEdgesChange}
               onConnect={handleConnect}
@@ -2201,12 +2280,13 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
               }}
               fitView
               fitViewOptions={{ padding: 0.2 }}
-              edgeUpdaterRadius={12}
-            >
-              <Background />
-              <MiniMap />
-              <Controls />
-            </ReactFlow>
+                edgeUpdaterRadius={12}
+              >
+                <Background />
+                <MiniMap />
+                <Controls />
+              </ReactFlow>
+            </EdgeControlContext.Provider>
           </EdgeHandleOrientationContext.Provider>
           <GroupOverlays
             diagramType={diagramType}

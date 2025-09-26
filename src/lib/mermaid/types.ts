@@ -1,5 +1,10 @@
 import type { Edge, Node } from 'reactflow';
 
+export interface EdgeManualCurve {
+  offsetX: number;
+  offsetY: number;
+}
+
 /** Mermaidで扱う主要な図の種類 */
 export type MermaidDiagramType =
   | 'flowchart'
@@ -37,6 +42,8 @@ export interface MermaidEdgeData {
   parallelIndex?: number;
   /** 同一ノード間の並列エッジ数 */
   parallelCount?: number;
+  /** マニュアルで設定した制御点のオフセット（ミッドポイント基準） */
+  manualCurve?: EdgeManualCurve;
   /** 追加メタデータ（自由形式） */
   metadata?: Record<string, string | string[]>;
 }
