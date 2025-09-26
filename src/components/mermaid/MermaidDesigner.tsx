@@ -340,6 +340,18 @@ const normalizeEdges = (edgeList: MermaidEdge[]): MermaidEdge[] => {
       delete (sanitizedStyle as any).strokeDasharray;
     }
 
+    const existingMarker = edge.markerEnd;
+    const markerEnd = existingMarker
+      ? { ...existingMarker, color: strokeColor }
+      : (
+        {
+          type: MarkerType.ArrowClosed,
+          width: 18,
+          height: 18,
+          color: strokeColor,
+        } as const
+      );
+
     return {
       ...edge,
       id,
@@ -352,14 +364,7 @@ const normalizeEdges = (edgeList: MermaidEdge[]): MermaidEdge[] => {
         parallelCount,
         metadata,
       },
-      markerEnd:
-        edge.markerEnd ??
-        ({
-          type: MarkerType.ArrowClosed,
-          width: 18,
-          height: 18,
-          color: strokeColor,
-        } as const),
+      markerEnd,
       style: sanitizedStyle ? { ...baseStyle, ...sanitizedStyle } : { ...baseStyle },
       updatable: true,
       sourceHandle,
