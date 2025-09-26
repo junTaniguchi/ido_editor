@@ -1,0 +1,20 @@
+architecture-beta
+  title Cloud Application Architecture
+  group edge(cloud)[Edge]
+  group core(server)[Core]
+  service gateway(server)[API Gateway] in edge
+  service cdn(cache)[CDN] in edge
+
+  service app(server)[Application Server] in core
+  service worker(server)[Background Worker] in core
+  service cache(cache)[Cache] in core
+
+  service db(database)[Database]
+  service queue(queue)[Message Queue]
+
+  gateway:R -- L:cdn
+  gateway:B --> T:app
+  app:B -- T:db
+  app:R -- L:cache
+  worker:R --> L:queue
+  queue:L --> R:worker
