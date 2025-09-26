@@ -565,7 +565,13 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         label: 'コミット',
         description: '現在のブランチにコミットを追加',
         defaultLabel: 'Commit',
-        defaultMetadata: { type: 'NORMAL' },
+        defaultMetadata: {
+          type: 'NORMAL',
+          branchId: 'main',
+          fillColor: '#DBEAFE',
+          strokeColor: '#2563eb',
+          textColor: '#1d4ed8',
+        },
         fields: [
           { key: 'id', label: 'コミットID', type: 'text', placeholder: '例: A1' },
           { key: 'tag', label: 'タグ', type: 'text', placeholder: '例: v1.0.0' },
@@ -586,6 +592,11 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         label: 'ブランチ作成',
         description: '新しいブランチを作成して現在のブランチにする',
         defaultLabel: 'develop',
+        defaultMetadata: {
+          fillColor: '#F3E8FF',
+          strokeColor: '#8B5CF6',
+          textColor: '#5B21B6',
+        },
         fields: [
           { key: 'order', label: '表示順序 (order)', type: 'number', placeholder: '例: 1' },
         ],
@@ -595,13 +606,24 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         label: 'チェックアウト',
         description: '既存のブランチへ切り替え',
         defaultLabel: 'main',
+        defaultMetadata: {
+          fillColor: '#FEF3C7',
+          strokeColor: '#D97706',
+          textColor: '#92400E',
+        },
       },
       {
         variant: 'merge',
         label: 'マージ',
         description: '指定ブランチを現在のブランチへマージ',
         defaultLabel: 'develop',
-        defaultMetadata: { type: 'NORMAL' },
+        defaultMetadata: {
+          type: 'NORMAL',
+          branchId: 'main',
+          fillColor: '#DCFCE7',
+          strokeColor: '#16A34A',
+          textColor: '#166534',
+        },
         fields: [
           { key: 'id', label: 'マージコミットID', type: 'text' },
           { key: 'tag', label: 'タグ', type: 'text' },
@@ -622,13 +644,64 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         label: 'チェリーピック',
         description: '別ブランチのコミットを現在のブランチへ取り込む',
         defaultLabel: 'commitId',
+        defaultMetadata: {
+          fillColor: '#FEE2E2',
+          strokeColor: '#DC2626',
+          textColor: '#7F1D1D',
+        },
         fields: [
           { key: 'id', label: '対象コミットID', type: 'text', placeholder: '必須: MERGE など' },
           { key: 'parent', label: '親コミットID', type: 'text', placeholder: 'マージコミットの場合のみ' },
         ],
       },
     ],
-    edgeTemplates: [],
+    edgeTemplates: [
+      {
+        variant: 'gitCommit',
+        label: 'コミット線',
+        description: '同一ブランチ内のコミットをつなぐ標準的な線',
+        defaultLabel: '',
+        defaultMetadata: {
+          strokeColor: '#2563eb',
+          textColor: '#1d4ed8',
+          fillColor: '#DBEAFE',
+        },
+      },
+      {
+        variant: 'gitBranchCreate',
+        label: 'ブランチ作成',
+        description: 'コミットから新しいブランチ作成ノードへ向かう遷移',
+        defaultLabel: '',
+        defaultMetadata: {
+          strokeColor: '#8B5CF6',
+          textColor: '#5B21B6',
+          fillColor: '#F3E8FF',
+        },
+      },
+      {
+        variant: 'gitCheckout',
+        label: 'チェックアウト',
+        description: '別ブランチへチェックアウトする遷移を表現',
+        defaultLabel: '',
+        defaultMetadata: {
+          branchId: '',
+          strokeColor: '#D97706',
+          textColor: '#92400E',
+          fillColor: '#FEF3C7',
+        },
+      },
+      {
+        variant: 'gitMerge',
+        label: 'マージ遷移',
+        description: 'マージノードへ向かう遷移を表現',
+        defaultLabel: '',
+        defaultMetadata: {
+          strokeColor: '#16A34A',
+          textColor: '#166534',
+          fillColor: '#DCFCE7',
+        },
+      },
+    ],
     defaultConfig: { type: 'gitGraph', orientation: 'LR' },
     defaultTemplate: `gitGraph LR:
   commit id: "A"
@@ -650,7 +723,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         ],
       },
     ],
-    supportsEdges: false,
+    supportsEdges: true,
     createNodeId: () => `git_${createId()}`,
   },
   pie: {

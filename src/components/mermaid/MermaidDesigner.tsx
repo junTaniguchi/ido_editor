@@ -127,6 +127,37 @@ const getDefaultEdgeVariant = (type: MermaidDiagramType): string => {
   return definition.edgeTemplates[0]?.variant || 'arrow';
 };
 
+const resolveGitGraphEdgeVariant = (
+  templates: MermaidEdgeTemplate[],
+  sourceNode?: MermaidNode,
+  targetNode?: MermaidNode,
+): string => {
+  const available = new Set(templates.map((template) => template.variant));
+  const fallback = templates[0]?.variant ?? 'arrow';
+  const prefer = (variant: string): string => (available.has(variant) ? variant : fallback);
+
+  if (!sourceNode || !targetNode) {
+    return fallback;
+  }
+
+  const sourceVariant = sourceNode.data.variant;
+  const targetVariant = targetNode.data.variant;
+
+  if (sourceVariant === 'checkout' || targetVariant === 'checkout') {
+    return prefer('gitCheckout');
+  }
+
+  if (sourceVariant === 'merge' || targetVariant === 'merge') {
+    return prefer('gitMerge');
+  }
+
+  if (targetVariant === 'branch' || sourceVariant === 'branch') {
+    return prefer('gitBranchCreate');
+  }
+
+  return prefer('gitCommit');
+};
+
 const toBooleanString = (value: boolean): string => (value ? 'true' : 'false');
 
 const parseBoolean = (value: string | undefined): boolean => value === 'true';
@@ -247,6 +278,11 @@ const applyNodeDefaults = (node: MermaidNode, fallbackDiagramType?: MermaidDiagr
   const diagramType = (node.data.diagramType as MermaidDiagramType) || fallbackDiagramType || 'flowchart';
   const defaultMetadata = getNodeTemplateDefaults(diagramType, node.data.variant);
   const metadata = { ...defaultMetadata, ...(node.data.metadata || {}) } as NodeMetadata;
+  if (diagramType === 'gitGraph' && (node.data.variant === 'commit' || node.data.variant === 'merge')) {
+    const branchId = getMetadataString(metadata, 'branchId');
+    const normalizedBranchId = branchId && branchId.trim().length > 0 ? branchId.trim() : 'main';
+    metadata.branchId = normalizedBranchId;
+  }
   const fillColor = sanitizeColorValue(getMetadataString(metadata, 'fillColor') ?? '#ffffff');
   const strokeColor = sanitizeColorValue(getMetadataString(metadata, 'strokeColor') ?? '#1f2937');
   const textColor = sanitizeColorValue(getMetadataString(metadata, 'textColor') ?? '#111827');
@@ -674,6 +710,53 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     [diagramType],
   );
 
+  const gitBranchNodes = useMemo(() => {
+    if (diagramType !== 'gitGraph') {
+      return [] as MermaidNode[];
+    }
+    const candidates = nodes.filter(
+      (node) => node.data.diagramType === 'gitGraph' && node.data.variant === 'branch',
+    );
+    return [...candidates].sort((a, b) => {
+      const rawOrderA = getMetadataString(a.data.metadata as NodeMetadata | undefined, 'order');
+      const rawOrderB = getMetadataString(b.data.metadata as NodeMetadata | undefined, 'order');
+      const orderA = rawOrderA !== undefined && rawOrderA !== null && rawOrderA.trim() !== ''
+        ? Number(rawOrderA)
+        : Number.NaN;
+      const orderB = rawOrderB !== undefined && rawOrderB !== null && rawOrderB.trim() !== ''
+        ? Number(rawOrderB)
+        : Number.NaN;
+      const hasOrderA = Number.isFinite(orderA);
+      const hasOrderB = Number.isFinite(orderB);
+      if (hasOrderA && hasOrderB) {
+        if (orderA !== orderB) {
+          return orderA - orderB;
+        }
+      } else if (hasOrderA) {
+        return -1;
+      } else if (hasOrderB) {
+        return 1;
+      }
+      const labelA = (a.data.label ?? '').toLowerCase();
+      const labelB = (b.data.label ?? '').toLowerCase();
+      if (labelA && labelB) {
+        return labelA.localeCompare(labelB, 'ja');
+      }
+      if (labelA) return -1;
+      if (labelB) return 1;
+      return a.id.localeCompare(b.id);
+    });
+  }, [diagramType, nodes]);
+
+  const gitBranchOptions = useMemo(
+    () =>
+      gitBranchNodes.map((branch) => ({
+        id: branch.id,
+        label: branch.data.label?.trim() || branch.id,
+      })),
+    [gitBranchNodes],
+  );
+
   const configFields = useMemo<MermaidFieldDefinition[]>(
     () => diagramDefinitions[diagramType].configFields ?? [],
     [diagramType],
@@ -887,8 +970,41 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     (connection: Connection) => {
       if (!supportsEdges || edgeTemplates.length === 0) return;
       if (!connection.source || !connection.target) return;
+      let sourceNode: MermaidNode | undefined;
+      let targetNode: MermaidNode | undefined;
+      if (diagramType === 'gitGraph') {
+        sourceNode = nodes.find((node) => node.id === connection.source);
+        targetNode = nodes.find((node) => node.id === connection.target);
+        if (sourceNode && targetNode) {
+          const getNodeBranch = (node: MermaidNode): string | null => {
+            if (node.data.diagramType !== 'gitGraph') return null;
+            if (node.data.variant === 'commit' || node.data.variant === 'merge') {
+              const metadata = node.data.metadata as NodeMetadata | undefined;
+              return getMetadataString(metadata, 'branchId')?.trim() || 'main';
+            }
+            return null;
+          };
+          const sourceBranch = getNodeBranch(sourceNode);
+          const targetBranch = getNodeBranch(targetNode);
+          if (
+            sourceBranch
+            && targetBranch
+            && sourceBranch !== targetBranch
+            && sourceNode.data.variant !== 'merge'
+            && targetNode.data.variant !== 'merge'
+          ) {
+            if (typeof window !== 'undefined') {
+              window.alert('異なるブランチを接続する場合はブランチ作成→チェックアウト、またはマージノードを経由してください。');
+            }
+            return;
+          }
+        }
+      }
       recordHistory();
-      const variant = getDefaultEdgeVariant(diagramType);
+      const variant =
+        diagramType === 'gitGraph'
+          ? resolveGitGraphEdgeVariant(edgeTemplates, sourceNode, targetNode)
+          : getDefaultEdgeVariant(diagramType);
       const template = edgeTemplates.find((item) => item.variant === variant) ?? edgeTemplates[0];
       const id = createEdgeId();
       runWithSuppressedHistory(() => {
@@ -924,7 +1040,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       });
       setInspector({ type: 'edge', id });
     },
-    [diagramType, edgeTemplates, recordHistory, runWithSuppressedHistory, supportsEdges, updateEdges],
+    [diagramType, edgeTemplates, nodes, recordHistory, runWithSuppressedHistory, supportsEdges, updateEdges],
   );
 
   const handleSelectionChange = useCallback((params: { nodes: MermaidNode[]; edges: MermaidEdge[] }) => {
@@ -1154,6 +1270,157 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     [diagramType, nodes, recordHistory, runWithSuppressedHistory],
   );
 
+  const handleAddGitBranch = useCallback(() => {
+    if (diagramType !== 'gitGraph') return;
+    const template = nodeTemplates.find((item) => item.variant === 'branch');
+    if (!template) return;
+    handleAddNode(template);
+  }, [diagramType, handleAddNode, nodeTemplates]);
+
+  const handleUpdateGitBranchLabel = useCallback(
+    (branchId: string, label: string) => {
+      if (diagramType !== 'gitGraph') {
+        updateNode(branchId, (node) => ({
+          ...node,
+          data: {
+            ...node.data,
+            label,
+          },
+        }));
+        return;
+      }
+      const normalized = label.trim();
+      updateNode(branchId, (node) => ({
+        ...node,
+        data: {
+          ...node.data,
+          label: normalized,
+        },
+      }));
+      runWithSuppressedHistory(() => {
+        updateEdges((current) =>
+          current.map((edge) => {
+            if (
+              edge.data.diagramType === 'gitGraph'
+              && edge.data.variant === 'gitCheckout'
+              && getMetadataString(edge.data.metadata as NodeMetadata | undefined, 'branchId') === branchId
+            ) {
+              return {
+                ...edge,
+                data: {
+                  ...edge.data,
+                  label: normalized,
+                },
+                label: normalized,
+              };
+            }
+            return edge;
+          }),
+        );
+      });
+    },
+    [diagramType, runWithSuppressedHistory, updateEdges, updateNode],
+  );
+
+  const handleUpdateGitBranchOrder = useCallback(
+    (branchId: string, order: string) => {
+      updateNode(branchId, (node) => {
+        const metadata = { ...(node.data.metadata || {}) } as NodeMetadata;
+        const trimmed = order.trim();
+        if (trimmed) {
+          metadata.order = trimmed;
+        } else {
+          delete metadata.order;
+        }
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            metadata,
+          },
+        };
+      });
+    },
+    [updateNode],
+  );
+
+  const handleRemoveGitBranch = useCallback(
+    (branchId: string) => {
+      if (diagramType !== 'gitGraph') {
+        return;
+      }
+      const exists = nodes.some(
+        (node) => node.id === branchId && node.data.diagramType === 'gitGraph' && node.data.variant === 'branch',
+      );
+      if (!exists) {
+        return;
+      }
+      recordHistory();
+      runWithSuppressedHistory(() => {
+        setNodes((current) => {
+          let removed = false;
+          const filtered = current.filter((node) => {
+            if (node.id === branchId && node.data.diagramType === 'gitGraph' && node.data.variant === 'branch') {
+              removed = true;
+              return false;
+            }
+            return true;
+          });
+          if (!removed) {
+            return current;
+          }
+          return filtered.map((node) => {
+            if (node.data.diagramType === 'gitGraph' && node.data.variant !== 'branch') {
+              const metadata = { ...(node.data.metadata || {}) } as NodeMetadata;
+              if (metadata.branchId === branchId) {
+                delete metadata.branchId;
+                return applyNodeDefaults(
+                  {
+                    ...node,
+                    data: {
+                      ...node.data,
+                      metadata,
+                    },
+                  },
+                  diagramType,
+                );
+              }
+            }
+            return node;
+          });
+        });
+      });
+      runWithSuppressedHistory(() => {
+        updateEdges((current) =>
+          current
+            .filter((edge) => edge.source !== branchId && edge.target !== branchId)
+            .map((edge) => {
+              if (edge.data.diagramType === 'gitGraph' && edge.data.variant === 'gitCheckout') {
+                const metadata = { ...(edge.data.metadata || {}) } as NodeMetadata;
+                if (metadata.branchId === branchId) {
+                  delete metadata.branchId;
+                  return {
+                    ...edge,
+                    data: {
+                      ...edge.data,
+                      label: '',
+                      metadata,
+                    },
+                    label: '',
+                  };
+                }
+              }
+              return edge;
+            }),
+        );
+      });
+      if (inspector?.type === 'node' && inspector.id === branchId) {
+        setInspector(null);
+      }
+    },
+    [diagramType, inspector, nodes, recordHistory, runWithSuppressedHistory, setInspector, setNodes, updateEdges],
+  );
+
   const addGanttSection = useCallback(() => {
     recordHistory();
     setGanttSections((current) => {
@@ -1341,6 +1608,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         }
 
         const nodeIdSet = new Set(currentNodes.map((node) => node.id));
+        const nodeMap = new Map(currentNodes.map((node) => [node.id, node]));
         const adjacency = new Map<string, Set<string>>();
         const indegree = new Map<string, number>();
         const incoming = new Map<string, Set<string>>();
@@ -1522,6 +1790,104 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           });
         });
 
+        let branchOffsets: Map<string, number> | null = null;
+        let branchLayerOffsets: Map<string, number> | null = null;
+        if (diagramType === 'gitGraph') {
+          const getBranchKeyForNode = (nodeId: string): string => {
+            const node = nodeMap.get(nodeId);
+            if (!node || node.data.diagramType !== 'gitGraph') {
+              return 'main';
+            }
+            if (node.data.variant === 'branch') {
+              return node.id;
+            }
+            const metadata = node.data.metadata as NodeMetadata | undefined;
+            const branchId = getMetadataString(metadata, 'branchId');
+            if (branchId && branchId.trim().length > 0) {
+              return branchId.trim();
+            }
+            return 'main';
+          };
+
+          const branchLayerGroups = new Map<string, Map<number, string[]>>();
+          let maxBranchLayerCount = 1;
+
+          layers.forEach((layer) => {
+            const perBranch = new Map<string, string[]>();
+            layer.nodeIds.forEach((nodeId) => {
+              const branchKey = getBranchKeyForNode(nodeId);
+              const list = perBranch.get(branchKey);
+              if (list) {
+                list.push(nodeId);
+              } else {
+                perBranch.set(branchKey, [nodeId]);
+              }
+            });
+
+            perBranch.forEach((nodeIds, branchKey) => {
+              maxBranchLayerCount = Math.max(maxBranchLayerCount, nodeIds.length);
+              let layerMap = branchLayerGroups.get(branchKey);
+              if (!layerMap) {
+                layerMap = new Map<number, string[]>();
+                branchLayerGroups.set(branchKey, layerMap);
+              }
+              layerMap.set(layer.level, nodeIds);
+            });
+          });
+
+          const innerBranchSpacing = Math.max(nodeSpacing * 0.6, 130);
+          const branchSpacing = Math.max(nodeSpacing * 1.45, innerBranchSpacing * (maxBranchLayerCount + 1), 240);
+
+          const branchOrder: string[] = [];
+          const seen = new Set<string>();
+          const pushBranch = (branchId: string | undefined) => {
+            if (!branchId) return;
+            const normalized = branchId.trim();
+            if (!normalized || seen.has(normalized)) {
+              return;
+            }
+            seen.add(normalized);
+            branchOrder.push(normalized);
+          };
+
+          pushBranch('main');
+          gitBranchNodes.forEach((branch) => {
+            pushBranch(branch.id);
+          });
+          layers.forEach((layer) => {
+            layer.nodeIds.forEach((nodeId) => {
+              pushBranch(getBranchKeyForNode(nodeId));
+            });
+          });
+          branchLayerGroups.forEach((_, branchId) => {
+            pushBranch(branchId);
+          });
+
+          if (branchOrder.length > 0) {
+            branchOffsets = new Map(
+              branchOrder.map((branchId, index) => [branchId, index * branchSpacing] as const),
+            );
+
+            branchLayerOffsets = new Map<string, number>();
+            branchLayerGroups.forEach((layerMap) => {
+              layerMap.forEach((nodeIds) => {
+                if (nodeIds.length === 0) {
+                  return;
+                }
+                if (nodeIds.length === 1) {
+                  branchLayerOffsets!.set(nodeIds[0], 0);
+                  return;
+                }
+                const centerIndex = (nodeIds.length - 1) / 2;
+                nodeIds.forEach((nodeId, index) => {
+                  const offset = (index - centerIndex) * innerBranchSpacing;
+                  branchLayerOffsets!.set(nodeId, offset);
+                });
+              });
+            });
+          }
+        }
+
         return currentNodes.map((node, index) => {
           const fallbackRow = Math.floor(index / 4);
           const fallbackPosition = isVertical
@@ -1533,7 +1899,31 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
                 x: originX + fallbackRow * layerSpacing,
                 y: originY + (index % 4) * nodeSpacing,
               };
-          const target = positionMap.get(node.id) ?? fallbackPosition;
+          let target = positionMap.get(node.id) ?? fallbackPosition;
+
+          if (branchOffsets && node.data.diagramType === 'gitGraph') {
+            const branchKey = (() => {
+              if (node.data.variant === 'branch') {
+                return node.id;
+              }
+              const metadata = node.data.metadata as NodeMetadata | undefined;
+              const raw = getMetadataString(metadata, 'branchId');
+              if (raw && raw.trim().length > 0) {
+                return raw.trim();
+              }
+              return 'main';
+            })();
+
+            const offsetValue = branchOffsets.get(branchKey);
+            if (offsetValue !== undefined) {
+              const level = levels.get(node.id) ?? 0;
+              const laneAdjustment = branchLayerOffsets?.get(node.id) ?? 0;
+              target = isVertical
+                ? { x: originX + offsetValue + laneAdjustment, y: originY + level * layerSpacing }
+                : { x: originX + level * layerSpacing, y: originY + offsetValue + laneAdjustment };
+            }
+          }
+
           return applyNodeDefaults(
             {
               ...node,
@@ -1548,7 +1938,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     setTimeout(() => {
       fitViewToDiagram({ duration: 400 });
     }, 50);
-  }, [diagramType, edges, fitViewToDiagram, recordHistory, runWithSuppressedHistory]);
+  }, [diagramType, edges, fitViewToDiagram, gitBranchNodes, recordHistory, runWithSuppressedHistory]);
 
   const handleSaveDiagram = useCallback(async () => {
     const tab = getTab(tabId);
@@ -1771,6 +2161,20 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     const fillColorValue = toHexColor(getMetadataString(nodeMetadata, 'fillColor'), '#ffffff');
     const strokeColorValue = toHexColor(getMetadataString(nodeMetadata, 'strokeColor'), '#1f2937');
     const textColorValue = toHexColor(getMetadataString(nodeMetadata, 'textColor'), '#1f2937');
+    const commitBranchId = getMetadataString(nodeMetadata, 'branchId')?.trim() || 'main';
+    const commitBranchOptions = (() => {
+      const optionMap = new Map<string, { id: string; label: string }>();
+      optionMap.set('main', { id: 'main', label: 'main' });
+      gitBranchOptions.forEach((option) => {
+        if (!optionMap.has(option.id)) {
+          optionMap.set(option.id, option);
+        }
+      });
+      if (!optionMap.has(commitBranchId)) {
+        optionMap.set(commitBranchId, { id: commitBranchId, label: commitBranchId });
+      }
+      return Array.from(optionMap.values());
+    })();
 
     const handleNodeColorChange = (key: 'fillColor' | 'strokeColor' | 'textColor', color: string | null) => {
       updateNode(selectedNode.id, (node) => {
@@ -1845,13 +2249,51 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
             value={selectedNode.data.label}
             onChange={(event) => {
               const value = event.target.value;
-              updateNode(selectedNode.id, (node) => ({
-                ...node,
-                data: { ...node.data, label: value },
-              }));
+              if (diagramType === 'gitGraph' && selectedNode.data.variant === 'branch') {
+                handleUpdateGitBranchLabel(selectedNode.id, value);
+              } else {
+                updateNode(selectedNode.id, (node) => ({
+                  ...node,
+                  data: { ...node.data, label: value },
+                }));
+              }
             }}
           />
         </div>
+        {diagramType === 'gitGraph' && selectedNode.data.variant === 'commit' && (
+          <div>
+            <label className="block text-xs text-gray-500">コミット先ブランチ</label>
+            <select
+              className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+              value={commitBranchId}
+              onChange={(event) => {
+                const nextBranchId = event.target.value.trim() || 'main';
+                updateNode(selectedNode.id, (node) => {
+                  const metadata = { ...(node.data.metadata || {}) } as NodeMetadata;
+                  metadata.branchId = nextBranchId;
+                  return {
+                    ...node,
+                    data: {
+                      ...node.data,
+                      metadata,
+                    },
+                  };
+                });
+              }}
+            >
+              {commitBranchOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            {gitBranchOptions.length === 0 && (
+              <p className="mt-1 text-[11px] text-gray-500">
+                ブランチを追加するとここから選択できます。
+              </p>
+            )}
+          </div>
+        )}
         {diagramType === 'flowchart' && (
           <div>
             <div className="flex items-center justify-between">
@@ -2016,6 +2458,12 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     const strokeColorValue = toHexColor(getMetadataString(edgeMetadata, 'strokeColor'), '#1f2937');
     const textColorValue = toHexColor(getMetadataString(edgeMetadata, 'textColor'), '#1f2937');
     const fillColorValue = toHexColor(getMetadataString(edgeMetadata, 'fillColor'), '#ffffff');
+    const checkoutBranchId = getMetadataString(edgeMetadata, 'branchId') ?? '';
+    const checkoutBranchOptions = checkoutBranchId
+      ? gitBranchOptions.some((option) => option.id === checkoutBranchId)
+        ? gitBranchOptions
+        : [...gitBranchOptions, { id: checkoutBranchId, label: checkoutBranchId }]
+      : gitBranchOptions;
 
     const handleEdgeColorChange = (key: 'strokeColor' | 'textColor' | 'fillColor', color: string | null) => {
       updateEdge(selectedEdge.id, (edge) => {
@@ -2063,6 +2511,46 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
             ))}
           </select>
         </div>
+        {diagramType === 'gitGraph' && selectedEdge.data.variant === 'gitCheckout' && (
+          <div>
+            <label className="block text-xs text-gray-500">チェックアウト先ブランチ</label>
+            <select
+              className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+              value={checkoutBranchId}
+              onChange={(event) => {
+                const nextBranchId = event.target.value;
+                updateEdge(selectedEdge.id, (edge) => {
+                  const metadata = { ...(edge.data.metadata || {}) } as NodeMetadata;
+                  if (nextBranchId) {
+                    metadata.branchId = nextBranchId;
+                  } else {
+                    delete metadata.branchId;
+                  }
+                  const branchLabel = checkoutBranchOptions.find((option) => option.id === nextBranchId)?.label ?? '';
+                  return {
+                    ...edge,
+                    data: {
+                      ...edge.data,
+                      label: branchLabel,
+                      metadata,
+                    },
+                    label: branchLabel,
+                  };
+                });
+              }}
+            >
+              <option value="">未指定</option>
+              {checkoutBranchOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            {gitBranchOptions.length === 0 && (
+              <p className="mt-1 text-[11px] text-gray-500">ブランチを追加するとここから選択できます。</p>
+            )}
+          </div>
+        )}
         {selectedEdgeTemplate?.fields?.map((field) => {
           const value = getMetadataString(edgeMetadata, field.key) ?? selectedEdge.data.label ?? '';
           return (
@@ -2194,6 +2682,72 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
                   </div>
                 );
               })}
+            </div>
+          )}
+          {!isPaletteCollapsed && diagramType === 'gitGraph' && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-gray-500">ブランチ</p>
+                <button
+                  type="button"
+                  className="rounded border border-blue-500 px-2 py-1 text-[11px] text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-300 dark:hover:bg-blue-900"
+                  onClick={handleAddGitBranch}
+                >
+                  追加
+                </button>
+              </div>
+              {gitBranchNodes.length === 0 ? (
+                <p className="text-[11px] text-gray-500">ブランチはまだありません。</p>
+              ) : (
+                <div className="space-y-2">
+                  {gitBranchNodes.map((branch) => {
+                    const metadata = (branch.data.metadata || {}) as NodeMetadata;
+                    const rawOrder = metadata.order;
+                    const orderValue = Array.isArray(rawOrder)
+                      ? rawOrder[0] ?? ''
+                      : typeof rawOrder === 'string'
+                      ? rawOrder
+                      : '';
+                    return (
+                      <div key={branch.id} className="rounded border border-gray-200 p-2 text-xs dark:border-gray-700">
+                        <label className="block text-[11px] text-gray-500">ブランチ名</label>
+                        <input
+                          type="text"
+                          className="mt-1 w-full rounded border border-gray-300 p-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                          value={branch.data.label ?? ''}
+                          onChange={(event) => handleUpdateGitBranchLabel(branch.id, event.target.value)}
+                        />
+                        <label className="mt-2 block text-[11px] text-gray-500">表示順序 (order)</label>
+                        <input
+                          type="text"
+                          className="mt-1 w-full rounded border border-gray-300 p-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                          value={orderValue}
+                          onChange={(event) => handleUpdateGitBranchOrder(branch.id, event.target.value)}
+                        />
+                        <div className="mt-2 flex items-center justify-between">
+                          <p className="text-[10px] text-gray-400">ID: {branch.id}</p>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              className="text-[11px] text-blue-600 hover:text-blue-700 dark:text-blue-300 dark:hover:text-blue-200"
+                              onClick={() => setInspector({ type: 'node', id: branch.id })}
+                            >
+                              選択
+                            </button>
+                            <button
+                              type="button"
+                              className="flex items-center text-[11px] text-red-500 hover:text-red-600"
+                              onClick={() => handleRemoveGitBranch(branch.id)}
+                            >
+                              <IoTrash className="mr-1" /> 削除
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
           {!isPaletteCollapsed && diagramType === 'flowchart' && (
