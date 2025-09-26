@@ -3,7 +3,7 @@
 import React, { useMemo } from 'react';
 import { useStore, type Node } from 'reactflow';
 import type { MermaidDiagramType, MermaidSubgraph } from '@/lib/mermaid/types';
-import shallow from 'zustand/shallow';
+import { shallow } from 'zustand/shallow';
 
 interface GroupOverlaysProps {
   diagramType: MermaidDiagramType;
@@ -41,7 +41,21 @@ const extractSubgraphIds = (metadata?: Metadata): string[] => {
 
 const SUBGRAPH_COLORS = ['#BFDBFE', '#C7D2FE', '#FBCFE8', '#BBF7D0', '#FDE68A', '#FECACA'];
 const SECTION_COLORS = ['#DBEAFE', '#FCE7F3', '#DCFCE7', '#FEF3C7', '#E0F2FE', '#F5F3FF'];
+const GIT_BRANCH_COLORS = ['#DBEAFE', '#DDD6FE', '#FBCFE8', '#DCFCE7', '#FDE68A', '#FECACA', '#E0E7FF'];
 const PADDING = 32;
+
+const getMetadataString = (metadata: Metadata | undefined, key: string): string | undefined => {
+  if (!metadata) return undefined;
+  const value = metadata[key];
+  if (Array.isArray(value)) {
+    return value.length > 0 ? value[0] : undefined;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  return undefined;
+};
 
 const computeBounds = (nodes: Node[]): { x: number; y: number; width: number; height: number } | null => {
   if (!nodes.length) return null;
@@ -120,6 +134,50 @@ const GroupOverlays: React.FC<GroupOverlaysProps> = ({ diagramType, subgraphs, g
       });
     }
 
+    if (diagramType === 'gitGraph') {
+      const branchLabels = new Map<string, string>();
+      nodes.forEach((node) => {
+        if (node.data?.diagramType === 'gitGraph' && node.data?.variant === 'branch') {
+          const label = typeof node.data.label === 'string' && node.data.label.trim().length > 0
+            ? node.data.label.trim()
+            : node.id;
+          branchLabels.set(node.id, label);
+        }
+      });
+
+      const branchMembers = new Map<string, Node[]>();
+      nodes.forEach((node) => {
+        if (node.data?.diagramType !== 'gitGraph') return;
+        if (node.data?.variant !== 'commit' && node.data?.variant !== 'merge') return;
+        const metadata = node.data?.metadata as Metadata | undefined;
+        const branchId = getMetadataString(metadata, 'branchId') || 'main';
+        const list = branchMembers.get(branchId);
+        if (list) {
+          list.push(node);
+        } else {
+          branchMembers.set(branchId, [node]);
+        }
+      });
+
+      const sortedBranches = Array.from(branchMembers.entries()).sort((a, b) => {
+        const labelA = branchLabels.get(a[0]) ?? a[0];
+        const labelB = branchLabels.get(b[0]) ?? b[0];
+        return labelA.localeCompare(labelB, 'ja');
+      });
+
+      sortedBranches.forEach(([branchId, members], index) => {
+        const bounds = computeBounds(members as Node[]);
+        if (!bounds) return;
+        const label = branchLabels.get(branchId) ?? branchId;
+        overlayList.push({
+          id: `git-branch-${branchId}`,
+          label,
+          color: GIT_BRANCH_COLORS[index % GIT_BRANCH_COLORS.length],
+          ...bounds,
+        });
+      });
+    }
+
     return overlayList;
   }, [diagramType, ganttSections, nodes, subgraphs]);
 
@@ -152,7 +210,7 @@ const GroupOverlays: React.FC<GroupOverlaysProps> = ({ diagramType, subgraphs, g
               top: overlay.y,
               width: overlay.width,
               height: overlay.height,
-              backgroundColor: `${overlay.color}50`,
+              backgroundColor: `${overlay.color}40`,
               border: `2px dashed ${overlay.color}`,
               borderRadius: 18,
               boxShadow: `0 8px 24px ${overlay.color}55`,
