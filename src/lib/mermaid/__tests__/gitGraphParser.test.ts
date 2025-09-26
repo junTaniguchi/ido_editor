@@ -77,4 +77,77 @@ describe('parseGitGraph branch inheritance', () => {
     expect(commitC?.data.metadata?.branchId).toBe(featureBranchId);
     expect(commitD?.data.metadata?.branchId).toBe('main');
   });
+
+  it('links branch creation and checkout command nodes with dedicated edges', () => {
+    const source = `gitGraph LR:
+  commit id: "A"
+  branch feature
+  checkout feature`;
+
+    const model = parseMermaidSource(source);
+    const branchNode = model.nodes.find(
+      (node) =>
+        node.data.diagramType === 'gitGraph'
+        && node.data.variant === 'branch'
+        && node.data.label?.trim() === 'feature',
+    );
+    const checkoutNode = model.nodes.find(
+      (node) =>
+        node.data.diagramType === 'gitGraph'
+        && node.data.variant === 'checkout'
+        && node.data.label?.trim() === 'feature',
+    );
+    const branchCreateEdge = model.edges.find(
+      (edge) =>
+        edge.data.diagramType === 'gitGraph'
+        && edge.data.variant === 'gitBranchCreate'
+        && edge.target === branchNode?.id,
+    );
+    const checkoutEdge = model.edges.find(
+      (edge) =>
+        edge.data.diagramType === 'gitGraph'
+        && edge.data.variant === 'gitCheckout'
+        && edge.source === branchNode?.id
+        && edge.target === checkoutNode?.id,
+    );
+
+    expect(branchNode, 'branch node should exist').toBeTruthy();
+    expect(checkoutNode, 'checkout node should exist').toBeTruthy();
+    expect(branchCreateEdge, 'branch node should be connected from the previous commit').toBeTruthy();
+    expect(checkoutEdge, 'branch node should connect to the checkout command').toBeTruthy();
+  });
+
+  it('connects merge commands to the latest commits of participating branches', () => {
+    const source = `gitGraph LR:
+  commit id: "A"
+  branch feature
+  checkout feature
+  commit id: "B"
+  checkout main
+  merge feature`;
+
+    const model = parseMermaidSource(source);
+    const mergeNode = model.nodes.find(
+      (node) => node.data.diagramType === 'gitGraph' && node.data.variant === 'merge',
+    );
+    const mergeEdges = model.edges.filter(
+      (edge) => edge.data.diagramType === 'gitGraph' && edge.data.variant === 'gitMerge',
+    );
+    const commitNodes = model.nodes.filter(
+      (node) => node.data.diagramType === 'gitGraph' && node.data.variant === 'commit',
+    );
+    const commitById = new Map<string, typeof commitNodes[number]>();
+    commitNodes.forEach((node) => {
+      const idMetadata = node.data.metadata?.id;
+      if (typeof idMetadata === 'string') {
+        commitById.set(idMetadata, node);
+      }
+    });
+    const featureCommit = commitById.get('B');
+    expect(mergeNode, 'merge node should exist').toBeTruthy();
+    expect(featureCommit, 'feature branch commit should exist').toBeTruthy();
+    const edgeFromFeature = mergeEdges.find((edge) => edge.source === featureCommit?.id);
+
+    expect(edgeFromFeature, 'merge node should receive an edge from the feature branch commit').toBeTruthy();
+  });
 });

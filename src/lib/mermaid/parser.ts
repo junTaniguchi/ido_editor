@@ -746,6 +746,11 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
     node: MermaidNode;
   }
 
+  interface BranchEnsureResult {
+    state: BranchState;
+    created: boolean;
+  }
+
   interface PendingCheckout {
     sourceCommitId?: string;
     targetBranchId: string;
@@ -760,7 +765,7 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
 
   const getBranchKey = (name: string) => name.trim().toLowerCase();
 
-  const ensureBranch = (name: string, metadata: Record<string, string> = {}): BranchState => {
+  const ensureBranch = (name: string, metadata: Record<string, string> = {}): BranchEnsureResult => {
     const key = getBranchKey(name);
     const existing = branchStates.get(key);
     if (existing) {
@@ -770,12 +775,12 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
           existing.node.data.metadata = { ...currentMetadata, order: metadata.order };
         }
       }
-      return existing;
+      return { state: existing, created: false };
     }
     const node = createCommandNode('branch', name, metadata);
     const state: BranchState = { key, name, node };
     branchStates.set(key, state);
-    return state;
+    return { state, created: true };
   };
 
   const findBranch = (name: string): BranchState | null => {
@@ -922,7 +927,7 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
         metadata.order = attributes.order;
       }
       const fromBranch = currentBranch;
-      const branch = ensureBranch(branchName, metadata);
+      const { state: branch, created } = ensureBranch(branchName, metadata);
       const inheritedFromBranch = fromBranch ? lastCommitByBranch.get(fromBranch.node.id) : undefined;
       const inheritedFromDefault = !fromBranch ? lastCommitByBranch.get(DEFAULT_BRANCH_ID) : undefined;
       const inheritedCommitId = inheritedFromBranch ?? inheritedFromDefault;
@@ -930,6 +935,20 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
         lastCommitByBranch.set(branch.node.id, inheritedFromBranch);
       } else if (inheritedFromDefault && !lastCommitByBranch.has(branch.node.id)) {
         lastCommitByBranch.set(branch.node.id, inheritedFromDefault);
+      }
+      if (created && inheritedCommitId) {
+        addEdge(
+          model,
+          inheritedCommitId,
+          branch.node.id,
+          'gitBranchCreate',
+          undefined,
+          {
+            from: fromBranch?.name ?? 'main',
+            to: branch.name,
+            branchId: branch.node.id,
+          },
+        );
       }
       setPendingCheckout(branch.node.id, inheritedCommitId, {
         from: fromBranch?.name ?? '',
@@ -950,11 +969,37 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
       if (keyword === 'switch') {
         metadata.command = 'switch';
       }
-      createCommandNode('checkout', branchName, metadata);
+      const checkoutNode = createCommandNode('checkout', branchName, metadata);
       const previousBranch = currentBranch;
       const targetBranch = findBranch(branchName);
       const fromBranchId = previousBranch ? previousBranch.node.id : DEFAULT_BRANCH_ID;
       const sourceCommitId = lastCommitByBranch.get(fromBranchId);
+      if (targetBranch) {
+        addEdge(
+          model,
+          targetBranch.node.id,
+          checkoutNode.id,
+          'gitCheckout',
+          undefined,
+          {
+            branchId: targetBranch.node.id,
+            from: previousBranch?.name ?? '',
+            to: targetBranch.name,
+          },
+        );
+      } else if (sourceCommitId) {
+        addEdge(
+          model,
+          sourceCommitId,
+          checkoutNode.id,
+          'gitCheckout',
+          undefined,
+          {
+            from: previousBranch?.name ?? '',
+            to: branchName,
+          },
+        );
+      }
       if (targetBranch) {
         setPendingCheckout(targetBranch.node.id, sourceCommitId, {
           from: previousBranch?.name ?? '',
@@ -984,7 +1029,38 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
       }
       const typeValue = (attributes.type ?? '').toUpperCase();
       metadata.type = typeValue || 'NORMAL';
-      createCommandNode('merge', branchName, metadata);
+      const mergeNode = createCommandNode('merge', branchName, metadata);
+      const sourceBranch = findBranch(branchName);
+      const sourceCommitId = sourceBranch ? lastCommitByBranch.get(sourceBranch.node.id) : undefined;
+      const currentBranchId = currentBranch ? currentBranch.node.id : DEFAULT_BRANCH_ID;
+      const currentCommitId = lastCommitByBranch.get(currentBranchId);
+      if (sourceBranch && sourceCommitId) {
+        addEdge(
+          model,
+          sourceCommitId,
+          mergeNode.id,
+          'gitMerge',
+          undefined,
+          {
+            from: sourceBranch.name,
+            to: currentBranch?.name ?? 'main',
+            branchId: sourceBranch.node.id,
+          },
+        );
+      }
+      if (currentCommitId && currentCommitId !== sourceCommitId) {
+        addEdge(
+          model,
+          currentCommitId,
+          mergeNode.id,
+          'gitMerge',
+          undefined,
+          {
+            from: currentBranch?.name ?? 'main',
+            to: branchName,
+          },
+        );
+      }
       return;
     }
 
