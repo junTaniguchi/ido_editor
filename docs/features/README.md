@@ -212,6 +212,10 @@ graph TD
     A --> J[ユーザージャーニー]
 ```
 
+> ℹ️ **C4 図の表示について**
+>
+> `test_data/mmd/c4.mmd` のような C4Context ダイアグラムは、Mermaid v11 では標準で C4 図の拡張が組み込まれているため、Mermaid Live Editor と同じく人物アイコン付きのノード、境界ボックス、コネクタが描画されます。IDO Editor でも `mermaid.initialize()` を通じて同じ設定が適用されるため、追加のプラグイン導入は不要です。もし濃紺の矩形に `<<person>>` だけが表示される簡易表示になっている場合は、ブラウザのコンソールで外部チャンクの読み込みエラーが発生していないかを確認してください。
+
 #### インタラクティブ機能
 ```typescript
 interface MermaidConfig {
