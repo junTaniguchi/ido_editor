@@ -2,13 +2,14 @@
 
 import React, { useMemo } from 'react';
 import { useStore, type Node } from 'reactflow';
-import type { MermaidDiagramType, MermaidSubgraph } from '@/lib/mermaid/types';
-import shallow from 'zustand/shallow';
+import type { MermaidDiagramType, MermaidGitBranch, MermaidSubgraph } from '@/lib/mermaid/types';
+import { shallow } from 'zustand/shallow';
 
 interface GroupOverlaysProps {
   diagramType: MermaidDiagramType;
   subgraphs: MermaidSubgraph[];
   ganttSections: string[];
+  gitBranches: MermaidGitBranch[];
 }
 
 interface Overlay {
@@ -41,6 +42,7 @@ const extractSubgraphIds = (metadata?: Metadata): string[] => {
 
 const SUBGRAPH_COLORS = ['#BFDBFE', '#C7D2FE', '#FBCFE8', '#BBF7D0', '#FDE68A', '#FECACA'];
 const SECTION_COLORS = ['#DBEAFE', '#FCE7F3', '#DCFCE7', '#FEF3C7', '#E0F2FE', '#F5F3FF'];
+const BRANCH_COLORS = ['#FDE68A', '#FECACA', '#C7D2FE', '#BBF7D0', '#FBCFE8', '#E0F2FE'];
 const PADDING = 32;
 
 const computeBounds = (nodes: Node[]): { x: number; y: number; width: number; height: number } | null => {
@@ -77,7 +79,7 @@ const computeBounds = (nodes: Node[]): { x: number; y: number; width: number; he
   };
 };
 
-const GroupOverlays: React.FC<GroupOverlaysProps> = ({ diagramType, subgraphs, ganttSections }) => {
+const GroupOverlays: React.FC<GroupOverlaysProps> = ({ diagramType, subgraphs, ganttSections, gitBranches }) => {
   const { nodes, transform } = useStore(
     state => ({
       nodes: Array.from(state.nodeInternals.values()),
@@ -119,9 +121,26 @@ const GroupOverlays: React.FC<GroupOverlaysProps> = ({ diagramType, subgraphs, g
         });
       });
     }
+    if (diagramType === 'gitGraph' && gitBranches.length > 0) {
+      gitBranches.forEach((branch, index) => {
+        const members = nodes.filter(
+          (node) =>
+            node.data?.diagramType === 'gitGraph' &&
+            (node.data?.metadata as Metadata | undefined)?.branchId === branch.id,
+        );
+        const bounds = computeBounds(members as Node[]);
+        if (!bounds) return;
+        overlayList.push({
+          id: `git-branch-${branch.id}`,
+          label: branch.name,
+          color: BRANCH_COLORS[index % BRANCH_COLORS.length],
+          ...bounds,
+        });
+      });
+    }
 
     return overlayList;
-  }, [diagramType, ganttSections, nodes, subgraphs]);
+  }, [diagramType, ganttSections, gitBranches, nodes, subgraphs]);
 
   if (!overlays.length) {
     return null;

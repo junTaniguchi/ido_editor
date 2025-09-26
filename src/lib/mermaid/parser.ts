@@ -3,6 +3,7 @@ import type {
   MermaidDiagramConfig,
   MermaidDiagramType,
   MermaidEdge,
+  MermaidGitBranch,
   MermaidGraphModel,
   MermaidNode,
   MermaidNodeData,
@@ -691,31 +692,153 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
       ? { ...model.config }
       : { type: 'gitGraph', orientation: 'LR' as const };
 
-  let commandIndex = 0;
+  let sequenceCounter = 0;
   let skippingOptions = false;
   let braceDepth = 0;
+  let branchIdCounter = 0;
+  let edgeCounter = 0;
 
-  const createCommandNode = (variant: string, label: string, metadata: Record<string, string> = {}) => {
-    const index = commandIndex;
-    const nodeId = `git_${index.toString(36).padStart(4, '0')}`;
-    const baseMetadata: Record<string, string> = { ...metadata };
-    if (!baseMetadata.sequence) {
-      baseMetadata.sequence = index.toString();
+  const gitBranches: MermaidGitBranch[] = [];
+  const branchNameToId = new Map<string, string>();
+  const branchIdMap = new Map<string, MermaidGitBranch>();
+  const lastCommitByBranch = new Map<string, string>();
+
+  const createBranchId = (name: string): string => {
+    branchIdCounter += 1;
+    const base = sanitizeId(name || `branch_${branchIdCounter}`);
+    let candidate = base || `branch_${branchIdCounter}`;
+    let suffix = 1;
+    while (branchIdMap.has(candidate)) {
+      candidate = `${base}_${suffix.toString(36)}`;
+      suffix += 1;
+    }
+    return candidate;
+  };
+
+  const ensureBranch = (
+    rawName: string,
+    options?: { order?: string; sequence?: number; sourceBranchId?: string },
+  ): MermaidGitBranch => {
+    const normalizedName = rawName.trim() || 'main';
+    const existingId = branchNameToId.get(normalizedName);
+    if (existingId) {
+      const branch = branchIdMap.get(existingId);
+      if (branch) {
+        if (options?.order !== undefined) {
+          branch.order = options.order;
+        }
+        if (options?.sequence !== undefined) {
+          branch.sequence = options.sequence.toString();
+        }
+        if (options?.sourceBranchId) {
+          branch.sourceBranchId = options.sourceBranchId;
+        }
+        return branch;
+      }
+    }
+
+    const id = createBranchId(normalizedName);
+    const branch: MermaidGitBranch = { id, name: normalizedName };
+    if (options?.order !== undefined) {
+      branch.order = options.order;
+    }
+    if (options?.sequence !== undefined) {
+      branch.sequence = options.sequence.toString();
+    }
+    if (options?.sourceBranchId) {
+      branch.sourceBranchId = options.sourceBranchId;
+    }
+    gitBranches.push(branch);
+    branchNameToId.set(normalizedName, id);
+    branchIdMap.set(id, branch);
+    return branch;
+  };
+
+  const createEdge = (
+    variant: 'gitCheckout' | 'gitMerge',
+    source: string,
+    target: string,
+    metadata: Record<string, string>,
+  ) => {
+    const edgeId = `git_edge_${(edgeCounter++).toString(36)}`;
+    const edge: MermaidEdge = {
+      id: edgeId,
+      type: 'mermaid-edge',
+      source,
+      target,
+      data: {
+        diagramType: 'gitGraph',
+        variant,
+        metadata,
+      },
+    };
+    model.edges.push(edge);
+  };
+
+  let currentBranchName = 'main';
+  let pendingCheckout:
+    | {
+        fromBranchId: string | null;
+        toBranchId: string;
+        toBranchName: string;
+        sequence: number;
+        command: 'checkout' | 'switch';
+      }
+    | null = null;
+
+  const applyPendingCheckout = (nodeId: string) => {
+    if (!pendingCheckout) return;
+    const metadata: Record<string, string> = {
+      sequence: pendingCheckout.sequence.toString(),
+      toBranchId: pendingCheckout.toBranchId,
+      toBranch: pendingCheckout.toBranchName,
+    };
+    if (pendingCheckout.command === 'switch') {
+      metadata.command = 'switch';
+    }
+    if (pendingCheckout.fromBranchId) {
+      const sourceNodeId = lastCommitByBranch.get(pendingCheckout.fromBranchId);
+      if (sourceNodeId) {
+        metadata.fromBranchId = pendingCheckout.fromBranchId;
+        createEdge('gitCheckout', sourceNodeId, nodeId, metadata);
+      }
+    }
+    pendingCheckout = null;
+  };
+
+  const createCommandNode = (
+    variant: 'commit' | 'merge' | 'cherryPick',
+    label: string,
+    metadata: Record<string, string>,
+    sequence: number,
+  ): MermaidNode => {
+    const branch = ensureBranch(currentBranchName);
+    const nodeId = `git_${sequence.toString(36).padStart(4, '0')}`;
+    const nodeMetadata: Record<string, string> = {
+      ...metadata,
+      sequence: sequence.toString(),
+      branchId: branch.id,
+      branchName: branch.name,
+    };
+    if (!nodeMetadata.type && (variant === 'commit' || variant === 'merge')) {
+      nodeMetadata.type = 'NORMAL';
     }
     const normalizedLabel = label.trim().length > 0 ? label.trim() : variant;
     const node: MermaidNode = {
       id: nodeId,
       type: 'mermaid-node',
-      position: { x: 160, y: index * 100 },
+      position: { x: 160, y: sequence * 100 },
       data: {
         diagramType: 'gitGraph',
         variant,
         label: normalizedLabel,
-        metadata: baseMetadata,
+        metadata: nodeMetadata,
       },
     };
     model.nodes.push(node);
-    commandIndex += 1;
+    applyPendingCheckout(nodeId);
+    lastCommitByBranch.set(branch.id, nodeId);
+    return node;
   };
 
   const parseAttributes = (input: string): { attributes: Record<string, string>; remainder: string } => {
@@ -783,6 +906,7 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
     const keyword = commandMatch[1].toLowerCase();
     const rest = commandMatch[2]?.trim() ?? '';
     const { attributes, remainder } = parseAttributes(rest);
+    const sequence = sequenceCounter++;
 
     if (keyword === 'commit') {
       const metadata: Record<string, string> = {};
@@ -795,8 +919,8 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
       const typeValue = (attributes.type ?? '').toUpperCase();
       metadata.type = typeValue || 'NORMAL';
       const fallbackLabel = remainder ? sanitizeLabel(remainder) : '';
-      const label = metadata.id || fallbackLabel || `commit_${commandIndex + 1}`;
-      createCommandNode('commit', label, metadata);
+      const label = metadata.id || fallbackLabel || `commit_${sequenceCounter}`;
+      createCommandNode('commit', label, metadata, sequence);
       return;
     }
 
@@ -807,11 +931,21 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
         model.warnings.push(`branch コマンドのブランチ名が見つからないためスキップしました: ${trimmed}`);
         return;
       }
-      const metadata: Record<string, string> = {};
-      if (attributes.order) {
-        metadata.order = attributes.order;
-      }
-      createCommandNode('branch', branchName, metadata);
+      const fromBranch = ensureBranch(currentBranchName);
+      const orderText = attributes.order?.trim();
+      const branch = ensureBranch(branchName, {
+        order: orderText,
+        sequence,
+        sourceBranchId: fromBranch?.id,
+      });
+      pendingCheckout = {
+        fromBranchId: fromBranch?.id ?? null,
+        toBranchId: branch.id,
+        toBranchName: branch.name,
+        sequence,
+        command: 'checkout',
+      };
+      currentBranchName = branch.name;
       return;
     }
 
@@ -822,11 +956,16 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
         model.warnings.push(`checkout コマンドのブランチ名が見つからないためスキップしました: ${trimmed}`);
         return;
       }
-      const metadata: Record<string, string> = {};
-      if (keyword === 'switch') {
-        metadata.command = 'switch';
-      }
-      createCommandNode('checkout', branchName, metadata);
+      const previousBranch = ensureBranch(currentBranchName);
+      const targetBranch = ensureBranch(branchName);
+      pendingCheckout = {
+        fromBranchId: previousBranch?.id ?? null,
+        toBranchId: targetBranch.id,
+        toBranchName: targetBranch.name,
+        sequence,
+        command: keyword === 'switch' ? 'switch' : 'checkout',
+      };
+      currentBranchName = targetBranch.name;
       return;
     }
 
@@ -846,7 +985,19 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
       }
       const typeValue = (attributes.type ?? '').toUpperCase();
       metadata.type = typeValue || 'NORMAL';
-      createCommandNode('merge', branchName, metadata);
+      metadata.mergeBranch = branchName;
+      const branch = ensureBranch(currentBranchName);
+      const mergeNode = createCommandNode('merge', branchName, metadata, sequence);
+      const sourceBranch = ensureBranch(branchName);
+      const sourceNodeId = lastCommitByBranch.get(sourceBranch.id);
+      if (sourceNodeId) {
+        createEdge('gitMerge', sourceNodeId, mergeNode.id, {
+          sequence: sequence.toString(),
+          sourceBranchId: sourceBranch.id,
+          sourceBranch: sourceBranch.name,
+        });
+      }
+      lastCommitByBranch.set(branch.id, mergeNode.id);
       return;
     }
 
@@ -859,12 +1010,13 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
       if (attributes.parent) {
         metadata.parent = attributes.parent;
       }
-      createCommandNode('cherryPick', attributes.id, metadata);
+      createCommandNode('cherryPick', attributes.id, metadata, sequence);
       return;
     }
   });
 
   model.config = config;
+  model.gitBranches = gitBranches;
   return model;
 };
 

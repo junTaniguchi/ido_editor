@@ -2,6 +2,7 @@ import { diagramDefinitions } from './diagramDefinitions';
 import type {
   MermaidDiagramConfig,
   MermaidEdge,
+  MermaidGitBranch,
   MermaidGraphModel,
   MermaidNode,
   MermaidNodeData,
@@ -376,33 +377,6 @@ const serializeGitGraph = (model: MermaidGraphModel): MermaidSerializationResult
   const orientation = config.orientation ?? 'LR';
   const lines: string[] = [`gitGraph ${orientation}:`];
 
-  const orderMap = new Map<string, number>();
-  model.nodes.forEach((node, index) => {
-    orderMap.set(node.id, index);
-  });
-
-  const parseSequenceValue = (node: MermaidNode): number | undefined => {
-    const raw = node.data.metadata?.sequence;
-    if (!raw) return undefined;
-    const value = Number(raw);
-    return Number.isFinite(value) ? value : undefined;
-  };
-
-  const sortedNodes = [...model.nodes].sort((a, b) => {
-    const seqA = parseSequenceValue(a);
-    const seqB = parseSequenceValue(b);
-    if (seqA !== undefined && seqB !== undefined) {
-      if (seqA !== seqB) {
-        return seqA - seqB;
-      }
-    } else if (seqA !== undefined) {
-      return -1;
-    } else if (seqB !== undefined) {
-      return 1;
-    }
-    return (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0);
-  });
-
   const formatIdentifier = (value: string): string => {
     const trimmed = value.trim();
     if (!trimmed) {
@@ -410,6 +384,264 @@ const serializeGitGraph = (model: MermaidGraphModel): MermaidSerializationResult
     }
     return /\s/.test(trimmed) ? `"${escapeMermaidText(trimmed)}"` : trimmed;
   };
+
+  const parseSequence = (value: string | undefined): number | undefined => {
+    if (!value) return undefined;
+    const num = Number(value);
+    return Number.isFinite(num) ? num : undefined;
+  };
+
+  if (model.gitBranches && model.gitBranches.length > 0) {
+    const branchMap = new Map<string, MermaidGitBranch>();
+    model.gitBranches.forEach((branch) => {
+      branchMap.set(branch.id, branch);
+    });
+
+    const nodeOrder = new Map<string, number>();
+    model.nodes.forEach((node, index) => nodeOrder.set(node.id, index));
+    const edgeOrder = new Map<string, number>();
+    model.edges.forEach((edge, index) => edgeOrder.set(edge.id, index));
+
+    const checkoutEdgesByTarget = new Map<string, MermaidEdge[]>();
+    const mergeEdgesByTarget = new Map<string, MermaidEdge[]>();
+
+    model.edges.forEach((edge) => {
+      if (edge.data?.diagramType !== 'gitGraph') return;
+      if (edge.data.variant === 'gitCheckout') {
+        const list = checkoutEdgesByTarget.get(edge.target) ?? [];
+        list.push(edge);
+        checkoutEdgesByTarget.set(edge.target, list);
+      }
+      if (edge.data.variant === 'gitMerge') {
+        const list = mergeEdgesByTarget.get(edge.target) ?? [];
+        list.push(edge);
+        mergeEdgesByTarget.set(edge.target, list);
+      }
+    });
+
+    type GitEvent =
+      | { kind: 'branch'; branch: MermaidGitBranch; sequence?: number; order: number }
+      | { kind: 'checkout'; edge: MermaidEdge; sequence?: number; order: number }
+      | { kind: 'commit'; node: MermaidNode; sequence?: number; order: number }
+      | { kind: 'merge'; node: MermaidNode; sequence?: number; order: number }
+      | { kind: 'cherryPick'; node: MermaidNode; sequence?: number; order: number };
+
+    const events: GitEvent[] = [];
+
+    model.gitBranches
+      .filter((branch) => branch.sequence !== undefined)
+      .forEach((branch, index) => {
+        events.push({
+          kind: 'branch',
+          branch,
+          sequence: parseSequence(branch.sequence),
+          order: index,
+        });
+      });
+
+    model.edges.forEach((edge) => {
+      if (edge.data?.diagramType !== 'gitGraph') return;
+      if (edge.data.variant === 'gitCheckout') {
+        events.push({
+          kind: 'checkout',
+          edge,
+          sequence: parseSequence(edge.data.metadata?.sequence as string | undefined),
+          order: edgeOrder.get(edge.id) ?? 0,
+        });
+      }
+    });
+
+    model.nodes.forEach((node) => {
+      if (node.data?.diagramType !== 'gitGraph') return;
+      const sequence = parseSequence(node.data.metadata?.sequence as string | undefined);
+      const base: { sequence?: number; order: number } = {
+        sequence,
+        order: nodeOrder.get(node.id) ?? 0,
+      };
+      if (node.data.variant === 'commit') {
+        events.push({ kind: 'commit', node, ...base });
+        return;
+      }
+      if (node.data.variant === 'merge') {
+        events.push({ kind: 'merge', node, ...base });
+        return;
+      }
+      if (node.data.variant === 'cherryPick') {
+        events.push({ kind: 'cherryPick', node, ...base });
+        return;
+      }
+      warnings.push(`未対応のGitノードをスキップしました: ${node.data.variant}`);
+    });
+
+    events.sort((a, b) => {
+      const seqA = a.sequence;
+      const seqB = b.sequence;
+      if (seqA !== undefined && seqB !== undefined && seqA !== seqB) {
+        return seqA - seqB;
+      }
+      if (seqA !== undefined && seqB === undefined) {
+        return -1;
+      }
+      if (seqA === undefined && seqB !== undefined) {
+        return 1;
+      }
+      return a.order - b.order;
+    });
+
+    const resolveBranchName = (branchId?: string, fallback?: string): string | undefined => {
+      if (branchId) {
+        const branch = branchMap.get(branchId);
+        if (branch?.name?.trim()) {
+          return branch.name.trim();
+        }
+      }
+      return fallback?.trim() ? fallback.trim() : undefined;
+    };
+
+    let currentBranch: string | undefined;
+
+    events.forEach((event) => {
+      switch (event.kind) {
+        case 'branch': {
+          const name = event.branch.name?.trim();
+          if (!name) {
+            warnings.push('ブランチ名が空のため branch コマンドをスキップしました。');
+            break;
+          }
+          const orderText = event.branch.order?.toString().trim();
+          const extras = orderText ? ` order: ${orderText}` : '';
+          lines.push(`  branch ${formatIdentifier(name)}${extras}`);
+          currentBranch = name;
+          break;
+        }
+        case 'checkout': {
+          const metadata = (event.edge.data?.metadata || {}) as Record<string, string>;
+          const branchName = resolveBranchName(metadata.toBranchId, metadata.toBranch);
+          if (!branchName) {
+            warnings.push('チェックアウト対象のブランチ名が見つからないためスキップしました。');
+            break;
+          }
+          const command = metadata.command === 'switch' ? 'switch' : 'checkout';
+          lines.push(`  ${command} ${formatIdentifier(branchName)}`);
+          currentBranch = branchName;
+          break;
+        }
+        case 'commit': {
+          const metadata = (event.node.data.metadata || {}) as Record<string, string>;
+          const branchName = resolveBranchName(metadata.branchId, metadata.branchName);
+          if (!currentBranch && branchName) {
+            currentBranch = branchName;
+          }
+          if (branchName && currentBranch && branchName !== currentBranch) {
+            lines.push(`  checkout ${formatIdentifier(branchName)}`);
+            currentBranch = branchName;
+          }
+          const parts: string[] = [];
+          if (metadata.id?.trim()) {
+            parts.push(`id: "${escapeMermaidText(metadata.id.trim())}"`);
+          }
+          if (metadata.tag?.trim()) {
+            parts.push(`tag: "${escapeMermaidText(metadata.tag.trim())}"`);
+          }
+          const typeValue = (metadata.type ?? 'NORMAL').toUpperCase();
+          if (typeValue && typeValue !== 'NORMAL') {
+            parts.push(`type: ${typeValue}`);
+          }
+          const text = parts.length > 0 ? `  commit ${parts.join(' ')}` : '  commit';
+          lines.push(text);
+          break;
+        }
+        case 'merge': {
+          const metadata = (event.node.data.metadata || {}) as Record<string, string>;
+          const mergeBranchName = metadata.mergeBranch?.trim() ||
+            (() => {
+              const edges = mergeEdgesByTarget.get(event.node.id) ?? [];
+              for (const edge of edges) {
+                const branchId = edge.data?.metadata?.sourceBranchId as string | undefined;
+                const fallbackName = edge.data?.metadata?.sourceBranch as string | undefined;
+                const resolved = resolveBranchName(branchId, fallbackName);
+                if (resolved) return resolved;
+              }
+              return undefined;
+            })();
+          if (!mergeBranchName) {
+            warnings.push(`マージノード「${event.node.id}」のブランチ名が見つからないためスキップしました。`);
+            break;
+          }
+          const branchName = resolveBranchName(metadata.branchId, metadata.branchName);
+          if (!currentBranch && branchName) {
+            currentBranch = branchName;
+          }
+          if (branchName && currentBranch && branchName !== currentBranch) {
+            lines.push(`  checkout ${formatIdentifier(branchName)}`);
+            currentBranch = branchName;
+          }
+          const parts: string[] = [];
+          if (metadata.id?.trim()) {
+            parts.push(`id: "${escapeMermaidText(metadata.id.trim())}"`);
+          }
+          if (metadata.tag?.trim()) {
+            parts.push(`tag: "${escapeMermaidText(metadata.tag.trim())}"`);
+          }
+          const typeValue = (metadata.type ?? 'NORMAL').toUpperCase();
+          if (typeValue && typeValue !== 'NORMAL') {
+            parts.push(`type: ${typeValue}`);
+          }
+          const suffix = parts.length > 0 ? ` ${parts.join(' ')}` : '';
+          lines.push(`  merge ${formatIdentifier(mergeBranchName)}${suffix}`);
+          break;
+        }
+        case 'cherryPick': {
+          const metadata = (event.node.data.metadata || {}) as Record<string, string>;
+          const branchName = resolveBranchName(metadata.branchId, metadata.branchName);
+          if (!currentBranch && branchName) {
+            currentBranch = branchName;
+          }
+          if (branchName && currentBranch && branchName !== currentBranch) {
+            lines.push(`  checkout ${formatIdentifier(branchName)}`);
+            currentBranch = branchName;
+          }
+          const commitId = metadata.id?.trim();
+          if (!commitId) {
+            warnings.push(`cherry-pick ノード「${event.node.id}」に対象IDが無いためスキップしました。`);
+            break;
+          }
+          const parts = [`id: "${escapeMermaidText(commitId)}"`];
+          if (metadata.parent?.trim()) {
+            parts.push(`parent: "${escapeMermaidText(metadata.parent.trim())}"`);
+          }
+          const command = metadata.command?.trim() || 'cherry-pick';
+          lines.push(`  ${command} ${parts.join(' ')}`);
+          break;
+        }
+        default:
+          break;
+      }
+    });
+
+    return { code: lines.join('\n'), warnings };
+  }
+
+  // Fallback for旧データ
+  const orderMap = new Map<string, number>();
+  model.nodes.forEach((node, index) => {
+    orderMap.set(node.id, index);
+  });
+
+  const sortedNodes = [...model.nodes].sort((a, b) => {
+    const seqA = parseSequence(a.data.metadata?.sequence as string | undefined);
+    const seqB = parseSequence(b.data.metadata?.sequence as string | undefined);
+    if (seqA !== undefined && seqB !== undefined && seqA !== seqB) {
+      return seqA - seqB;
+    }
+    if (seqA !== undefined && seqB === undefined) {
+      return -1;
+    }
+    if (seqA === undefined && seqB !== undefined) {
+      return 1;
+    }
+    return (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0);
+  });
 
   sortedNodes.forEach((node) => {
     switch (node.data.variant) {

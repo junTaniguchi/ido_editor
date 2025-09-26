@@ -54,6 +54,14 @@ export interface MermaidSubgraph {
   nodes: string[];
 }
 
+export interface MermaidGitBranch {
+  id: string;
+  name: string;
+  order?: string;
+  sequence?: string;
+  sourceBranchId?: string;
+}
+
 /** React Flowで扱うノード型 */
 export type MermaidNode = Node<MermaidNodeData>;
 /** React Flowで扱うエッジ型 */
@@ -99,4 +107,6 @@ export interface MermaidGraphModel {
   warnings: string[];
   /** フローチャートなどで使用するサブグラフ情報 */
   subgraphs?: MermaidSubgraph[];
+  /** Gitグラフで使用するブランチ情報 */
+  gitBranches?: MermaidGitBranch[];
 }
