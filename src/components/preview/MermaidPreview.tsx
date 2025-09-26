@@ -163,7 +163,11 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({ content, fileName }) =>
 
       try {
         // mermaidでレンダリング
-        const { svg: renderedSvg } = await mermaid.render(id + '_svg', normalizedContent);
+        const { svg: renderedSvg } = await mermaid.render(
+          id + '_svg',
+          normalizedContent,
+          tempDiv,
+        );
         
         if (renderedSvg) {
           // SVGにパディングを追加して描画範囲を広げる
