@@ -1339,6 +1339,8 @@ const parseArchitecture = (source: string): MermaidGraphModel => {
         return 'device';
       case 'component':
         return 'component';
+      case 'junction':
+        return 'junction';
       default:
         break;
     }
@@ -1375,12 +1377,25 @@ const parseArchitecture = (source: string): MermaidGraphModel => {
       return;
     }
 
-    const groupMatch = trimmed.match(/^group\s+([A-Za-z0-9_-]+)\s*\(([^)]+)\)\s*\[([^\]]+)\]\s*$/i);
+    const groupMatch = trimmed.match(/^group\s+([A-Za-z0-9_-]+)(?:\{([A-Za-z0-9_-]+)\})?\s*\(([^)]+)\)\s*\[([^\]]+)\]\s*(?:in\s+([A-Za-z0-9_-]+))?$/i);
     if (groupMatch) {
       const id = sanitizeId(groupMatch[1]);
-      const icon = sanitizeLabel(groupMatch[2]);
-      const title = sanitizeLabel(groupMatch[3]);
+      const icon = sanitizeLabel(groupMatch[3]);
+      const title = sanitizeLabel(groupMatch[4]);
       ensureGroup(id, title, icon);
+      return;
+    }
+
+    const junctionMatch = trimmed.match(/^junction\s+([A-Za-z0-9_-]+)(?:\s+in\s+([A-Za-z0-9_-]+))?$/i);
+    if (junctionMatch) {
+      const id = sanitizeId(junctionMatch[1]);
+      const groupId = junctionMatch[2] ? sanitizeId(junctionMatch[2]) : undefined;
+      const node = ensureNode(model, id, 'junction', id, { directive: 'junction' });
+      if (groupId) {
+        const group = ensureGroup(groupId, groupId, undefined);
+        group.nodes.add(node.id);
+        appendSubgraphId(node, groupId);
+      }
       return;
     }
 
@@ -1407,27 +1422,50 @@ const parseArchitecture = (source: string): MermaidGraphModel => {
       return;
     }
 
-    const edgeMatch = trimmed.match(
-      /^([A-Za-z0-9_-]+)(?::([LRBT]))?\s*([-]{1,2}>?)\s*([A-Za-z0-9_-]+)(?::([LRBT]))?(?:\s*:\s*(.+))?$/i,
-    );
-    if (edgeMatch) {
-      const source = sanitizeId(edgeMatch[1]);
-      const sourceAnchor = edgeMatch[2] ? edgeMatch[2].toUpperCase() : undefined;
-      const connector = edgeMatch[3];
-      const target = sanitizeId(edgeMatch[4]);
-      const targetAnchor = edgeMatch[5] ? edgeMatch[5].toUpperCase() : undefined;
-      const label = edgeMatch[6] ? sanitizeLabel(edgeMatch[6]) : undefined;
+    const edgeParts = trimmed.split(/\s+/).filter((part) => part.length > 0);
+    if (edgeParts.length === 3) {
+      const [rawSource, rawConnector, rawTarget] = edgeParts;
 
-      const metadata: Record<string, string> = {};
-      if (sourceAnchor) metadata.sourceAnchor = sourceAnchor;
-      if (targetAnchor) metadata.targetAnchor = targetAnchor;
+      const sourceMatch = rawSource.match(/^([A-Za-z0-9_-]+)(?:\{([A-Za-z0-9_-]+)\})?(?::([LRBT]))?$/i);
+      const targetPrefixedMatch = rawTarget.match(/^([LRBT]):([A-Za-z0-9_-]+)(?:\{([A-Za-z0-9_-]+)\})?$/i);
+      const targetSuffixMatch = rawTarget.match(/^([A-Za-z0-9_-]+)(?:\{([A-Za-z0-9_-]+)\})?(?::([LRBT]))?$/i);
 
-      const variant = connector.includes('>') ? 'connectionDirected' : 'connectionUndirected';
+      if (sourceMatch && (targetPrefixedMatch || targetSuffixMatch)) {
+        const sourceId = sanitizeId(sourceMatch[1]);
+        const sourceGroup = sourceMatch[2] ? sanitizeId(sourceMatch[2]) : undefined;
+        const sourceAnchor = sourceMatch[3] ? sourceMatch[3].toUpperCase() : undefined;
 
-      ensureNode(model, source, 'service', source);
-      ensureNode(model, target, 'service', target);
-      addEdge(model, source, target, variant, label, metadata);
-      return;
+        const targetAnchorRaw = targetPrefixedMatch ? targetPrefixedMatch[1] : targetSuffixMatch?.[3];
+        const targetAnchor = targetAnchorRaw ? targetAnchorRaw.toUpperCase() : undefined;
+        const targetIdRaw = targetPrefixedMatch ? targetPrefixedMatch[2] : targetSuffixMatch?.[1];
+        const targetId = targetIdRaw ? sanitizeId(targetIdRaw) : '';
+        const targetGroupRaw = targetPrefixedMatch ? targetPrefixedMatch[3] : targetSuffixMatch?.[2];
+        const targetGroup = targetGroupRaw ? sanitizeId(targetGroupRaw) : undefined;
+
+        if (targetId) {
+          const connectorText = rawConnector.trim();
+          const hasSourceArrow = connectorText.startsWith('<');
+          const hasTargetArrow = connectorText.endsWith('>');
+          const connectorCore = connectorText.replace(/[<>]/g, '') || '--';
+          const normalizedConnector = connectorCore === '-' ? '-' : '--';
+
+          const metadata: Record<string, string> = { connector: normalizedConnector };
+          if (sourceAnchor) metadata.sourceAnchor = sourceAnchor;
+          if (targetAnchor) metadata.targetAnchor = targetAnchor;
+          if (sourceGroup) metadata.sourceGroup = sourceGroup;
+          if (targetGroup) metadata.targetGroup = targetGroup;
+          if (hasSourceArrow) metadata.sourceArrow = 'true';
+          if (hasTargetArrow) metadata.targetArrow = 'true';
+
+          ensureNode(model, sourceId, 'service', sourceId);
+          ensureNode(model, targetId, 'service', targetId);
+
+          const variant = hasSourceArrow || hasTargetArrow ? 'connectionDirected' : 'connectionUndirected';
+
+          addEdge(model, sourceId, targetId, variant, undefined, metadata);
+          return;
+        }
+      }
     }
 
     model.warnings.push(`解釈できない行をスキップしました: ${trimmed}`);

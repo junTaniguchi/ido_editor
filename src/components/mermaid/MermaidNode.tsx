@@ -29,7 +29,9 @@ const MermaidNodeComponent: React.FC<NodeProps<MermaidNodeData>> = ({ data, sele
   const isC4 = data.diagramType === 'c4';
   const isDecision = isFlowchart && data.variant === 'decision';
   const isC4Person = isC4 && (data.variant === 'person' || data.variant === 'personExternal');
-  const isCircular = (isFlowchart && data.variant === 'startEnd') || isC4Person;
+  const isArchitecture = data.diagramType === 'architecture';
+  const isArchitectureJunction = isArchitecture && data.variant === 'junction';
+  const isCircular = (isFlowchart && data.variant === 'startEnd') || isC4Person || isArchitectureJunction;
 
   const handlePositions = useMemo(() => {
     const base: Record<'top' | 'bottom' | 'left' | 'right', CSSProperties> = {
@@ -121,6 +123,8 @@ const MermaidNodeComponent: React.FC<NodeProps<MermaidNodeData>> = ({ data, sele
   let content: React.ReactNode;
 
   if (isCircular) {
+    const circleSize = isArchitectureJunction ? 60 : 96;
+    const circlePadding = isArchitectureJunction ? '8px' : '12px 16px';
     content = (
       <div
         className="flex items-center justify-center"
@@ -128,9 +132,9 @@ const MermaidNodeComponent: React.FC<NodeProps<MermaidNodeData>> = ({ data, sele
           background: fillColor,
           border: `2px solid ${strokeColor}`,
           borderRadius: '9999px',
-          minWidth: 96,
-          minHeight: 96,
-          padding: '12px 16px',
+          minWidth: circleSize,
+          minHeight: circleSize,
+          padding: circlePadding,
           boxShadow: baseBoxShadow,
         }}
       >

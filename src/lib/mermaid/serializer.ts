@@ -657,9 +657,15 @@ const serializeArchitecture = (model: MermaidGraphModel): MermaidSerializationRe
     if (node.data.diagramType !== 'architecture') return;
     const metadata = node.data.metadata as Record<string, string | string[] | undefined> | undefined;
     const directive = (getMetadataString(metadata, 'directive') || 'service').toLowerCase();
-    const icon = getMetadataString(metadata, 'icon') || iconFallback[node.data.variant] || 'server';
     const groupIds = extractSubgraphIds(metadata as any);
     const groupSuffix = groupIds.length > 0 ? ` in ${groupIds[0]}` : '';
+
+    if (directive === 'junction' || node.data.variant === 'junction') {
+      lines.push(`junction ${node.id}${groupSuffix}`);
+      return;
+    }
+
+    const icon = getMetadataString(metadata, 'icon') || iconFallback[node.data.variant] || 'server';
     const label = escapeMermaidText(node.data.label || node.id);
     lines.push(`service ${node.id}(${escapeMermaidText(icon)})[${label}]${groupSuffix}`.replace(/^service/, directive));
   });
@@ -669,12 +675,21 @@ const serializeArchitecture = (model: MermaidGraphModel): MermaidSerializationRe
     const metadata = edge.data.metadata as Record<string, string | string[] | undefined> | undefined;
     const sourceAnchor = getMetadataString(metadata, 'sourceAnchor');
     const targetAnchor = getMetadataString(metadata, 'targetAnchor');
-    const source = sourceAnchor && sourceAnchor.trim().length > 0 ? `${edge.source}:${sourceAnchor}` : edge.source;
-    const target = targetAnchor && targetAnchor.trim().length > 0 ? `${edge.target}:${targetAnchor}` : edge.target;
-    const connector = edge.data.variant === 'connectionDirected' ? '-->' : '--';
-    const label = getEdgeLabel(edge);
-    const labelText = label ? ` : ${escapeMermaidText(label)}` : '';
-    lines.push(`${source} ${connector} ${target}${labelText}`);
+    const sourceGroup = getMetadataString(metadata, 'sourceGroup');
+    const targetGroup = getMetadataString(metadata, 'targetGroup');
+    const connectorCore = getMetadataString(metadata, 'connector') === '-' ? '-' : '--';
+    const sourceArrow = getMetadataString(metadata, 'sourceArrow') === 'true';
+    const targetArrowMeta = getMetadataString(metadata, 'targetArrow');
+    const targetArrow = targetArrowMeta ? targetArrowMeta === 'true' : edge.data.variant === 'connectionDirected';
+
+    const sourceIdWithGroup = `${edge.source}${sourceGroup ? `{${sourceGroup}}` : ''}`;
+    const targetIdWithGroup = `${edge.target}${targetGroup ? `{${targetGroup}}` : ''}`;
+
+    const left = sourceAnchor && sourceAnchor.trim().length > 0 ? `${sourceIdWithGroup}:${sourceAnchor.toUpperCase()}` : sourceIdWithGroup;
+    const rightPrefix = targetAnchor && targetAnchor.trim().length > 0 ? `${targetAnchor.toUpperCase()}:` : '';
+    const right = `${rightPrefix}${targetIdWithGroup}`;
+    const connector = `${sourceArrow ? '<' : ''}${connectorCore}${targetArrow ? '>' : ''}`;
+    lines.push(`${left} ${connector} ${right}`);
   });
 
   return { code: lines.join('\n'), warnings };

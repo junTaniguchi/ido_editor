@@ -1014,7 +1014,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
           strokeColor: '#B91C1C',
           textColor: '#7F1D1D',
           icon: 'database',
-          directive: 'service',
+          directive: 'database',
         },
         fields: [
           { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: database' },
@@ -1031,7 +1031,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
           strokeColor: '#D97706',
           textColor: '#92400E',
           icon: 'queue',
-          directive: 'service',
+          directive: 'queue',
         },
         fields: [
           { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: queue' },
@@ -1048,7 +1048,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
           strokeColor: '#22C55E',
           textColor: '#15803D',
           icon: 'cache',
-          directive: 'service',
+          directive: 'cache',
         },
         fields: [
           { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: cache' },
@@ -1065,7 +1065,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
           strokeColor: '#0369A1',
           textColor: '#0C4A6E',
           icon: 'disk',
-          directive: 'service',
+          directive: 'storage',
         },
         fields: [
           { key: 'icon', label: 'アイコン', type: 'text' },
@@ -1082,7 +1082,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
           strokeColor: '#6D28D9',
           textColor: '#4C1D95',
           icon: 'user',
-          directive: 'service',
+          directive: 'user',
         },
         fields: [
           { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: user' },
@@ -1099,7 +1099,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
           strokeColor: '#4B5563',
           textColor: '#1F2937',
           icon: 'device',
-          directive: 'service',
+          directive: 'device',
         },
         fields: [
           { key: 'icon', label: 'アイコン', type: 'text' },
@@ -1116,52 +1116,80 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
           strokeColor: '#EA580C',
           textColor: '#9A3412',
           icon: 'app',
-          directive: 'service',
+          directive: 'component',
         },
         fields: [
           { key: 'icon', label: 'アイコン', type: 'text' },
           { key: 'description', label: '説明', type: 'textarea' },
         ],
       },
+      {
+        variant: 'junction',
+        label: 'ジャンクション',
+        description: '配線を分岐させる中継点',
+        defaultLabel: 'junction',
+        defaultMetadata: {
+          fillColor: '#FFFFFF',
+          strokeColor: '#4B5563',
+          textColor: '#1F2937',
+          directive: 'junction',
+        },
+        fields: [],
+      },
     ],
     edgeTemplates: [
       {
         variant: 'connectionDirected',
-        label: '接続 (矢印)',
-        defaultLabel: '通信',
+        label: '接続 (矢印あり)',
+        defaultLabel: '',
         defaultMetadata: {
           strokeColor: '#2563EB',
           textColor: '#1D4ED8',
+          connector: '--',
+          targetArrow: 'true',
         },
         fields: [
-          { key: 'label', label: 'ラベル', type: 'text', placeholder: '例: HTTPS' },
           { key: 'sourceAnchor', label: '始点アンカー (L/R/T/B)', type: 'text', placeholder: '例: R' },
           { key: 'targetAnchor', label: '終点アンカー (L/R/T/B)', type: 'text', placeholder: '例: L' },
+          { key: 'sourceGroup', label: '始点グループ参照', type: 'text', placeholder: '例: edge' },
+          { key: 'targetGroup', label: '終点グループ参照', type: 'text', placeholder: '例: core' },
+          { key: 'sourceArrow', label: '始点に矢印', type: 'boolean', placeholder: '始点矢印を表示' },
+          { key: 'targetArrow', label: '終点に矢印', type: 'boolean', placeholder: '終点矢印を表示' },
+          { key: 'connector', label: '線種 (- または --)', type: 'text', placeholder: '--' },
         ],
       },
       {
         variant: 'connectionUndirected',
-        label: '接続 (双方向線)',
-        defaultLabel: '接続',
+        label: '接続 (矢印なし)',
+        defaultLabel: '',
         defaultMetadata: {
           strokeColor: '#10B981',
           textColor: '#047857',
+          connector: '--',
         },
         fields: [
-          { key: 'label', label: 'ラベル', type: 'text' },
           { key: 'sourceAnchor', label: '始点アンカー (L/R/T/B)', type: 'text' },
           { key: 'targetAnchor', label: '終点アンカー (L/R/T/B)', type: 'text' },
+          { key: 'sourceGroup', label: '始点グループ参照', type: 'text' },
+          { key: 'targetGroup', label: '終点グループ参照', type: 'text' },
+          { key: 'sourceArrow', label: '始点に矢印', type: 'boolean', placeholder: '始点矢印を表示' },
+          { key: 'targetArrow', label: '終点に矢印', type: 'boolean', placeholder: '終点矢印を表示' },
+          { key: 'connector', label: '線種 (- または --)', type: 'text', placeholder: '--' },
         ],
       },
     ],
     defaultConfig: { type: 'architecture', diagramVariant: 'architecture-beta' },
     defaultTemplate: `architecture-beta
-  title Webアプリケーション構成
-  service frontend(browser)[フロントエンド]
-  service backend(server)[API サービス]
-  database db(database)[永続化]
-  frontend --> backend : HTTPS
-  backend --> db : SQL`,
+  title Web Application Architecture
+  group edge(cloud)[Edge]
+  group core(server)[Core]
+  service frontend(browser)[Frontend] in edge
+  service cdn(cache)[CDN] in edge
+  service backend(server)[API Service] in core
+  database db(database)[Data Store]
+  frontend:R -- L:cdn
+  frontend:B --> T:backend
+  backend:B -- T:db`,
     configFields: [
       {
         key: 'diagramVariant',
