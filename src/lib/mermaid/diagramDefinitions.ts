@@ -740,6 +740,443 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
     supportsEdges: true,
     createNodeId: () => `git_${createId()}`,
   },
+  c4: {
+    type: 'c4',
+    label: 'C4図',
+    description: 'システムの文脈やコンテナ構成を表現するC4ダイアグラム',
+    nodeTemplates: [
+      {
+        variant: 'person',
+        label: '人物',
+        description: '利用者やアクターを表現',
+        defaultLabel: 'Person',
+        defaultMetadata: {
+          fillColor: '#F5F3FF',
+          strokeColor: '#7C3AED',
+          textColor: '#4C1D95',
+          description: 'システム利用者',
+        },
+        fields: [
+          { key: 'description', label: '説明', type: 'textarea', placeholder: '役割や背景' },
+        ],
+      },
+      {
+        variant: 'personExternal',
+        label: '外部人物',
+        description: 'システム外部のアクター',
+        defaultLabel: 'External Person',
+        defaultMetadata: {
+          fillColor: '#FFF7ED',
+          strokeColor: '#F97316',
+          textColor: '#9A3412',
+          description: '外部アクター',
+        },
+        fields: [
+          { key: 'description', label: '説明', type: 'textarea', placeholder: '役割や背景' },
+        ],
+      },
+      {
+        variant: 'system',
+        label: 'システム',
+        description: '対象システム全体',
+        defaultLabel: 'System',
+        defaultMetadata: {
+          fillColor: '#DBEAFE',
+          strokeColor: '#2563EB',
+          textColor: '#1D4ED8',
+          description: '主要システム',
+        },
+        fields: [
+          { key: 'description', label: '説明', type: 'textarea', placeholder: '目的や責務' },
+          { key: 'technology', label: '技術/備考', type: 'text', placeholder: '使用技術など (任意)' },
+        ],
+      },
+      {
+        variant: 'systemExternal',
+        label: '外部システム',
+        description: '連携する外部システム',
+        defaultLabel: 'External System',
+        defaultMetadata: {
+          fillColor: '#E0F2FE',
+          strokeColor: '#0284C7',
+          textColor: '#0C4A6E',
+          description: '外部連携システム',
+        },
+        fields: [
+          { key: 'description', label: '説明', type: 'textarea' },
+          { key: 'technology', label: '技術/備考', type: 'text' },
+        ],
+      },
+      {
+        variant: 'container',
+        label: 'コンテナ',
+        description: 'システム内部のコンテナ',
+        defaultLabel: 'Container',
+        defaultMetadata: {
+          fillColor: '#FEF3C7',
+          strokeColor: '#F59E0B',
+          textColor: '#B45309',
+          technology: 'Node.js',
+        },
+        fields: [
+          { key: 'description', label: '説明', type: 'textarea', placeholder: '責務や役割' },
+          { key: 'technology', label: '技術スタック', type: 'text', placeholder: '例: Node.js, React' },
+        ],
+      },
+      {
+        variant: 'containerExternal',
+        label: '外部コンテナ',
+        description: '外部提供のサービスやコンテナ',
+        defaultLabel: 'External Container',
+        defaultMetadata: {
+          fillColor: '#FFF7ED',
+          strokeColor: '#EA580C',
+          textColor: '#9A3412',
+        },
+        fields: [
+          { key: 'description', label: '説明', type: 'textarea' },
+          { key: 'technology', label: '技術スタック', type: 'text' },
+        ],
+      },
+      {
+        variant: 'containerDatabase',
+        label: 'データベース',
+        description: '永続化コンテナ',
+        defaultLabel: 'Database',
+        defaultMetadata: {
+          fillColor: '#FEE2E2',
+          strokeColor: '#DC2626',
+          textColor: '#991B1B',
+          technology: 'PostgreSQL',
+        },
+        fields: [
+          { key: 'description', label: '説明', type: 'textarea' },
+          { key: 'technology', label: '技術スタック', type: 'text' },
+        ],
+      },
+      {
+        variant: 'systemDatabase',
+        label: 'システムDB',
+        description: 'システムレベルのデータベース',
+        defaultLabel: 'System DB',
+        defaultMetadata: {
+          fillColor: '#FDE68A',
+          strokeColor: '#D97706',
+          textColor: '#92400E',
+          technology: 'RDBMS',
+        },
+        fields: [
+          { key: 'description', label: '説明', type: 'textarea' },
+          { key: 'technology', label: '技術スタック', type: 'text' },
+        ],
+      },
+      {
+        variant: 'component',
+        label: 'コンポーネント',
+        description: 'コンテナ内のコンポーネント',
+        defaultLabel: 'Component',
+        defaultMetadata: {
+          fillColor: '#E5E7EB',
+          strokeColor: '#4B5563',
+          textColor: '#1F2937',
+        },
+        fields: [
+          { key: 'description', label: '説明', type: 'textarea' },
+          { key: 'technology', label: '技術/備考', type: 'text' },
+        ],
+      },
+      {
+        variant: 'componentExternal',
+        label: '外部コンポーネント',
+        description: '外部提供コンポーネント',
+        defaultLabel: 'External Component',
+        defaultMetadata: {
+          fillColor: '#EDE9FE',
+          strokeColor: '#7C3AED',
+          textColor: '#5B21B6',
+        },
+        fields: [
+          { key: 'description', label: '説明', type: 'textarea' },
+          { key: 'technology', label: '技術/備考', type: 'text' },
+        ],
+      },
+      {
+        variant: 'componentDatabase',
+        label: 'コンポーネントDB',
+        description: 'コンポーネント専用データストア',
+        defaultLabel: 'Component DB',
+        defaultMetadata: {
+          fillColor: '#DCFCE7',
+          strokeColor: '#16A34A',
+          textColor: '#166534',
+        },
+        fields: [
+          { key: 'description', label: '説明', type: 'textarea' },
+          { key: 'technology', label: '技術/備考', type: 'text' },
+        ],
+      },
+    ],
+    edgeTemplates: [
+      {
+        variant: 'relationship',
+        label: '関係 (Rel)',
+        defaultLabel: '利用',
+        defaultMetadata: {
+          strokeColor: '#2563EB',
+          textColor: '#1D4ED8',
+        },
+        fields: [
+          { key: 'label', label: '関係ラベル', type: 'text', placeholder: '例: 利用する' },
+          { key: 'technology', label: '技術', type: 'text', placeholder: '例: HTTPS' },
+        ],
+      },
+      {
+        variant: 'relationshipDashed',
+        label: '破線の関係 (Rel_Dashed)',
+        defaultLabel: '参照',
+        defaultMetadata: {
+          strokeColor: '#7C3AED',
+          textColor: '#5B21B6',
+        },
+        fields: [
+          { key: 'label', label: '関係ラベル', type: 'text' },
+          { key: 'technology', label: '技術', type: 'text' },
+        ],
+      },
+      {
+        variant: 'relationshipBidirectional',
+        label: '双方向の関係 (BiRel)',
+        defaultLabel: '双方向連携',
+        defaultMetadata: {
+          strokeColor: '#059669',
+          textColor: '#065F46',
+        },
+        fields: [
+          { key: 'label', label: '関係ラベル', type: 'text' },
+          { key: 'technology', label: '技術', type: 'text' },
+        ],
+      },
+    ],
+    defaultConfig: { type: 'c4', diagramVariant: 'C4Context' },
+    defaultTemplate: `C4Context
+  title システム文脈図
+  Person(admin, "管理者", "システムを操作")
+  System(system, "業務システム", "業務処理を提供")
+  System_Ext(external, "外部サービス", "認証を提供")
+  Rel(admin, system, "操作", "HTTPS")
+  Rel(system, external, "認証連携", "OIDC")`,
+    configFields: [
+      {
+        key: 'diagramVariant',
+        label: '図の種類',
+        type: 'select',
+        options: [
+          { value: 'C4Context', label: 'コンテキスト (C4Context)' },
+          { value: 'C4Container', label: 'コンテナ (C4Container)' },
+          { value: 'C4Component', label: 'コンポーネント (C4Component)' },
+          { value: 'C4Dynamic', label: 'ダイナミック (C4Dynamic)' },
+        ],
+      },
+      { key: 'title', label: 'タイトル', type: 'text', placeholder: '図のタイトル' },
+    ],
+    supportsEdges: true,
+    createNodeId: () => `c4_${createId()}`,
+  },
+  architecture: {
+    type: 'architecture',
+    label: 'アーキテクチャ図',
+    description: 'MermaidのArchitecture構文でシステム構成を表現',
+    nodeTemplates: [
+      {
+        variant: 'service',
+        label: 'サービス',
+        description: 'アプリケーションやAPIなどのサービス',
+        defaultLabel: 'Service',
+        defaultMetadata: {
+          fillColor: '#DBEAFE',
+          strokeColor: '#1D4ED8',
+          textColor: '#1E3A8A',
+          icon: 'server',
+          directive: 'service',
+        },
+        fields: [
+          { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: server, cloud' },
+          { key: 'description', label: '説明', type: 'textarea', placeholder: '役割など (任意)' },
+        ],
+      },
+      {
+        variant: 'database',
+        label: 'データベース',
+        description: 'データベースなどの永続層',
+        defaultLabel: 'Database',
+        defaultMetadata: {
+          fillColor: '#FEE2E2',
+          strokeColor: '#B91C1C',
+          textColor: '#7F1D1D',
+          icon: 'database',
+          directive: 'service',
+        },
+        fields: [
+          { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: database' },
+          { key: 'description', label: '説明', type: 'textarea' },
+        ],
+      },
+      {
+        variant: 'queue',
+        label: 'メッセージキュー',
+        description: 'キューやストリーム',
+        defaultLabel: 'Queue',
+        defaultMetadata: {
+          fillColor: '#FEF3C7',
+          strokeColor: '#D97706',
+          textColor: '#92400E',
+          icon: 'queue',
+          directive: 'service',
+        },
+        fields: [
+          { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: queue' },
+          { key: 'description', label: '説明', type: 'textarea' },
+        ],
+      },
+      {
+        variant: 'cache',
+        label: 'キャッシュ',
+        description: 'キャッシュやインメモリストア',
+        defaultLabel: 'Cache',
+        defaultMetadata: {
+          fillColor: '#F0FDF4',
+          strokeColor: '#22C55E',
+          textColor: '#15803D',
+          icon: 'cache',
+          directive: 'service',
+        },
+        fields: [
+          { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: cache' },
+          { key: 'description', label: '説明', type: 'textarea' },
+        ],
+      },
+      {
+        variant: 'storage',
+        label: 'ストレージ',
+        description: 'オブジェクトストレージなど',
+        defaultLabel: 'Storage',
+        defaultMetadata: {
+          fillColor: '#E0F2FE',
+          strokeColor: '#0369A1',
+          textColor: '#0C4A6E',
+          icon: 'disk',
+          directive: 'service',
+        },
+        fields: [
+          { key: 'icon', label: 'アイコン', type: 'text' },
+          { key: 'description', label: '説明', type: 'textarea' },
+        ],
+      },
+      {
+        variant: 'user',
+        label: 'ユーザー',
+        description: '人物や外部アクター',
+        defaultLabel: 'User',
+        defaultMetadata: {
+          fillColor: '#F5F3FF',
+          strokeColor: '#6D28D9',
+          textColor: '#4C1D95',
+          icon: 'user',
+          directive: 'service',
+        },
+        fields: [
+          { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: user' },
+          { key: 'description', label: '説明', type: 'textarea' },
+        ],
+      },
+      {
+        variant: 'device',
+        label: 'デバイス',
+        description: 'モバイルや端末',
+        defaultLabel: 'Device',
+        defaultMetadata: {
+          fillColor: '#E5E7EB',
+          strokeColor: '#4B5563',
+          textColor: '#1F2937',
+          icon: 'device',
+          directive: 'service',
+        },
+        fields: [
+          { key: 'icon', label: 'アイコン', type: 'text' },
+          { key: 'description', label: '説明', type: 'textarea' },
+        ],
+      },
+      {
+        variant: 'component',
+        label: 'コンポーネント',
+        description: '小さな構成要素',
+        defaultLabel: 'Component',
+        defaultMetadata: {
+          fillColor: '#FFF7ED',
+          strokeColor: '#EA580C',
+          textColor: '#9A3412',
+          icon: 'app',
+          directive: 'service',
+        },
+        fields: [
+          { key: 'icon', label: 'アイコン', type: 'text' },
+          { key: 'description', label: '説明', type: 'textarea' },
+        ],
+      },
+    ],
+    edgeTemplates: [
+      {
+        variant: 'connectionDirected',
+        label: '接続 (矢印)',
+        defaultLabel: '通信',
+        defaultMetadata: {
+          strokeColor: '#2563EB',
+          textColor: '#1D4ED8',
+        },
+        fields: [
+          { key: 'label', label: 'ラベル', type: 'text', placeholder: '例: HTTPS' },
+          { key: 'sourceAnchor', label: '始点アンカー (L/R/T/B)', type: 'text', placeholder: '例: R' },
+          { key: 'targetAnchor', label: '終点アンカー (L/R/T/B)', type: 'text', placeholder: '例: L' },
+        ],
+      },
+      {
+        variant: 'connectionUndirected',
+        label: '接続 (双方向線)',
+        defaultLabel: '接続',
+        defaultMetadata: {
+          strokeColor: '#10B981',
+          textColor: '#047857',
+        },
+        fields: [
+          { key: 'label', label: 'ラベル', type: 'text' },
+          { key: 'sourceAnchor', label: '始点アンカー (L/R/T/B)', type: 'text' },
+          { key: 'targetAnchor', label: '終点アンカー (L/R/T/B)', type: 'text' },
+        ],
+      },
+    ],
+    defaultConfig: { type: 'architecture', diagramVariant: 'architecture-beta' },
+    defaultTemplate: `architecture-beta
+  title Webアプリケーション構成
+  service frontend(browser)[フロントエンド]
+  service backend(server)[API サービス]
+  database db(database)[永続化]
+  frontend --> backend : HTTPS
+  backend --> db : SQL`,
+    configFields: [
+      {
+        key: 'diagramVariant',
+        label: '構文バージョン',
+        type: 'select',
+        options: [
+          { value: 'architecture-beta', label: 'architecture-beta' },
+          { value: 'architecture', label: 'architecture' },
+        ],
+      },
+      { key: 'title', label: 'タイトル', type: 'text', placeholder: '図のタイトル' },
+    ],
+    supportsEdges: true,
+    createNodeId: () => `arch_${createId()}`,
+  },
   pie: {
     type: 'pie',
     label: '円グラフ',
