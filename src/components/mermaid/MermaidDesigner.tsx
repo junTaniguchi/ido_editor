@@ -1887,10 +1887,47 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
             )}
           </div>
         )}
-        {selectedNodeTemplate?.fields
-          ?.filter((field) => !(diagramType === 'gantt' && field.key === 'section'))
-          .map((field) => {
+        {selectedNodeTemplate?.fields?.map((field) => {
           const value = getMetadataString(nodeMetadata, field.key) ?? '';
+          if (diagramType === 'gantt' && field.key === 'section') {
+            const fallbackSection = ganttSections[0] ?? 'General';
+            const normalizedValue = value.trim();
+            const sectionOptions = Array.from(
+              new Set(
+                [fallbackSection, ...ganttSections, normalizedValue]
+                  .filter((section): section is string => Boolean(section && section.length > 0)),
+              ),
+            );
+            const sectionValue =
+              normalizedValue && sectionOptions.includes(normalizedValue)
+                ? normalizedValue
+                : sectionOptions[0] ?? 'General';
+            return (
+              <div key={field.key}>
+                <label className="block text-xs text-gray-500">{field.label}</label>
+                <select
+                  className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
+                  value={sectionValue}
+                  onChange={(event) => {
+                    const nextSection = event.target.value;
+                    updateNode(selectedNode.id, (node) => ({
+                      ...node,
+                      data: {
+                        ...node.data,
+                        metadata: { ...node.data.metadata, section: nextSection },
+                      },
+                    }));
+                  }}
+                >
+                  {sectionOptions.map((section) => (
+                    <option key={section} value={section}>
+                      {section}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            );
+          }
           return (
             <div key={field.key}>
               <label className="block text-xs text-gray-500">{field.label}</label>
@@ -1909,7 +1946,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
               />
             </div>
           );
-          })}
+        })}
         <div>
           <label className="block text-xs text-gray-500">背景色</label>
           <div className="mt-1 flex items-center gap-2">
