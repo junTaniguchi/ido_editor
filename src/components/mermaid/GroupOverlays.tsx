@@ -130,7 +130,10 @@ const GroupOverlays: React.FC<GroupOverlaysProps> = ({ diagramType, subgraphs, g
   const [translateX, translateY, zoom] = transform;
 
   return (
-    <div className="absolute inset-0" style={{ zIndex: 1, pointerEvents: 'none' }}>
+    <div
+      className="absolute inset-0"
+      style={{ zIndex: 1, pointerEvents: 'none', overflow: 'hidden' }}
+    >
       <div
         style={{
           position: 'absolute',
