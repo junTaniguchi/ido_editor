@@ -35,16 +35,51 @@ const normalizeMermaidSource = (value: string): string => {
 };
 
 // SVGにパディングを追加して描画範囲を広げる関数
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+const XLINK_NAMESPACE = 'http://www.w3.org/1999/xlink';
+const XMLNS_NAMESPACE = 'http://www.w3.org/2000/xmlns/';
+
 const addPaddingToSvg = (svgString: string): string => {
   try {
     const parser = new DOMParser();
     const svgDoc = parser.parseFromString(svgString, 'image/svg+xml');
     const svgElement = svgDoc.querySelector('svg');
-    
+
     if (!svgElement) {
       return svgString;
     }
-    
+
+    if (!svgElement.getAttribute('xmlns')) {
+      svgElement.setAttribute('xmlns', SVG_NAMESPACE);
+    }
+
+    const imageElements = svgElement.querySelectorAll('image') as NodeListOf<SVGImageElement>;
+
+    if (imageElements.length > 0) {
+      const hasXlinkNamespace =
+        svgElement.hasAttributeNS(XMLNS_NAMESPACE, 'xlink') ||
+        !!svgElement.getAttribute('xmlns:xlink');
+
+      if (!hasXlinkNamespace) {
+        svgElement.setAttributeNS(XMLNS_NAMESPACE, 'xmlns:xlink', XLINK_NAMESPACE);
+      }
+
+      imageElements.forEach(image => {
+        const hrefValue =
+          image.getAttributeNS(XLINK_NAMESPACE, 'href') ??
+          image.getAttribute('xlink:href') ??
+          image.getAttribute('href');
+
+        if (hrefValue) {
+          image.setAttributeNS(XLINK_NAMESPACE, 'xlink:href', hrefValue);
+
+          if (!image.getAttribute('href')) {
+            image.setAttribute('href', hrefValue);
+          }
+        }
+      });
+    }
+
     // 現在のviewBoxを取得
     const viewBox = svgElement.getAttribute('viewBox');
     if (viewBox) {
@@ -62,26 +97,34 @@ const addPaddingToSvg = (svgString: string): string => {
       // viewBoxがない場合はwidthとheightを取得してパディングを追加
       const width = svgElement.getAttribute('width');
       const height = svgElement.getAttribute('height');
-      
+
       if (width && height) {
         const w = parseFloat(width.replace('px', ''));
         const h = parseFloat(height.replace('px', ''));
-        
+
         const padding = { x: 50, y: 30 };
         const newWidth = w + (padding.x * 2);
         const newHeight = h + (padding.y * 2);
-        
+
         svgElement.setAttribute('width', `${newWidth}px`);
         svgElement.setAttribute('height', `${newHeight}px`);
         svgElement.setAttribute('viewBox', `${-padding.x} ${-padding.y} ${newWidth} ${newHeight}`);
-        
+
         // 既存のコンテンツをグループ化してパディング分移動
-        const content = svgElement.innerHTML;
-        svgElement.innerHTML = `<g transform="translate(${padding.x}, ${padding.y})">${content}</g>`;
+        const svgNamespace = svgElement.namespaceURI ?? SVG_NAMESPACE;
+        const group = svgDoc.createElementNS(svgNamespace, 'g');
+        group.setAttribute('transform', `translate(${padding.x}, ${padding.y})`);
+
+        while (svgElement.firstChild) {
+          group.appendChild(svgElement.firstChild);
+        }
+
+        svgElement.appendChild(group);
       }
     }
-    
-    return svgElement.outerHTML;
+
+    const serializer = new XMLSerializer();
+    return serializer.serializeToString(svgElement);
   } catch (error) {
     console.error('SVG padding addition failed:', error);
     return svgString;
