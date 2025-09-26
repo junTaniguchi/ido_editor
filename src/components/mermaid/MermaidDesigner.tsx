@@ -1608,6 +1608,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         }
 
         const nodeIdSet = new Set(currentNodes.map((node) => node.id));
+        const nodeMap = new Map(currentNodes.map((node) => [node.id, node]));
         const adjacency = new Map<string, Set<string>>();
         const indegree = new Map<string, number>();
         const incoming = new Map<string, Set<string>>();
@@ -1790,7 +1791,53 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         });
 
         let branchOffsets: Map<string, number> | null = null;
+        let branchLayerOffsets: Map<string, number> | null = null;
         if (diagramType === 'gitGraph') {
+          const getBranchKeyForNode = (nodeId: string): string => {
+            const node = nodeMap.get(nodeId);
+            if (!node || node.data.diagramType !== 'gitGraph') {
+              return 'main';
+            }
+            if (node.data.variant === 'branch') {
+              return node.id;
+            }
+            const metadata = node.data.metadata as NodeMetadata | undefined;
+            const branchId = getMetadataString(metadata, 'branchId');
+            if (branchId && branchId.trim().length > 0) {
+              return branchId.trim();
+            }
+            return 'main';
+          };
+
+          const branchLayerGroups = new Map<string, Map<number, string[]>>();
+          let maxBranchLayerCount = 1;
+
+          layers.forEach((layer) => {
+            const perBranch = new Map<string, string[]>();
+            layer.nodeIds.forEach((nodeId) => {
+              const branchKey = getBranchKeyForNode(nodeId);
+              const list = perBranch.get(branchKey);
+              if (list) {
+                list.push(nodeId);
+              } else {
+                perBranch.set(branchKey, [nodeId]);
+              }
+            });
+
+            perBranch.forEach((nodeIds, branchKey) => {
+              maxBranchLayerCount = Math.max(maxBranchLayerCount, nodeIds.length);
+              let layerMap = branchLayerGroups.get(branchKey);
+              if (!layerMap) {
+                layerMap = new Map<number, string[]>();
+                branchLayerGroups.set(branchKey, layerMap);
+              }
+              layerMap.set(layer.level, nodeIds);
+            });
+          });
+
+          const innerBranchSpacing = Math.max(nodeSpacing * 0.6, 130);
+          const branchSpacing = Math.max(nodeSpacing * 1.45, innerBranchSpacing * (maxBranchLayerCount + 1), 240);
+
           const branchOrder: string[] = [];
           const seen = new Set<string>();
           const pushBranch = (branchId: string | undefined) => {
@@ -1807,24 +1854,37 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           gitBranchNodes.forEach((branch) => {
             pushBranch(branch.id);
           });
-          currentNodes.forEach((node) => {
-            if (node.data.diagramType !== 'gitGraph') {
-              return;
-            }
-            if (node.data.variant === 'branch') {
-              pushBranch(node.id);
-              return;
-            }
-            const metadata = node.data.metadata as NodeMetadata | undefined;
-            const branchId = getMetadataString(metadata, 'branchId');
+          layers.forEach((layer) => {
+            layer.nodeIds.forEach((nodeId) => {
+              pushBranch(getBranchKeyForNode(nodeId));
+            });
+          });
+          branchLayerGroups.forEach((_, branchId) => {
             pushBranch(branchId);
           });
 
           if (branchOrder.length > 0) {
-            const spacing = 80;
             branchOffsets = new Map(
-              branchOrder.map((branchId, index) => [branchId, index * spacing] as const),
+              branchOrder.map((branchId, index) => [branchId, index * branchSpacing] as const),
             );
+
+            branchLayerOffsets = new Map<string, number>();
+            branchLayerGroups.forEach((layerMap) => {
+              layerMap.forEach((nodeIds) => {
+                if (nodeIds.length === 0) {
+                  return;
+                }
+                if (nodeIds.length === 1) {
+                  branchLayerOffsets!.set(nodeIds[0], 0);
+                  return;
+                }
+                const centerIndex = (nodeIds.length - 1) / 2;
+                nodeIds.forEach((nodeId, index) => {
+                  const offset = (index - centerIndex) * innerBranchSpacing;
+                  branchLayerOffsets!.set(nodeId, offset);
+                });
+              });
+            });
           }
         }
 
@@ -1842,19 +1902,25 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           let target = positionMap.get(node.id) ?? fallbackPosition;
 
           if (branchOffsets && node.data.diagramType === 'gitGraph') {
-            let branchKey: string | undefined;
-            if (node.data.variant === 'branch') {
-              branchKey = node.id;
-            } else {
+            const branchKey = (() => {
+              if (node.data.variant === 'branch') {
+                return node.id;
+              }
               const metadata = node.data.metadata as NodeMetadata | undefined;
-              branchKey = getMetadataString(metadata, 'branchId');
-            }
-            const normalizedBranchKey = branchKey && branchKey.trim().length > 0 ? branchKey.trim() : 'main';
-            const offsetValue = branchOffsets.get(normalizedBranchKey);
+              const raw = getMetadataString(metadata, 'branchId');
+              if (raw && raw.trim().length > 0) {
+                return raw.trim();
+              }
+              return 'main';
+            })();
+
+            const offsetValue = branchOffsets.get(branchKey);
             if (offsetValue !== undefined) {
+              const level = levels.get(node.id) ?? 0;
+              const laneAdjustment = branchLayerOffsets?.get(node.id) ?? 0;
               target = isVertical
-                ? { x: target.x + offsetValue, y: target.y }
-                : { x: target.x, y: target.y + offsetValue };
+                ? { x: originX + offsetValue + laneAdjustment, y: originY + level * layerSpacing }
+                : { x: originX + level * layerSpacing, y: originY + offsetValue + laneAdjustment };
             }
           }
 
