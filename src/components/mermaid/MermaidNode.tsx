@@ -100,11 +100,19 @@ const MermaidNodeComponent: React.FC<NodeProps<MermaidNodeData>> = ({ data, sele
   );
 
   const { fillColor, strokeColor, textColor } = useMemo(() => {
-    const metadata = data.metadata ?? {};
-    const fill = typeof metadata.fillColor === 'string' ? metadata.fillColor : '#ffffff';
-    const stroke = typeof metadata.strokeColor === 'string' ? metadata.strokeColor : '#1f2937';
-    const text = typeof metadata.textColor === 'string' ? metadata.textColor : '#111827';
-    return { fillColor: fill, strokeColor: stroke, textColor: text };
+    const metadata = (data.metadata || {}) as Record<string, string | string[]>;
+    const pick = (key: string, fallback: string): string => {
+      const value = metadata[key];
+      if (Array.isArray(value)) {
+        return value.length > 0 ? value[0] : fallback;
+      }
+      return typeof value === 'string' && value.trim().length > 0 ? value : fallback;
+    };
+    return {
+      fillColor: pick('fillColor', '#ffffff'),
+      strokeColor: pick('strokeColor', '#1f2937'),
+      textColor: pick('textColor', '#111827'),
+    };
   }, [data.metadata]);
 
   const baseBoxShadow = selected ? '0 0 0 3px rgba(37, 99, 235, 0.35)' : undefined;

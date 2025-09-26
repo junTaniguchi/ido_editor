@@ -21,6 +21,24 @@ interface Overlay {
   height: number;
 }
 
+type Metadata = Record<string, string | string[]> & {
+  subgraphIds?: string[];
+  subgraphId?: string;
+};
+
+const extractSubgraphIds = (metadata?: Metadata): string[] => {
+  if (!metadata) return [];
+  const rawIds = metadata.subgraphIds;
+  if (Array.isArray(rawIds)) {
+    return Array.from(new Set(rawIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)));
+  }
+  const legacy = metadata.subgraphId;
+  if (typeof legacy === 'string' && legacy.trim()) {
+    return [legacy.trim()];
+  }
+  return [];
+};
+
 const SUBGRAPH_COLORS = ['#BFDBFE', '#C7D2FE', '#FBCFE8', '#BBF7D0', '#FDE68A', '#FECACA'];
 const SECTION_COLORS = ['#DBEAFE', '#FCE7F3', '#DCFCE7', '#FEF3C7', '#E0F2FE', '#F5F3FF'];
 const PADDING = 32;
@@ -74,7 +92,7 @@ const GroupOverlays: React.FC<GroupOverlaysProps> = ({ diagramType, subgraphs, g
 
     if (diagramType === 'flowchart' && subgraphs.length > 0) {
       subgraphs.forEach((subgraph, index) => {
-        const members = nodes.filter(node => node.data?.metadata?.subgraphId === subgraph.id);
+        const members = nodes.filter((node) => extractSubgraphIds(node.data?.metadata as Metadata | undefined).includes(subgraph.id));
         const bounds = computeBounds(members as Node[]);
         if (!bounds) return;
         overlayList.push({

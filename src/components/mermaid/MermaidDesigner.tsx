@@ -72,6 +72,55 @@ interface EdgeDraft {
   label: string;
 }
 
+type NodeMetadata = Record<string, string | string[]> & {
+  subgraphIds?: string[];
+  subgraphId?: string;
+};
+
+const getMetadataString = (metadata: NodeMetadata | undefined, key: string): string | undefined => {
+  if (!metadata) return undefined;
+  const value = metadata[key];
+  if (Array.isArray(value)) {
+    return value.length > 0 ? value[0] : undefined;
+  }
+  return value;
+};
+
+const normalizeSubgraphIds = (ids: string[]): string[] =>
+  Array.from(new Set(ids.map((id) => id.trim()).filter((id) => id.length > 0)));
+
+const getSubgraphIdsFromMetadata = (metadata: NodeMetadata | undefined): string[] => {
+  if (!metadata) return [];
+  if (Array.isArray(metadata.subgraphIds)) {
+    return normalizeSubgraphIds(metadata.subgraphIds);
+  }
+  const legacy = metadata.subgraphId;
+  if (typeof legacy === 'string' && legacy.trim()) {
+    return [legacy.trim()];
+  }
+  return [];
+};
+
+const setSubgraphIdsOnMetadata = (metadata: NodeMetadata, subgraphIds: string[]): NodeMetadata => {
+  const normalized = normalizeSubgraphIds(subgraphIds);
+  if (normalized.length > 0) {
+    metadata.subgraphIds = normalized;
+  } else {
+    delete metadata.subgraphIds;
+  }
+  if ('subgraphId' in metadata) {
+    delete metadata.subgraphId;
+  }
+  return metadata;
+};
+
+const subgraphIdListsEqual = (a: string[], b: string[]): boolean => {
+  if (a.length !== b.length) return false;
+  const sortedA = [...a].sort();
+  const sortedB = [...b].sort();
+  return sortedA.every((value, index) => value === sortedB[index]);
+};
+
 const getDefaultEdgeVariant = (type: MermaidDiagramType): string => {
   const definition = diagramDefinitions[type];
   return definition.edgeTemplates[0]?.variant || 'arrow';
@@ -195,10 +244,14 @@ const getEdgeTemplateDefaults = (diagramType: MermaidDiagramType, variant: strin
 const applyNodeDefaults = (node: MermaidNode, fallbackDiagramType?: MermaidDiagramType): MermaidNode => {
   const diagramType = (node.data.diagramType as MermaidDiagramType) || fallbackDiagramType || 'flowchart';
   const defaultMetadata = getNodeTemplateDefaults(diagramType, node.data.variant);
-  const metadata = { ...defaultMetadata, ...(node.data.metadata || {}) };
-  const fillColor = metadata.fillColor ? sanitizeColorValue(metadata.fillColor) : '#ffffff';
-  const strokeColor = metadata.strokeColor ? sanitizeColorValue(metadata.strokeColor) : '#1f2937';
-  const textColor = metadata.textColor ? sanitizeColorValue(metadata.textColor) : '#111827';
+  const metadata = { ...defaultMetadata, ...(node.data.metadata || {}) } as NodeMetadata;
+  const fillColor = sanitizeColorValue(getMetadataString(metadata, 'fillColor') ?? '#ffffff');
+  const strokeColor = sanitizeColorValue(getMetadataString(metadata, 'strokeColor') ?? '#1f2937');
+  const textColor = sanitizeColorValue(getMetadataString(metadata, 'textColor') ?? '#111827');
+  metadata.fillColor = fillColor;
+  metadata.strokeColor = strokeColor;
+  metadata.textColor = textColor;
+  setSubgraphIdsOnMetadata(metadata, getSubgraphIdsFromMetadata(metadata));
   const isSpecialFlowchartShape =
     diagramType === 'flowchart' && (node.data.variant === 'startEnd' || node.data.variant === 'decision');
 
@@ -261,15 +314,15 @@ const normalizeEdges = (edgeList: MermaidEdge[]): MermaidEdge[] => {
     const targetHandle = normalizeHandleId(edge.targetHandle, 'top');
     const diagramType = (edge.data?.diagramType as MermaidDiagramType) || 'flowchart';
     const defaultMetadata = getEdgeTemplateDefaults(diagramType, edge.data?.variant ?? '');
-    const metadata = { ...defaultMetadata, ...(edge.data?.metadata ?? {}) };
-    const strokeColor = metadata.strokeColor ? sanitizeColorValue(metadata.strokeColor) : '#1f2937';
-    const fillColor = metadata.fillColor ? sanitizeColorValue(metadata.fillColor) : undefined;
-    const textColor = metadata.textColor ? sanitizeColorValue(metadata.textColor) : undefined;
+    const metadata = { ...defaultMetadata, ...(edge.data?.metadata ?? {}) } as NodeMetadata;
+    const strokeColor = sanitizeColorValue(getMetadataString(metadata, 'strokeColor') ?? '#1f2937');
+    const fillColor = getMetadataString(metadata, 'fillColor');
+    const textColor = getMetadataString(metadata, 'textColor');
     if (fillColor) {
-      metadata.fillColor = fillColor;
+      metadata.fillColor = sanitizeColorValue(fillColor);
     }
     if (textColor) {
-      metadata.textColor = textColor;
+      metadata.textColor = sanitizeColorValue(textColor);
     }
     metadata.strokeColor = strokeColor;
 
@@ -928,11 +981,12 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       runWithSuppressedHistory(() => {
         setNodes((current) =>
           current.map((node) => {
-            if (node.data.metadata?.subgraphId !== subgraphId) {
+            const metadata = (node.data.metadata || {}) as NodeMetadata;
+            const currentIds = getSubgraphIdsFromMetadata(metadata);
+            if (!currentIds.includes(subgraphId)) {
               return node;
             }
-            const nextMetadata = { ...(node.data.metadata || {}) };
-            delete nextMetadata.subgraphId;
+            const nextMetadata = setSubgraphIdsOnMetadata({ ...metadata }, currentIds.filter((id) => id !== subgraphId));
             return applyNodeDefaults(
               {
                 ...node,
@@ -950,13 +1004,18 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     [diagramType, recordHistory, runWithSuppressedHistory, subgraphs],
   );
 
-  const assignNodeToSubgraph = useCallback(
-    (nodeId: string, subgraphId: string | null) => {
+  const assignNodeToSubgraphs = useCallback(
+    (nodeId: string, nextSubgraphIds: string[]) => {
       const targetNode = nodes.find((node) => node.id === nodeId);
-      const currentId = targetNode?.data.metadata?.subgraphId ?? null;
-      if (!targetNode || currentId === subgraphId) {
+      if (!targetNode) {
         return;
       }
+      const desiredIds = normalizeSubgraphIds(nextSubgraphIds);
+      const currentIds = getSubgraphIdsFromMetadata(targetNode.data.metadata as NodeMetadata | undefined);
+      if (subgraphIdListsEqual(currentIds, desiredIds)) {
+        return;
+      }
+
       recordHistory();
       runWithSuppressedHistory(() => {
         setNodes((current) =>
@@ -964,12 +1023,8 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
             if (node.id !== nodeId) {
               return node;
             }
-            const nextMetadata = { ...(node.data.metadata || {}) };
-            if (subgraphId) {
-              nextMetadata.subgraphId = subgraphId;
-            } else {
-              delete nextMetadata.subgraphId;
-            }
+            const metadata = { ...(node.data.metadata || {}) } as NodeMetadata;
+            const nextMetadata = setSubgraphIdsOnMetadata(metadata, desiredIds);
             return applyNodeDefaults(
               {
                 ...node,
@@ -987,7 +1042,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       setSubgraphs((current) =>
         current.map((subgraph) => {
           const filtered = subgraph.nodes.filter((id) => id !== nodeId);
-          if (subgraphId && subgraph.id === subgraphId) {
+          if (desiredIds.includes(subgraph.id)) {
             return {
               ...subgraph,
               nodes: filtered.includes(nodeId) ? filtered : [...filtered, nodeId],
@@ -1096,7 +1151,9 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     setSubgraphs((current) =>
       current.map((subgraph) => ({
         ...subgraph,
-        nodes: subgraph.nodes.filter((nodeId) => nodes.some((node) => node.id === nodeId)),
+        nodes: Array.from(
+          new Set(subgraph.nodes.filter((nodeId) => nodes.some((node) => node.id === nodeId))),
+        ),
       })),
     );
   }, [nodes]);
@@ -1542,20 +1599,29 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   );
 
   const paletteClasses = isPaletteCollapsed ? 'w-12' : 'w-36';
-  const canSaveDiagram = !!(currentTab && !currentTab.isReadOnly && currentTab.isDirty);
+  const canSaveDiagram = useMemo(() => {
+    if (!currentTab || currentTab.isReadOnly) {
+      return false;
+    }
+    if (currentTab.isDirty) {
+      return true;
+    }
+    return currentTab.originalContent !== generatedCode;
+  }, [currentTab, generatedCode]);
 
   const renderNodeInspector = () => {
     if (!selectedNode) {
       return <p className="text-sm text-gray-500">ノードを選択すると詳細を編集できます。</p>;
     }
-    const nodeMetadata = selectedNode.data.metadata || {};
-    const fillColorValue = toHexColor(nodeMetadata.fillColor, '#ffffff');
-    const strokeColorValue = toHexColor(nodeMetadata.strokeColor, '#1f2937');
-    const textColorValue = toHexColor(nodeMetadata.textColor, '#1f2937');
+    const nodeMetadata = (selectedNode.data.metadata || {}) as NodeMetadata;
+    const nodeSubgraphIds = getSubgraphIdsFromMetadata(nodeMetadata);
+    const fillColorValue = toHexColor(getMetadataString(nodeMetadata, 'fillColor'), '#ffffff');
+    const strokeColorValue = toHexColor(getMetadataString(nodeMetadata, 'strokeColor'), '#1f2937');
+    const textColorValue = toHexColor(getMetadataString(nodeMetadata, 'textColor'), '#1f2937');
 
     const handleNodeColorChange = (key: 'fillColor' | 'strokeColor' | 'textColor', color: string | null) => {
       updateNode(selectedNode.id, (node) => {
-        const metadata = { ...(node.data.metadata || {}) };
+        const metadata = { ...(node.data.metadata || {}) } as NodeMetadata;
         if (color) {
           metadata[key] = sanitizeColorValue(color);
         } else {
@@ -1635,28 +1701,49 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         </div>
         {diagramType === 'flowchart' && (
           <div>
-            <label className="block text-xs text-gray-500">サブグラフ</label>
-            <select
-              className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
-              value={nodeMetadata.subgraphId ?? ''}
-              onChange={(event) => {
-                const value = event.target.value;
-                assignNodeToSubgraph(selectedNode.id, value ? value : null);
-              }}
-            >
-              <option value="">（なし）</option>
-              {subgraphs.map((subgraph) => (
-                <option key={subgraph.id} value={subgraph.id}>
-                  {subgraph.title || subgraph.id}
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center justify-between">
+              <label className="block text-xs text-gray-500">サブグラフ</label>
+              {nodeSubgraphIds.length > 0 && (
+                <button
+                  type="button"
+                  className="text-[11px] text-blue-600 hover:text-blue-700"
+                  onClick={() => assignNodeToSubgraphs(selectedNode.id, [])}
+                >
+                  クリア
+                </button>
+              )}
+            </div>
+            {subgraphs.length === 0 ? (
+              <p className="mt-1 text-xs text-gray-500">サブグラフがありません。</p>
+            ) : (
+              <div className="mt-1 space-y-1 border border-gray-300 dark:border-gray-700 rounded p-2 max-h-48 overflow-y-auto bg-white dark:bg-gray-900">
+                {subgraphs.map((subgraph) => {
+                  const checked = nodeSubgraphIds.includes(subgraph.id);
+                  return (
+                    <label key={subgraph.id} className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+                      <input
+                        type="checkbox"
+                        className="accent-blue-600"
+                        checked={checked}
+                        onChange={(event) => {
+                          const next = event.target.checked
+                            ? [...nodeSubgraphIds, subgraph.id]
+                            : nodeSubgraphIds.filter((id) => id !== subgraph.id);
+                          assignNodeToSubgraphs(selectedNode.id, next);
+                        }}
+                      />
+                      <span>{subgraph.title || subgraph.id}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
         {selectedNodeTemplate?.fields
           ?.filter((field) => !(diagramType === 'gantt' && field.key === 'section'))
           .map((field) => {
-          const value = selectedNode.data.metadata?.[field.key] ?? '';
+          const value = getMetadataString(nodeMetadata, field.key) ?? '';
           return (
             <div key={field.key}>
               <label className="block text-xs text-gray-500">{field.label}</label>
@@ -1735,14 +1822,14 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     if (!selectedEdge) {
       return <p className="text-sm text-gray-500">エッジを選択すると詳細を編集できます。</p>;
     }
-    const edgeMetadata = selectedEdge.data.metadata || {};
-    const strokeColorValue = toHexColor(edgeMetadata.strokeColor, '#1f2937');
-    const textColorValue = toHexColor(edgeMetadata.textColor, '#1f2937');
-    const fillColorValue = toHexColor(edgeMetadata.fillColor, '#ffffff');
+    const edgeMetadata = (selectedEdge.data.metadata || {}) as NodeMetadata;
+    const strokeColorValue = toHexColor(getMetadataString(edgeMetadata, 'strokeColor'), '#1f2937');
+    const textColorValue = toHexColor(getMetadataString(edgeMetadata, 'textColor'), '#1f2937');
+    const fillColorValue = toHexColor(getMetadataString(edgeMetadata, 'fillColor'), '#ffffff');
 
     const handleEdgeColorChange = (key: 'strokeColor' | 'textColor' | 'fillColor', color: string | null) => {
       updateEdge(selectedEdge.id, (edge) => {
-        const metadata = { ...(edge.data.metadata || {}) };
+        const metadata = { ...(edge.data.metadata || {}) } as NodeMetadata;
         if (color) {
           metadata[key] = sanitizeColorValue(color);
         } else {
@@ -1787,7 +1874,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           </select>
         </div>
         {selectedEdgeTemplate?.fields?.map((field) => {
-          const value = selectedEdge.data.metadata?.[field.key] ?? selectedEdge.data.label ?? '';
+          const value = getMetadataString(edgeMetadata, field.key) ?? selectedEdge.data.label ?? '';
           return (
             <div key={field.key}>
               <label className="block text-xs text-gray-500">{field.label}</label>
