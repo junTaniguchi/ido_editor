@@ -40,11 +40,11 @@ const addPaddingToSvg = (svgString: string): string => {
     const parser = new DOMParser();
     const svgDoc = parser.parseFromString(svgString, 'image/svg+xml');
     const svgElement = svgDoc.querySelector('svg');
-    
+
     if (!svgElement) {
       return svgString;
     }
-    
+
     // 現在のviewBoxを取得
     const viewBox = svgElement.getAttribute('viewBox');
     if (viewBox) {
@@ -62,26 +62,34 @@ const addPaddingToSvg = (svgString: string): string => {
       // viewBoxがない場合はwidthとheightを取得してパディングを追加
       const width = svgElement.getAttribute('width');
       const height = svgElement.getAttribute('height');
-      
+
       if (width && height) {
         const w = parseFloat(width.replace('px', ''));
         const h = parseFloat(height.replace('px', ''));
-        
+
         const padding = { x: 50, y: 30 };
         const newWidth = w + (padding.x * 2);
         const newHeight = h + (padding.y * 2);
-        
+
         svgElement.setAttribute('width', `${newWidth}px`);
         svgElement.setAttribute('height', `${newHeight}px`);
         svgElement.setAttribute('viewBox', `${-padding.x} ${-padding.y} ${newWidth} ${newHeight}`);
-        
+
         // 既存のコンテンツをグループ化してパディング分移動
-        const content = svgElement.innerHTML;
-        svgElement.innerHTML = `<g transform="translate(${padding.x}, ${padding.y})">${content}</g>`;
+        const svgNamespace = svgElement.namespaceURI ?? 'http://www.w3.org/2000/svg';
+        const group = svgDoc.createElementNS(svgNamespace, 'g');
+        group.setAttribute('transform', `translate(${padding.x}, ${padding.y})`);
+
+        while (svgElement.firstChild) {
+          group.appendChild(svgElement.firstChild);
+        }
+
+        svgElement.appendChild(group);
       }
     }
-    
-    return svgElement.outerHTML;
+
+    const serializer = new XMLSerializer();
+    return serializer.serializeToString(svgElement);
   } catch (error) {
     console.error('SVG padding addition failed:', error);
     return svgString;
