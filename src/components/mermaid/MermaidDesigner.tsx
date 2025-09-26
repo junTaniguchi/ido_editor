@@ -1789,6 +1789,45 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
           });
         });
 
+        let branchOffsets: Map<string, number> | null = null;
+        if (diagramType === 'gitGraph') {
+          const branchOrder: string[] = [];
+          const seen = new Set<string>();
+          const pushBranch = (branchId: string | undefined) => {
+            if (!branchId) return;
+            const normalized = branchId.trim();
+            if (!normalized || seen.has(normalized)) {
+              return;
+            }
+            seen.add(normalized);
+            branchOrder.push(normalized);
+          };
+
+          pushBranch('main');
+          gitBranchNodes.forEach((branch) => {
+            pushBranch(branch.id);
+          });
+          currentNodes.forEach((node) => {
+            if (node.data.diagramType !== 'gitGraph') {
+              return;
+            }
+            if (node.data.variant === 'branch') {
+              pushBranch(node.id);
+              return;
+            }
+            const metadata = node.data.metadata as NodeMetadata | undefined;
+            const branchId = getMetadataString(metadata, 'branchId');
+            pushBranch(branchId);
+          });
+
+          if (branchOrder.length > 0) {
+            const spacing = 80;
+            branchOffsets = new Map(
+              branchOrder.map((branchId, index) => [branchId, index * spacing] as const),
+            );
+          }
+        }
+
         return currentNodes.map((node, index) => {
           const fallbackRow = Math.floor(index / 4);
           const fallbackPosition = isVertical
@@ -1800,7 +1839,25 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
                 x: originX + fallbackRow * layerSpacing,
                 y: originY + (index % 4) * nodeSpacing,
               };
-          const target = positionMap.get(node.id) ?? fallbackPosition;
+          let target = positionMap.get(node.id) ?? fallbackPosition;
+
+          if (branchOffsets && node.data.diagramType === 'gitGraph') {
+            let branchKey: string | undefined;
+            if (node.data.variant === 'branch') {
+              branchKey = node.id;
+            } else {
+              const metadata = node.data.metadata as NodeMetadata | undefined;
+              branchKey = getMetadataString(metadata, 'branchId');
+            }
+            const normalizedBranchKey = branchKey && branchKey.trim().length > 0 ? branchKey.trim() : 'main';
+            const offsetValue = branchOffsets.get(normalizedBranchKey);
+            if (offsetValue !== undefined) {
+              target = isVertical
+                ? { x: target.x + offsetValue, y: target.y }
+                : { x: target.x, y: target.y + offsetValue };
+            }
+          }
+
           return applyNodeDefaults(
             {
               ...node,
@@ -1815,7 +1872,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     setTimeout(() => {
       fitViewToDiagram({ duration: 400 });
     }, 50);
-  }, [diagramType, edges, fitViewToDiagram, recordHistory, runWithSuppressedHistory]);
+  }, [diagramType, edges, fitViewToDiagram, gitBranchNodes, recordHistory, runWithSuppressedHistory]);
 
   const handleSaveDiagram = useCallback(async () => {
     const tab = getTab(tabId);
