@@ -29,6 +29,13 @@ interface EdgeAnimationPreset {
   pulse?: boolean;
   glowIntensity: number;
   coreBoost: number;
+  particle?: {
+    radius: number;
+    opacity: number;
+    glow: number;
+    mixRatio: number;
+    count: number;
+  };
 }
 
 const animationPresets: Record<EdgeAnimationKey, EdgeAnimationPreset> = {
@@ -51,6 +58,13 @@ const animationPresets: Record<EdgeAnimationKey, EdgeAnimationPreset> = {
     offset: 12,
     glowIntensity: 0.6,
     coreBoost: 0.4,
+    particle: {
+      radius: 3.2,
+      opacity: 0.95,
+      glow: 0.55,
+      mixRatio: 0.4,
+      count: 2,
+    },
   },
   strong: {
     className: 'edge-animation-strong',
@@ -61,6 +75,13 @@ const animationPresets: Record<EdgeAnimationKey, EdgeAnimationPreset> = {
     offset: 18,
     glowIntensity: 0.65,
     coreBoost: 0.45,
+    particle: {
+      radius: 3.6,
+      opacity: 0.9,
+      glow: 0.5,
+      mixRatio: 0.35,
+      count: 2,
+    },
   },
   pulse: {
     className: 'edge-animation-pulse',
@@ -72,6 +93,13 @@ const animationPresets: Record<EdgeAnimationKey, EdgeAnimationPreset> = {
     pulse: true,
     glowIntensity: 0.65,
     coreBoost: 0.5,
+    particle: {
+      radius: 3.4,
+      opacity: 0.9,
+      glow: 0.55,
+      mixRatio: 0.5,
+      count: 3,
+    },
   },
 };
 
@@ -427,6 +455,7 @@ const MermaidEdge: React.FC<EdgeProps<MermaidEdgeData>> = ({
     : null;
   const highlightColor = animationPreset ? mixWithWhite(markerColor, 0.6) : null;
   const glowColor = animationPreset ? mixWithWhite(markerColor, 0.9) : null;
+  const particleColor = animationPreset?.particle ? mixWithWhite(markerColor, animationPreset.particle.mixRatio) : null;
 
   const renderAnimatedOverlay = (
     stroke: string,
@@ -469,6 +498,38 @@ const MermaidEdge: React.FC<EdgeProps<MermaidEdgeData>> = ({
     </path>
   );
 
+  const renderParticle = (index: number) => {
+    if (!animationPreset?.particle || !particleColor) return null;
+    const { radius, opacity, glow, count } = animationPreset.particle;
+    const delay = (animationPreset.duration / Math.max(1, count)) * index;
+    return (
+      <circle
+        key={`particle-${index}`}
+        r={radius}
+        fill={particleColor}
+        opacity={opacity}
+        style={{ filter: `drop-shadow(0 0 6px rgba(255,255,255,${glow}))` }}
+      >
+        <animateMotion
+          dur={`${animationPreset.duration}s`}
+          begin={`${delay}s`}
+          repeatCount="indefinite"
+          path={path}
+          rotate="auto"
+        />
+        <animate
+          attributeName="opacity"
+          values={`${opacity};${opacity * 0.6};${opacity}`}
+          dur={`${animationPreset.duration}s`}
+          begin={`${delay}s`}
+          repeatCount="indefinite"
+          calcMode="spline"
+          keySplines="0.4 0 0.2 1;0.4 0 0.2 1"
+        />
+      </circle>
+    );
+  };
+
   return (
     <>
       <BaseEdge id={id} path={path} markerEnd={resolvedMarkerEnd} style={mergedStyle} />
@@ -477,6 +538,11 @@ const MermaidEdge: React.FC<EdgeProps<MermaidEdgeData>> = ({
           {renderAnimatedOverlay(glowColor, overlayWidth * 1.6, animationPreset.opacity * animationPreset.glowIntensity, 'glow')}
           {renderAnimatedOverlay(highlightColor, overlayWidth, Math.min(1, animationPreset.opacity + animationPreset.coreBoost), 'core')}
         </>
+      )}
+      {animationPreset?.particle && (
+        <g className="pointer-events-none">
+          {Array.from({ length: animationPreset.particle.count }).map((_, index) => renderParticle(index))}
+        </g>
       )}
       {label && (
         <EdgeLabelRenderer>
