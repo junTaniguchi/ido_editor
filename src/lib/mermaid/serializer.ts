@@ -1,4 +1,4 @@
-import { diagramDefinitions } from './diagramDefinitions';
+import { ARCHITECTURE_ICON_OPTIONS, diagramDefinitions } from './diagramDefinitions';
 import type {
   MermaidDiagramConfig,
   MermaidEdge,
@@ -625,7 +625,7 @@ const serializeC4 = (model: MermaidGraphModel): MermaidSerializationResult => {
   return { code: lines.join('\n'), warnings };
 };
 
-const validArchitectureIcons = new Set(['server', 'database', 'disk', 'internet', 'cloud', 'unknown', 'blank']);
+const validArchitectureIcons = new Set(ARCHITECTURE_ICON_OPTIONS.map((option) => option.value));
 
 const architectureVariantDefaults: Record<string, string> = {
   service: 'server',

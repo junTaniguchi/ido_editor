@@ -24,6 +24,7 @@ import 'reactflow/dist/style.css';
 import { IoAlertCircleOutline, IoSave, IoTrash } from 'react-icons/io5';
 import { useEditorStore } from '@/store/editorStore';
 import {
+  ARCHITECTURE_ICON_OPTIONS,
   diagramDefinitions,
   diagramList,
   type MermaidEdgeTemplate,
@@ -1170,7 +1171,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         return { boundaryType: 'System_Boundary' } as Record<string, string>;
       }
       if (diagramType === 'architecture') {
-        return { icon: 'group' } as Record<string, string>;
+        return { icon: 'unknown' } as Record<string, string>;
       }
       return undefined;
     })();
@@ -2431,13 +2432,21 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
                 field={field}
                 value={value}
                 onChange={(newValue) => {
-                  updateNode(selectedNode.id, (node) => ({
-                    ...node,
-                    data: {
-                      ...node.data,
-                      metadata: { ...node.data.metadata, [field.key]: newValue },
-                    },
-                  }));
+                  updateNode(selectedNode.id, (node) => {
+                    const metadata = { ...(node.data.metadata || {}) } as NodeMetadata;
+                    if (newValue) {
+                      metadata[field.key] = newValue;
+                    } else {
+                      delete metadata[field.key];
+                    }
+                    return {
+                      ...node,
+                      data: {
+                        ...node.data,
+                        metadata,
+                      },
+                    };
+                  });
                 }}
               />
             </div>
@@ -2869,26 +2878,30 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
                       {diagramType === 'architecture' && (
                         <div className="mt-2">
                           <label className="block text-[11px] text-gray-500">アイコン</label>
-                          <input
-                            type="text"
+                          <select
                             className="mt-1 w-full rounded border border-gray-300 p-1 text-xs dark:border-gray-600 dark:bg-gray-900"
                             value={subgraph.metadata?.icon ?? ''}
                             onChange={(event) => {
-                              const raw = event.target.value.trim();
+                              const selected = event.target.value;
                               updateSubgraphMetadata(subgraph.id, (metadata) => {
                                 const next = { ...(metadata ?? {}) };
-                                if (raw) {
-                                  next.icon = raw;
+                                if (selected) {
+                                  next.icon = selected;
                                 } else {
                                   delete next.icon;
                                 }
                                 return next;
                               });
                             }}
-                          />
-                          <p className="mt-1 text-[10px] text-gray-400">
-                            例: cloud, server, database などのMermaidアイコン名
-                          </p>
+                          >
+                            <option value="">自動 (推奨)</option>
+                            {ARCHITECTURE_ICON_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="mt-1 text-[10px] text-gray-400">Mermaid標準のアイコンから選択できます。</p>
                         </div>
                       )}
                       <p className="mt-1 text-[10px] text-gray-400">ノード数: {subgraph.nodes.length}</p>

@@ -71,6 +71,21 @@ const GANTT_AXIS_FORMAT_OPTIONS = [
   { value: '%H:%M', label: '%H:%M (時:分)' },
 ];
 
+export const ARCHITECTURE_ICON_OPTIONS = [
+  { value: 'server', label: 'server' },
+  { value: 'database', label: 'database' },
+  { value: 'disk', label: 'disk' },
+  { value: 'cloud', label: 'cloud' },
+  { value: 'internet', label: 'internet' },
+  { value: 'unknown', label: 'unknown' },
+  { value: 'blank', label: 'blank' },
+];
+
+const ARCHITECTURE_ICON_SELECT_OPTIONS = [
+  { value: '', label: '自動 (推奨)' },
+  ...ARCHITECTURE_ICON_OPTIONS,
+];
+
 /** 図種別ごとのテンプレート定義 */
 export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefinition> = {
   flowchart: {
@@ -1003,7 +1018,8 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
           {
             key: 'icon',
             label: 'アイコン',
-            type: 'text',
+            type: 'select',
+            options: ARCHITECTURE_ICON_SELECT_OPTIONS,
             placeholder: '例: server, cloud, internet, database, disk, unknown',
           },
           { key: 'description', label: '説明', type: 'textarea', placeholder: '役割など (任意)' },
@@ -1022,7 +1038,13 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
           directive: 'database',
         },
         fields: [
-          { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: database' },
+          {
+            key: 'icon',
+            label: 'アイコン',
+            type: 'select',
+            options: ARCHITECTURE_ICON_SELECT_OPTIONS,
+            placeholder: '例: database',
+          },
           { key: 'description', label: '説明', type: 'textarea' },
         ],
       },
@@ -1039,7 +1061,13 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
           directive: 'queue',
         },
         fields: [
-          { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: unknown, server' },
+          {
+            key: 'icon',
+            label: 'アイコン',
+            type: 'select',
+            options: ARCHITECTURE_ICON_SELECT_OPTIONS,
+            placeholder: '例: unknown, server',
+          },
           { key: 'description', label: '説明', type: 'textarea' },
         ],
       },
@@ -1056,7 +1084,13 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
           directive: 'cache',
         },
         fields: [
-          { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: disk, cloud' },
+          {
+            key: 'icon',
+            label: 'アイコン',
+            type: 'select',
+            options: ARCHITECTURE_ICON_SELECT_OPTIONS,
+            placeholder: '例: disk, cloud',
+          },
           { key: 'description', label: '説明', type: 'textarea' },
         ],
       },
@@ -1073,7 +1107,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
           directive: 'storage',
         },
         fields: [
-          { key: 'icon', label: 'アイコン', type: 'text' },
+          { key: 'icon', label: 'アイコン', type: 'select', options: ARCHITECTURE_ICON_SELECT_OPTIONS },
           { key: 'description', label: '説明', type: 'textarea' },
         ],
       },
@@ -1090,7 +1124,13 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
           directive: 'user',
         },
         fields: [
-          { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: unknown, cloud' },
+          {
+            key: 'icon',
+            label: 'アイコン',
+            type: 'select',
+            options: ARCHITECTURE_ICON_SELECT_OPTIONS,
+            placeholder: '例: unknown, cloud',
+          },
           { key: 'description', label: '説明', type: 'textarea' },
         ],
       },
@@ -1107,7 +1147,13 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
           directive: 'device',
         },
         fields: [
-          { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: cloud, unknown' },
+          {
+            key: 'icon',
+            label: 'アイコン',
+            type: 'select',
+            options: ARCHITECTURE_ICON_SELECT_OPTIONS,
+            placeholder: '例: cloud, unknown',
+          },
           { key: 'description', label: '説明', type: 'textarea' },
         ],
       },
@@ -1124,7 +1170,13 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
           directive: 'component',
         },
         fields: [
-          { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: server, cloud' },
+          {
+            key: 'icon',
+            label: 'アイコン',
+            type: 'select',
+            options: ARCHITECTURE_ICON_SELECT_OPTIONS,
+            placeholder: '例: server, cloud',
+          },
           { key: 'description', label: '説明', type: 'textarea' },
         ],
       },
