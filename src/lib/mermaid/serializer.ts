@@ -16,6 +16,18 @@ const escapeMermaidText = (value: string): string => value.replace(/"/g, '\\"');
 const sanitizeMultiline = (value: string): string => value.split(/\r?\n/).map((line) => line.trim()).join('\n');
 const getEdgeLabel = (edge: MermaidEdge): string => edge.data.label ?? edge.data.metadata?.label ?? '';
 
+const getMetadataString = (
+  metadata: Record<string, string | string[] | undefined> | undefined,
+  key: string,
+): string | undefined => {
+  if (!metadata) return undefined;
+  const value = metadata[key];
+  if (Array.isArray(value)) {
+    return value.length > 0 ? value[0] : undefined;
+  }
+  return typeof value === 'string' ? value : undefined;
+};
+
 const sanitizeColor = (value?: string): string | undefined => {
   if (!value) return undefined;
   if (/^#[0-9a-fA-F]{3}$/.test(value)) {
@@ -500,6 +512,175 @@ const serializeGitGraph = (model: MermaidGraphModel): MermaidSerializationResult
 };
 
 
+const serializeC4 = (model: MermaidGraphModel): MermaidSerializationResult => {
+  const config = model.config.type === 'c4' ? model.config : diagramDefinitions.c4.defaultConfig;
+  const warnings: string[] = [...model.warnings];
+  const lines: string[] = [config.diagramVariant];
+
+  if (config.title) {
+    lines.push(`title ${escapeMermaidText(config.title)}`);
+  }
+
+  const nodesById = new Map<string, MermaidNode>(model.nodes.map((node) => [node.id, node]));
+  const emittedNodes = new Set<string>();
+
+  const keywordMap: Record<string, string> = {
+    person: 'Person',
+    personExternal: 'Person_Ext',
+    system: 'System',
+    systemExternal: 'System_Ext',
+    systemDatabase: 'SystemDb',
+    container: 'Container',
+    containerExternal: 'Container_Ext',
+    containerDatabase: 'ContainerDb',
+    component: 'Component',
+    componentExternal: 'Component_Ext',
+    componentDatabase: 'ComponentDb',
+  };
+
+  const formatSuffix = (value: string): string => {
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    const upper = trimmed.toUpperCase();
+    if (upper.length <= 2) {
+      return upper;
+    }
+    return upper.charAt(0) + upper.slice(1).toLowerCase();
+  };
+
+  const emitNode = (node: MermaidNode, indent = '') => {
+    if (node.data.diagramType !== 'c4') return;
+    if (emittedNodes.has(node.id)) return;
+    const keyword = keywordMap[node.data.variant] ?? 'System';
+    const metadata = node.data.metadata as Record<string, string | string[] | undefined> | undefined;
+    const description = getMetadataString(metadata, 'description');
+    const technology = getMetadataString(metadata, 'technology');
+    const label = escapeMermaidText(node.data.label || node.id);
+    const args = [`${node.id}`, `"${label}"`];
+    if (description && description.trim().length > 0) {
+      args.push(`"${escapeMermaidText(description)}"`);
+    }
+    if (technology && technology.trim().length > 0) {
+      args.push(`"${escapeMermaidText(technology)}"`);
+    }
+    lines.push(`${indent}${keyword}(${args.join(', ')})`);
+    emittedNodes.add(node.id);
+  };
+
+  const subgraphs = model.subgraphs ?? [];
+  subgraphs.forEach((subgraph) => {
+    const metadata = subgraph.metadata ?? {};
+    const boundaryType = metadata.boundaryType && /^[A-Za-z]+_Boundary$/i.test(metadata.boundaryType)
+      ? metadata.boundaryType
+      : 'System_Boundary';
+    const title = subgraph.title ? escapeMermaidText(subgraph.title) : escapeMermaidText(subgraph.id);
+    lines.push(`${boundaryType}(${subgraph.id}, "${title}") {`);
+    subgraph.nodes.forEach((nodeId) => {
+      const node = nodesById.get(nodeId);
+      if (!node) {
+        warnings.push(`境界「${subgraph.id}」に存在しないノード「${nodeId}」が指定されました。`);
+        return;
+      }
+      emitNode(node, '  ');
+    });
+    lines.push('}');
+  });
+
+  model.nodes.forEach((node) => {
+    if (node.data.diagramType !== 'c4') return;
+    if (!emittedNodes.has(node.id)) {
+      emitNode(node);
+    }
+  });
+
+  model.edges.forEach((edge) => {
+    if (edge.data.diagramType !== 'c4') return;
+    const metadata = edge.data.metadata as Record<string, string | string[] | undefined> | undefined;
+    const direction = getMetadataString(metadata, 'direction');
+    const technology = getMetadataString(metadata, 'technology');
+    let keyword = 'Rel';
+    if (edge.data.variant === 'relationshipDashed') {
+      keyword = 'Rel_Dashed';
+    } else if (edge.data.variant === 'relationshipBidirectional') {
+      keyword = 'BiRel';
+    }
+    if (direction && direction.trim().length > 0) {
+      const suffix = formatSuffix(direction);
+      if (suffix) {
+        if (keyword === 'Rel') {
+          keyword = `Rel_${suffix}`;
+        } else if (keyword === 'BiRel') {
+          keyword = `BiRel_${suffix}`;
+        }
+      }
+    }
+    const label = escapeMermaidText(getEdgeLabel(edge));
+    const args = [`${edge.source}`, `${edge.target}`, `"${label}"`];
+    if (technology && technology.trim().length > 0) {
+      args.push(`"${escapeMermaidText(technology)}"`);
+    }
+    lines.push(`${keyword}(${args.join(', ')})`);
+  });
+
+  return { code: lines.join('\n'), warnings };
+};
+
+const serializeArchitecture = (model: MermaidGraphModel): MermaidSerializationResult => {
+  const config =
+    model.config.type === 'architecture' ? model.config : diagramDefinitions.architecture.defaultConfig;
+  const warnings: string[] = [...model.warnings];
+  const lines: string[] = [config.diagramVariant];
+
+  if (config.title) {
+    lines.push(`title ${escapeMermaidText(config.title)}`);
+  }
+
+  const iconFallback: Record<string, string> = {
+    service: 'server',
+    database: 'database',
+    queue: 'queue',
+    cache: 'cache',
+    storage: 'disk',
+    user: 'user',
+    device: 'device',
+    component: 'app',
+  };
+
+  const subgraphs = model.subgraphs ?? [];
+  subgraphs.forEach((group) => {
+    const icon = group.metadata?.icon ? escapeMermaidText(group.metadata.icon) : 'group';
+    const title = group.title ? escapeMermaidText(group.title) : escapeMermaidText(group.id);
+    lines.push(`group ${group.id}(${icon})[${title}]`);
+  });
+
+  model.nodes.forEach((node) => {
+    if (node.data.diagramType !== 'architecture') return;
+    const metadata = node.data.metadata as Record<string, string | string[] | undefined> | undefined;
+    const directive = (getMetadataString(metadata, 'directive') || 'service').toLowerCase();
+    const icon = getMetadataString(metadata, 'icon') || iconFallback[node.data.variant] || 'server';
+    const groupIds = extractSubgraphIds(metadata as any);
+    const groupSuffix = groupIds.length > 0 ? ` in ${groupIds[0]}` : '';
+    const label = escapeMermaidText(node.data.label || node.id);
+    lines.push(`service ${node.id}(${escapeMermaidText(icon)})[${label}]${groupSuffix}`.replace(/^service/, directive));
+  });
+
+  model.edges.forEach((edge) => {
+    if (edge.data.diagramType !== 'architecture') return;
+    const metadata = edge.data.metadata as Record<string, string | string[] | undefined> | undefined;
+    const sourceAnchor = getMetadataString(metadata, 'sourceAnchor');
+    const targetAnchor = getMetadataString(metadata, 'targetAnchor');
+    const source = sourceAnchor && sourceAnchor.trim().length > 0 ? `${edge.source}:${sourceAnchor}` : edge.source;
+    const target = targetAnchor && targetAnchor.trim().length > 0 ? `${edge.target}:${targetAnchor}` : edge.target;
+    const connector = edge.data.variant === 'connectionDirected' ? '-->' : '--';
+    const label = getEdgeLabel(edge);
+    const labelText = label ? ` : ${escapeMermaidText(label)}` : '';
+    lines.push(`${source} ${connector} ${target}${labelText}`);
+  });
+
+  return { code: lines.join('\n'), warnings };
+};
+
+
 const serializePie = (model: MermaidGraphModel): MermaidSerializationResult => {
   const config = model.config.type === 'pie' ? model.config : diagramDefinitions.pie.defaultConfig;
   const warnings: string[] = [];
@@ -552,6 +733,10 @@ export const serializeMermaid = (model: MermaidGraphModel): MermaidSerialization
       return serializeGitGraph(model);
     case 'pie':
       return serializePie(model);
+    case 'c4':
+      return serializeC4(model);
+    case 'architecture':
+      return serializeArchitecture(model);
     default:
       return { code: model.nodes.map((node) => node.data.label).join('\n'), warnings: ['未対応の図種類です'] };
   }

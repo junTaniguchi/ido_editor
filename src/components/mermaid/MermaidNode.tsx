@@ -26,8 +26,10 @@ const wrapLabel = (label: string, color: string) => (
 const MermaidNodeComponent: React.FC<NodeProps<MermaidNodeData>> = ({ data, selected }) => {
   const orientation = useEdgeHandleOrientation();
   const isFlowchart = data.diagramType === 'flowchart';
+  const isC4 = data.diagramType === 'c4';
   const isDecision = isFlowchart && data.variant === 'decision';
-  const isCircular = isFlowchart && data.variant === 'startEnd';
+  const isC4Person = isC4 && (data.variant === 'person' || data.variant === 'personExternal');
+  const isCircular = (isFlowchart && data.variant === 'startEnd') || isC4Person;
 
   const handlePositions = useMemo(() => {
     const base: Record<'top' | 'bottom' | 'left' | 'right', CSSProperties> = {
