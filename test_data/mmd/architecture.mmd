@@ -12,7 +12,7 @@ architecture-beta
   service db(database)[データベース]
   service queue(queue)[メッセージキュー]
 
-  gateway:R --> L:cdn : 静的配信
+  gateway:R --> cdn:L : 静的配信
   gateway --> app : HTTPS
   app --> db : SQL
   app --> cache : キャッシュ参照
