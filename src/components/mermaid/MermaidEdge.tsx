@@ -21,50 +21,57 @@ type EdgeAnimationKey = 'flow' | 'fast' | 'strong' | 'pulse';
 
 interface EdgeAnimationPreset {
   className: string;
-  widthScale: number;
+  overlayWidth: number;
   opacity: number;
   dashArray: string;
-  duration: string;
-  timing: string;
-  animationName: 'mermaidEdgeFlow' | 'mermaidEdgePulse';
+  duration: number;
+  offset: number;
+  pulse?: boolean;
+  glowIntensity: number;
+  coreBoost: number;
 }
 
 const animationPresets: Record<EdgeAnimationKey, EdgeAnimationPreset> = {
   flow: {
     className: 'edge-animation-flow',
-    widthScale: 0.55,
-    opacity: 0.55,
-    dashArray: '6 18',
-    duration: '2s',
-    timing: 'linear',
-    animationName: 'mermaidEdgeFlow',
+    overlayWidth: 2.8,
+    opacity: 0.85,
+    dashArray: '4 12',
+    duration: 1.2,
+    offset: 16,
+    glowIntensity: 0.55,
+    coreBoost: 0.35,
   },
   fast: {
     className: 'edge-animation-fast',
-    widthScale: 0.45,
-    opacity: 0.5,
-    dashArray: '4 12',
-    duration: '1.1s',
-    timing: 'linear',
-    animationName: 'mermaidEdgeFlow',
+    overlayWidth: 2.4,
+    opacity: 0.85,
+    dashArray: '3 9',
+    duration: 0.75,
+    offset: 12,
+    glowIntensity: 0.6,
+    coreBoost: 0.4,
   },
   strong: {
     className: 'edge-animation-strong',
-    widthScale: 0.65,
-    opacity: 0.6,
-    dashArray: '8 24',
-    duration: '2.4s',
-    timing: 'linear',
-    animationName: 'mermaidEdgeFlow',
+    overlayWidth: 3.2,
+    opacity: 0.9,
+    dashArray: '6 18',
+    duration: 1.6,
+    offset: 18,
+    glowIntensity: 0.65,
+    coreBoost: 0.45,
   },
   pulse: {
     className: 'edge-animation-pulse',
-    widthScale: 0.5,
-    opacity: 0.7,
-    dashArray: '3 36',
-    duration: '1.8s',
-    timing: 'ease-in-out',
-    animationName: 'mermaidEdgePulse',
+    overlayWidth: 2.6,
+    opacity: 0.85,
+    dashArray: '3 24',
+    duration: 1.2,
+    offset: 20,
+    pulse: true,
+    glowIntensity: 0.65,
+    coreBoost: 0.5,
   },
 };
 
@@ -129,6 +136,35 @@ const expandShortHex = (value: string): string =>
     .split('')
     .map((char) => char + char)
     .join('')}`;
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const mixWithWhite = (input: string, ratio: number): string => {
+  const normalizedRatio = clamp(ratio, 0, 1);
+  if (/^#[0-9a-fA-F]{3}$/.test(input) || /^#[0-9a-fA-F]{6}$/.test(input)) {
+    const normalized = input.length === 4 ? expandShortHex(input) : input.toLowerCase();
+    const value = normalized.slice(1);
+    const r = parseInt(value.slice(0, 2), 16);
+    const g = parseInt(value.slice(2, 4), 16);
+    const b = parseInt(value.slice(4, 6), 16);
+    const blend = (component: number) => component + (255 - component) * normalizedRatio;
+    const toHex = (component: number) => clamp(component, 0, 255).toString(16).padStart(2, '0');
+    return `#${toHex(Math.round(blend(r)))}${toHex(Math.round(blend(g)))}${toHex(Math.round(blend(b)))}`;
+  }
+
+  const rgbMatch = input.match(/rgba?\s*\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)(?:\s*,\s*([0-9.]+)\s*)?\)/i);
+  if (rgbMatch) {
+    const [, rs, gs, bs, as] = rgbMatch;
+    const r = Number(rs);
+    const g = Number(gs);
+    const b = Number(bs);
+    const alpha = as !== undefined ? clamp(Number(as), 0, 1) : 1;
+    const blend = (component: number) => component + (255 - component) * normalizedRatio;
+    return `rgba(${clamp(blend(r), 0, 255)}, ${clamp(blend(g), 0, 255)}, ${clamp(blend(b), 0, 255)}, ${alpha})`;
+  }
+
+  return input;
+};
 
 const sanitizeColorValue = (value: string): string => {
   if (/^#[0-9a-fA-F]{3}$/.test(value)) {
@@ -386,25 +422,61 @@ const MermaidEdge: React.FC<EdgeProps<MermaidEdgeData>> = ({
     cursor: isDragging ? 'grabbing' : 'grab',
   };
 
+  const overlayWidth = animationPreset
+    ? Math.max(animationPreset.overlayWidth, baseStrokeWidth * 0.9)
+    : null;
+  const highlightColor = animationPreset ? mixWithWhite(markerColor, 0.6) : null;
+  const glowColor = animationPreset ? mixWithWhite(markerColor, 0.9) : null;
+
+  const renderAnimatedOverlay = (
+    stroke: string,
+    width: number,
+    opacity: number,
+    key: string,
+  ) => (
+    <path
+      key={key}
+      d={path}
+      className={`pointer-events-none ${animationPreset?.className ?? ''}`}
+      style={{
+        stroke,
+        strokeWidth: width,
+        opacity,
+        fill: 'none',
+        strokeLinecap: 'round',
+        strokeDasharray: animationPreset?.dashArray,
+        mixBlendMode: 'screen',
+        filter: `drop-shadow(0 0 4px rgba(255,255,255,${animationPreset.glowIntensity}))`,
+      }}
+    >
+      <animate
+        attributeName="stroke-dashoffset"
+        values={`0;-${animationPreset?.offset ?? 24}`}
+        dur={`${animationPreset?.duration ?? 1.5}s`}
+        repeatCount="indefinite"
+        calcMode="linear"
+      />
+      {animationPreset?.pulse && (
+        <animate
+          attributeName="stroke-opacity"
+          values={`${opacity};${Math.min(1, opacity + 0.4)};${opacity}`}
+          dur={`${animationPreset.duration}s`}
+          repeatCount="indefinite"
+          calcMode="spline"
+          keySplines="0.4 0 0.2 1;0.4 0 0.2 1"
+        />
+      )}
+    </path>
+  );
+
   return (
     <>
       <BaseEdge id={id} path={path} markerEnd={resolvedMarkerEnd} style={mergedStyle} />
-      {animationPreset && (
-        <path
-          d={path}
-          className={`pointer-events-none ${animationPreset.className}`}
-          style={{
-            stroke: markerColor,
-            strokeWidth: baseStrokeWidth * animationPreset.widthScale,
-            opacity: animationPreset.opacity,
-            fill: 'none',
-            strokeLinecap: 'round',
-            strokeDasharray: animationPreset.dashArray,
-            strokeDashoffset: 0,
-            animation: `${animationPreset.animationName} ${animationPreset.duration} ${animationPreset.timing} infinite`,
-            mixBlendMode: 'screen',
-          }}
-        />
+      {animationPreset && overlayWidth && highlightColor && glowColor && (
+        <>
+          {renderAnimatedOverlay(glowColor, overlayWidth * 1.6, animationPreset.opacity * animationPreset.glowIntensity, 'glow')}
+          {renderAnimatedOverlay(highlightColor, overlayWidth, Math.min(1, animationPreset.opacity + animationPreset.coreBoost), 'core')}
+        </>
       )}
       {label && (
         <EdgeLabelRenderer>

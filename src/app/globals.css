@@ -141,26 +141,10 @@ body {
 .edge-animation-pulse {
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-dashoffset: 0;
   filter: drop-shadow(0 0 2px rgba(37, 99, 235, 0.2));
 }
 
-.edge-animation-flow {
-  stroke-dasharray: 6 18;
-  animation: mermaidEdgeFlow 2s linear infinite;
-}
-
-.edge-animation-fast {
-  stroke-dasharray: 4 12;
-  animation: mermaidEdgeFlow 1.2s linear infinite;
-}
-
-.edge-animation-strong {
-  stroke-dasharray: 10 28;
-  animation: mermaidEdgeFlow 2.4s linear infinite;
-}
-
-.edge-animation-pulse {
-  stroke-dasharray: 3 36;
-  animation: mermaidEdgePulse 1.8s ease-in-out infinite;
-}
+.edge-animation-flow { stroke-dasharray: 6 18; }
+.edge-animation-fast { stroke-dasharray: 4 12; }
+.edge-animation-strong { stroke-dasharray: 8 24; }
+.edge-animation-pulse { stroke-dasharray: 3 36; }
