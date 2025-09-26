@@ -14,7 +14,9 @@ export type MermaidDiagramType =
   | 'er'
   | 'gantt'
   | 'pie'
-  | 'gitGraph';
+  | 'gitGraph'
+  | 'c4'
+  | 'architecture';
 
 /** ノード共通のデータ構造 */
 export interface MermaidNodeData {
@@ -52,6 +54,7 @@ export interface MermaidSubgraph {
   id: string;
   title: string;
   nodes: string[];
+  metadata?: Record<string, string>;
 }
 
 /** React Flowで扱うノード型 */
@@ -83,7 +86,9 @@ export type MermaidDiagramConfig =
   | { type: 'er' }
   | { type: 'gantt'; dateFormat: string; axisFormat: string; title?: string }
   | { type: 'pie'; title?: string; showData?: boolean }
-  | { type: 'gitGraph'; orientation: GitGraphOrientation };
+  | { type: 'gitGraph'; orientation: GitGraphOrientation }
+  | { type: 'c4'; diagramVariant: 'C4Context' | 'C4Container' | 'C4Component' | 'C4Dynamic'; title?: string }
+  | { type: 'architecture'; diagramVariant: 'architecture' | 'architecture-beta'; title?: string };
 
 /** React Flow上の状態をMermaidソースへ変換するためのモデル */
 export interface MermaidGraphModel {

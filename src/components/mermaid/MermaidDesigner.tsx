@@ -24,6 +24,7 @@ import 'reactflow/dist/style.css';
 import { IoAlertCircleOutline, IoSave, IoTrash } from 'react-icons/io5';
 import { useEditorStore } from '@/store/editorStore';
 import {
+  ARCHITECTURE_ICON_OPTIONS,
   diagramDefinitions,
   diagramList,
   type MermaidEdgeTemplate,
@@ -1159,15 +1160,31 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
   const addSubgraph = useCallback(() => {
     recordHistory();
     const newId = `subgraph_${Date.now().toString(36)}`;
+    const defaultTitle =
+      diagramType === 'architecture'
+        ? '新しいグループ'
+        : diagramType === 'c4'
+        ? '新しい境界'
+        : '新しいサブグラフ';
+    const defaultMetadata = (() => {
+      if (diagramType === 'c4') {
+        return { boundaryType: 'System_Boundary' } as Record<string, string>;
+      }
+      if (diagramType === 'architecture') {
+        return { icon: 'unknown' } as Record<string, string>;
+      }
+      return undefined;
+    })();
     setSubgraphs((current) => [
       ...current,
       {
         id: newId,
-        title: '新しいサブグラフ',
+        title: defaultTitle,
         nodes: [],
+        metadata: defaultMetadata,
       },
     ]);
-  }, [recordHistory]);
+  }, [diagramType, recordHistory]);
 
   const updateSubgraphTitle = useCallback(
     (subgraphId: string, title: string) => {
@@ -1182,6 +1199,26 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       );
     },
     [recordHistory, subgraphs],
+  );
+
+  const updateSubgraphMetadata = useCallback(
+    (
+      subgraphId: string,
+      updater: (metadata: Record<string, string> | undefined) => Record<string, string> | undefined,
+    ) => {
+      recordHistory();
+      setSubgraphs((current) =>
+        current.map((subgraph) => {
+          if (subgraph.id !== subgraphId) {
+            return subgraph;
+          }
+          const next = updater(subgraph.metadata);
+          const normalized = next && Object.keys(next).length > 0 ? next : undefined;
+          return { ...subgraph, metadata: normalized };
+        }),
+      );
+    },
+    [recordHistory],
   );
 
   const removeSubgraph = useCallback(
@@ -2294,10 +2331,16 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
             )}
           </div>
         )}
-        {diagramType === 'flowchart' && (
+        {(diagramType === 'flowchart' || diagramType === 'c4' || diagramType === 'architecture') && (
           <div>
             <div className="flex items-center justify-between">
-              <label className="block text-xs text-gray-500">サブグラフ</label>
+              <label className="block text-xs text-gray-500">
+                {diagramType === 'architecture'
+                  ? '所属グループ'
+                  : diagramType === 'c4'
+                  ? '境界'
+                  : 'サブグラフ'}
+              </label>
               {nodeSubgraphIds.length > 0 && (
                 <button
                   type="button"
@@ -2309,7 +2352,13 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
               )}
             </div>
             {subgraphs.length === 0 ? (
-              <p className="mt-1 text-xs text-gray-500">サブグラフがありません。</p>
+              <p className="mt-1 text-xs text-gray-500">
+                {diagramType === 'architecture'
+                  ? 'グループがありません。'
+                  : diagramType === 'c4'
+                  ? '境界がありません。'
+                  : 'サブグラフがありません。'}
+              </p>
             ) : (
               <div className="mt-1 space-y-1 border border-gray-300 dark:border-gray-700 rounded p-2 max-h-48 overflow-y-auto bg-white dark:bg-gray-900">
                 {subgraphs.map((subgraph) => {
@@ -2383,13 +2432,21 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
                 field={field}
                 value={value}
                 onChange={(newValue) => {
-                  updateNode(selectedNode.id, (node) => ({
-                    ...node,
-                    data: {
-                      ...node.data,
-                      metadata: { ...node.data.metadata, [field.key]: newValue },
-                    },
-                  }));
+                  updateNode(selectedNode.id, (node) => {
+                    const metadata = { ...(node.data.metadata || {}) } as NodeMetadata;
+                    if (newValue) {
+                      metadata[field.key] = newValue;
+                    } else {
+                      delete metadata[field.key];
+                    }
+                    return {
+                      ...node,
+                      data: {
+                        ...node.data,
+                        metadata,
+                      },
+                    };
+                  });
                 }}
               />
             </div>
@@ -2750,10 +2807,16 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
               )}
             </div>
           )}
-          {!isPaletteCollapsed && diagramType === 'flowchart' && (
+          {!isPaletteCollapsed && (diagramType === 'flowchart' || diagramType === 'c4' || diagramType === 'architecture') && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <p className="text-xs text-gray-500">サブグラフ</p>
+                <p className="text-xs text-gray-500">
+                  {diagramType === 'architecture'
+                    ? 'グループ'
+                    : diagramType === 'c4'
+                    ? '境界'
+                    : 'サブグラフ'}
+                </p>
                 <button
                   type="button"
                   className="rounded border border-blue-500 px-2 py-1 text-[11px] text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-300 dark:hover:bg-blue-900"
@@ -2763,18 +2826,84 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
                 </button>
               </div>
               {subgraphs.length === 0 ? (
-                <p className="text-[11px] text-gray-500">サブグラフはまだありません。</p>
+                <p className="text-[11px] text-gray-500">
+                  {diagramType === 'architecture'
+                    ? 'グループはまだありません。'
+                    : diagramType === 'c4'
+                    ? '境界はまだありません。'
+                    : 'サブグラフはまだありません。'}
+                </p>
               ) : (
                 <div className="space-y-2">
                   {subgraphs.map((subgraph) => (
                     <div key={subgraph.id} className="rounded border border-gray-200 p-2 text-xs dark:border-gray-700">
-                      <label className="block text-[11px] text-gray-500">タイトル</label>
+                      <label className="block text-[11px] text-gray-500">
+                        {diagramType === 'architecture'
+                          ? 'グループ名'
+                          : diagramType === 'c4'
+                          ? '境界名'
+                          : 'タイトル'}
+                      </label>
                       <input
                         type="text"
                         className="mt-1 w-full rounded border border-gray-300 p-1 text-xs dark:border-gray-600 dark:bg-gray-900"
                         value={subgraph.title}
                         onChange={(event) => updateSubgraphTitle(subgraph.id, event.target.value)}
                       />
+                      {diagramType === 'c4' && (
+                        <div className="mt-2">
+                          <label className="block text-[11px] text-gray-500">境界タイプ</label>
+                          <select
+                            className="mt-1 w-full rounded border border-gray-300 p-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                            value={subgraph.metadata?.boundaryType ?? 'System_Boundary'}
+                            onChange={(event) =>
+                              updateSubgraphMetadata(subgraph.id, (metadata) => ({
+                                ...(metadata ?? {}),
+                                boundaryType: event.target.value,
+                              }))
+                            }
+                          >
+                            {[
+                              { value: 'Enterprise_Boundary', label: 'Enterprise_Boundary' },
+                              { value: 'System_Boundary', label: 'System_Boundary' },
+                              { value: 'Container_Boundary', label: 'Container_Boundary' },
+                            ].map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                      {diagramType === 'architecture' && (
+                        <div className="mt-2">
+                          <label className="block text-[11px] text-gray-500">アイコン</label>
+                          <select
+                            className="mt-1 w-full rounded border border-gray-300 p-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                            value={subgraph.metadata?.icon ?? ''}
+                            onChange={(event) => {
+                              const selected = event.target.value;
+                              updateSubgraphMetadata(subgraph.id, (metadata) => {
+                                const next = { ...(metadata ?? {}) };
+                                if (selected) {
+                                  next.icon = selected;
+                                } else {
+                                  delete next.icon;
+                                }
+                                return next;
+                              });
+                            }}
+                          >
+                            <option value="">自動 (推奨)</option>
+                            {ARCHITECTURE_ICON_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="mt-1 text-[10px] text-gray-400">Mermaid標準のアイコンから選択できます。</p>
+                        </div>
+                      )}
                       <p className="mt-1 text-[10px] text-gray-400">ノード数: {subgraph.nodes.length}</p>
                       <button
                         type="button"

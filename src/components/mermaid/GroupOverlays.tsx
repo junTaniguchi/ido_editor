@@ -40,6 +40,7 @@ const extractSubgraphIds = (metadata?: Metadata): string[] => {
 };
 
 const SUBGRAPH_COLORS = ['#BFDBFE', '#C7D2FE', '#FBCFE8', '#BBF7D0', '#FDE68A', '#FECACA'];
+const ARCHITECTURE_GROUP_COLORS = ['#BFDBFE', '#E0F2FE', '#FDE68A', '#FCE7F3', '#DCFCE7', '#DDD6FE'];
 const SECTION_COLORS = ['#DBEAFE', '#FCE7F3', '#DCFCE7', '#FEF3C7', '#E0F2FE', '#F5F3FF'];
 const GIT_BRANCH_COLORS = ['#DBEAFE', '#DDD6FE', '#FBCFE8', '#DCFCE7', '#FDE68A', '#FECACA', '#E0E7FF'];
 const PADDING = 32;
@@ -104,15 +105,24 @@ const GroupOverlays: React.FC<GroupOverlaysProps> = ({ diagramType, subgraphs, g
     const overlayList: Overlay[] = [];
     if (!nodes.length) return overlayList;
 
-    if (diagramType === 'flowchart' && subgraphs.length > 0) {
+    if ((diagramType === 'flowchart' || diagramType === 'architecture') && subgraphs.length > 0) {
+      const palette = diagramType === 'architecture' ? ARCHITECTURE_GROUP_COLORS : SUBGRAPH_COLORS;
       subgraphs.forEach((subgraph, index) => {
-        const members = nodes.filter((node) => extractSubgraphIds(node.data?.metadata as Metadata | undefined).includes(subgraph.id));
+        const members = nodes.filter((node) => {
+          if (diagramType === 'architecture' && node.data?.diagramType !== 'architecture') {
+            return false;
+          }
+          if (diagramType === 'flowchart' && node.data?.diagramType !== 'flowchart') {
+            return false;
+          }
+          return extractSubgraphIds(node.data?.metadata as Metadata | undefined).includes(subgraph.id);
+        });
         const bounds = computeBounds(members as Node[]);
         if (!bounds) return;
         overlayList.push({
           id: `subgraph-${subgraph.id}`,
           label: subgraph.title || subgraph.id,
-          color: SUBGRAPH_COLORS[index % SUBGRAPH_COLORS.length],
+          color: palette[index % palette.length],
           ...bounds,
         });
       });
