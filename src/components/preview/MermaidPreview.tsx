@@ -35,6 +35,10 @@ const normalizeMermaidSource = (value: string): string => {
 };
 
 // SVGにパディングを追加して描画範囲を広げる関数
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+const XLINK_NAMESPACE = 'http://www.w3.org/1999/xlink';
+const XMLNS_NAMESPACE = 'http://www.w3.org/2000/xmlns/';
+
 const addPaddingToSvg = (svgString: string): string => {
   try {
     const parser = new DOMParser();
@@ -76,7 +80,7 @@ const addPaddingToSvg = (svgString: string): string => {
         svgElement.setAttribute('viewBox', `${-padding.x} ${-padding.y} ${newWidth} ${newHeight}`);
 
         // 既存のコンテンツをグループ化してパディング分移動
-        const svgNamespace = svgElement.namespaceURI ?? 'http://www.w3.org/2000/svg';
+        const svgNamespace = svgElement.namespaceURI ?? SVG_NAMESPACE;
         const group = svgDoc.createElementNS(svgNamespace, 'g');
         group.setAttribute('transform', `translate(${padding.x}, ${padding.y})`);
 
