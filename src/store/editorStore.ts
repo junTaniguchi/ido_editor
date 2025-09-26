@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { TabData, FileTreeItem, EditorSettings, PaneState, ContextMenuTarget, SearchSettings, AnalysisData, SqlResult, ChartSettings, SearchResult, SqlNotebookCell, SqlNotebookSnapshotMeta } from '@/types';
+import { TabData, FileTreeItem, EditorSettings, PaneState, ContextMenuTarget, SearchSettings, AnalysisData, SqlResult, ChartSettings, SearchResult, SqlNotebookCell, SqlNotebookSnapshotMeta, MapSettings } from '@/types';
 
 interface EditorStore {
   // タブ管理
@@ -62,6 +62,8 @@ interface EditorStore {
   setSqlResult: (result: SqlResult | null) => void;
   chartSettings: ChartSettings;
   updateChartSettings: (settings: Partial<ChartSettings>) => void;
+  mapSettings: MapSettings;
+  updateMapSettings: (settings: Partial<MapSettings>) => void;
   sqlNotebook: Record<string, SqlNotebookCell[]>;
   setSqlNotebook: (tabId: string, cells: SqlNotebookCell[]) => void;
   clearSqlNotebook: (tabId: string) => void;
@@ -255,6 +257,25 @@ export const useEditorStore = create<EditorStore>()(
       updateChartSettings: (settings) => set((state) => ({
         chartSettings: { ...state.chartSettings, ...settings }
       })),
+      mapSettings: {
+        dataSource: 'queryResult',
+        latitudeColumn: undefined,
+        longitudeColumn: undefined,
+        geoJsonColumn: undefined,
+        wktColumn: undefined,
+        pathColumn: undefined,
+        polygonColumn: undefined,
+        heightColumn: undefined,
+        categoryColumn: undefined,
+        colorColumn: undefined,
+        aggregation: 'sum',
+        pointRadius: 8,
+        columnRadius: 200,
+        elevationScale: 20,
+      },
+      updateMapSettings: (settings) => set((state) => ({
+        mapSettings: { ...state.mapSettings, ...settings }
+      })),
       sqlNotebook: {},
       setSqlNotebook: (tabId, cells) => set((state) => ({
         sqlNotebook: { ...state.sqlNotebook, [tabId]: cells }
@@ -322,6 +343,7 @@ export const useEditorStore = create<EditorStore>()(
           searchSettings: state.searchSettings,
           analysisEnabled: state.analysisEnabled,
           chartSettings: state.chartSettings,
+          mapSettings: state.mapSettings,
           sqlNotebook: Object.keys(state.sqlNotebook || {}).reduce<Record<string, SqlNotebookCell[]>>((acc, key) => {
             const cells = state.sqlNotebook[key] || [];
             acc[key] = cells.map((cell) => ({
@@ -391,6 +413,24 @@ export const useEditorStore = create<EditorStore>()(
           }
           if (!state.sqlNotebookMeta) {
             state.sqlNotebookMeta = {};
+          }
+          if (!state.mapSettings) {
+            state.mapSettings = {
+              dataSource: 'queryResult',
+              latitudeColumn: undefined,
+              longitudeColumn: undefined,
+              geoJsonColumn: undefined,
+              wktColumn: undefined,
+              pathColumn: undefined,
+              polygonColumn: undefined,
+              heightColumn: undefined,
+              categoryColumn: undefined,
+              colorColumn: undefined,
+              aggregation: 'sum',
+              pointRadius: 8,
+              columnRadius: 200,
+              elevationScale: 20,
+            };
           }
         }
       }
