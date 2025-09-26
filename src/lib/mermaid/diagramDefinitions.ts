@@ -669,7 +669,21 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         ],
       },
     ],
-    edgeTemplates: [],
+    edgeTemplates: [
+      {
+        variant: 'gitCommit',
+        label: 'コミット線',
+        description: '同一ブランチ内のコミットをつなぐ標準的な線',
+        defaultLabel: '',
+      },
+      {
+        variant: 'gitCheckout',
+        label: 'チェックアウト',
+        description: '別ブランチへチェックアウトする遷移を表現',
+        defaultLabel: '',
+        defaultMetadata: { branchId: '' },
+      },
+    ],
     defaultConfig: { type: 'gitGraph', orientation: 'LR' },
     defaultTemplate: `gitGraph LR:
   commit id: "A"
@@ -691,7 +705,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
         ],
       },
     ],
-    supportsEdges: false,
+    supportsEdges: true,
     createNodeId: () => `git_${createId()}`,
   },
   pie: {

@@ -821,6 +821,13 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
   };
 
   const recordCommit = (branchId: string, commitNode: MermaidNode, branchName?: string) => {
+    const existingMetadata = (commitNode.data.metadata || {}) as Record<string, string>;
+    const normalizedBranchId = branchId === DEFAULT_BRANCH_ID ? 'main' : branchId;
+    if (existingMetadata.branchId !== normalizedBranchId) {
+      commitNode.data.metadata = { ...existingMetadata, branchId: normalizedBranchId };
+    } else if (commitNode.data.metadata !== existingMetadata) {
+      commitNode.data.metadata = existingMetadata;
+    }
     const parentCommitId = lastCommitByBranch.get(branchId);
     if (parentCommitId) {
       addEdge(
