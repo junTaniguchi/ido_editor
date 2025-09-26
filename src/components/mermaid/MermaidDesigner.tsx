@@ -411,13 +411,19 @@ const FieldInput: React.FC<{
         />
       );
     case 'select':
+      const options = field.options ?? [];
+      const normalizedOptions = options.some((option) => option.value === value)
+        ? options
+        : value
+        ? [{ value, label: value }, ...options]
+        : options;
       return (
         <select
           className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
           value={value}
           onChange={(event) => onChange(event.target.value)}
         >
-          {field.options?.map((option) => (
+          {normalizedOptions.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>

@@ -55,6 +55,22 @@ const createId = () => {
   return idCounter.toString(36).padStart(4, '0');
 };
 
+const GANTT_DATE_FORMAT_OPTIONS = [
+  { value: 'YYYY-MM-DD', label: 'YYYY-MM-DD (日付)' },
+  { value: 'YYYY-MM-DD HH:mm', label: 'YYYY-MM-DD HH:mm (日時)' },
+  { value: 'YYYY-MM', label: 'YYYY-MM (年月)' },
+  { value: 'YYYY', label: 'YYYY (年)' },
+  { value: 'MM-DD', label: 'MM-DD (月日)' },
+];
+
+const GANTT_AXIS_FORMAT_OPTIONS = [
+  { value: '%m/%d', label: '%m/%d (月/日)' },
+  { value: '%Y-%m-%d', label: '%Y-%m-%d (年月日)' },
+  { value: '%b %d', label: '%b %d (短縮表記)' },
+  { value: '%a %m/%d', label: '%a %m/%d (曜日付き)' },
+  { value: '%H:%M', label: '%H:%M (時:分)' },
+];
+
 /** 図種別ごとのテンプレート定義 */
 export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefinition> = {
   flowchart: {
@@ -533,8 +549,8 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
     Task :a1, 2024-01-01, 3d`,
     configFields: [
       { key: 'title', label: 'タイトル', type: 'text' },
-      { key: 'dateFormat', label: '日付フォーマット', type: 'text', placeholder: 'YYYY-MM-DD' },
-      { key: 'axisFormat', label: '軸フォーマット', type: 'text', placeholder: '%m/%d' },
+      { key: 'dateFormat', label: '日付フォーマット', type: 'select', options: GANTT_DATE_FORMAT_OPTIONS },
+      { key: 'axisFormat', label: '軸フォーマット', type: 'select', options: GANTT_AXIS_FORMAT_OPTIONS },
     ],
     supportsEdges: false,
     createNodeId: () => `task_${createId()}`,
