@@ -625,6 +625,77 @@ const serializeC4 = (model: MermaidGraphModel): MermaidSerializationResult => {
   return { code: lines.join('\n'), warnings };
 };
 
+const validArchitectureIcons = new Set(['server', 'database', 'disk', 'internet', 'cloud', 'unknown', 'blank']);
+
+const architectureVariantDefaults: Record<string, string> = {
+  service: 'server',
+  database: 'database',
+  queue: 'unknown',
+  cache: 'disk',
+  storage: 'disk',
+  user: 'unknown',
+  device: 'unknown',
+  component: 'server',
+  function: 'server',
+  app: 'server',
+  group: 'unknown',
+};
+
+const normalizeArchitectureIcon = (rawIcon: string | undefined, variant: string): string => {
+  const fallback = architectureVariantDefaults[variant] ?? 'server';
+  if (!rawIcon) return fallback;
+  const trimmed = rawIcon.trim();
+  if (!trimmed) return fallback;
+
+  if (trimmed.includes(':')) {
+    return trimmed;
+  }
+
+  const lower = trimmed.toLowerCase();
+  if (validArchitectureIcons.has(lower)) {
+    return lower;
+  }
+
+  switch (lower) {
+    case 'queue':
+    case 'topic':
+      return 'unknown';
+    case 'cache':
+    case 'redis':
+      return 'disk';
+    case 'storage':
+    case 'bucket':
+    case 'disk':
+      return 'disk';
+    case 'database':
+    case 'db':
+      return 'database';
+    case 'cloud':
+    case 'cdn':
+      return 'cloud';
+    case 'internet':
+    case 'web':
+    case 'browser':
+      return 'internet';
+    case 'user':
+    case 'person':
+      return 'unknown';
+    case 'device':
+    case 'mobile':
+    case 'phone':
+      return 'unknown';
+    case 'component':
+    case 'app':
+    case 'service':
+      return 'server';
+    case 'blank':
+    case 'none':
+      return 'blank';
+    default:
+      return fallback;
+  }
+};
+
 const serializeArchitecture = (model: MermaidGraphModel): MermaidSerializationResult => {
   const config =
     model.config.type === 'architecture' ? model.config : diagramDefinitions.architecture.defaultConfig;
@@ -635,20 +706,9 @@ const serializeArchitecture = (model: MermaidGraphModel): MermaidSerializationRe
     lines.push(`title ${escapeMermaidText(config.title)}`);
   }
 
-  const iconFallback: Record<string, string> = {
-    service: 'server',
-    database: 'database',
-    queue: 'queue',
-    cache: 'cache',
-    storage: 'disk',
-    user: 'user',
-    device: 'device',
-    component: 'app',
-  };
-
   const subgraphs = model.subgraphs ?? [];
   subgraphs.forEach((group) => {
-    const icon = group.metadata?.icon ? escapeMermaidText(group.metadata.icon) : 'group';
+    const icon = escapeMermaidText(normalizeArchitectureIcon(group.metadata?.icon, 'group'));
     const title = group.title ? escapeMermaidText(group.title) : escapeMermaidText(group.id);
     lines.push(`group ${group.id}(${icon})[${title}]`);
   });
@@ -665,7 +725,7 @@ const serializeArchitecture = (model: MermaidGraphModel): MermaidSerializationRe
       return;
     }
 
-    const icon = getMetadataString(metadata, 'icon') || iconFallback[node.data.variant] || 'server';
+    const icon = normalizeArchitectureIcon(getMetadataString(metadata, 'icon'), node.data.variant);
     const label = escapeMermaidText(node.data.label || node.id);
     lines.push(`service ${node.id}(${escapeMermaidText(icon)})[${label}]${groupSuffix}`.replace(/^service/, directive));
   });

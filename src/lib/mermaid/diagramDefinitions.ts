@@ -1000,7 +1000,12 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
           directive: 'service',
         },
         fields: [
-          { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: server, cloud' },
+          {
+            key: 'icon',
+            label: 'アイコン',
+            type: 'text',
+            placeholder: '例: server, cloud, internet, database, disk, unknown',
+          },
           { key: 'description', label: '説明', type: 'textarea', placeholder: '役割など (任意)' },
         ],
       },
@@ -1030,11 +1035,11 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
           fillColor: '#FEF3C7',
           strokeColor: '#D97706',
           textColor: '#92400E',
-          icon: 'queue',
+          icon: 'unknown',
           directive: 'queue',
         },
         fields: [
-          { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: queue' },
+          { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: unknown, server' },
           { key: 'description', label: '説明', type: 'textarea' },
         ],
       },
@@ -1047,11 +1052,11 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
           fillColor: '#F0FDF4',
           strokeColor: '#22C55E',
           textColor: '#15803D',
-          icon: 'cache',
+          icon: 'disk',
           directive: 'cache',
         },
         fields: [
-          { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: cache' },
+          { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: disk, cloud' },
           { key: 'description', label: '説明', type: 'textarea' },
         ],
       },
@@ -1081,11 +1086,11 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
           fillColor: '#F5F3FF',
           strokeColor: '#6D28D9',
           textColor: '#4C1D95',
-          icon: 'user',
+          icon: 'unknown',
           directive: 'user',
         },
         fields: [
-          { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: user' },
+          { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: unknown, cloud' },
           { key: 'description', label: '説明', type: 'textarea' },
         ],
       },
@@ -1098,11 +1103,11 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
           fillColor: '#E5E7EB',
           strokeColor: '#4B5563',
           textColor: '#1F2937',
-          icon: 'device',
+          icon: 'unknown',
           directive: 'device',
         },
         fields: [
-          { key: 'icon', label: 'アイコン', type: 'text' },
+          { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: cloud, unknown' },
           { key: 'description', label: '説明', type: 'textarea' },
         ],
       },
@@ -1115,11 +1120,11 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
           fillColor: '#FFF7ED',
           strokeColor: '#EA580C',
           textColor: '#9A3412',
-          icon: 'app',
+          icon: 'server',
           directive: 'component',
         },
         fields: [
-          { key: 'icon', label: 'アイコン', type: 'text' },
+          { key: 'icon', label: 'アイコン', type: 'text', placeholder: '例: server, cloud' },
           { key: 'description', label: '説明', type: 'textarea' },
         ],
       },
@@ -1183,8 +1188,8 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
   title Web Application Architecture
   group edge(cloud)[Edge]
   group core(server)[Core]
-  service frontend(browser)[Frontend] in edge
-  service cdn(cache)[CDN] in edge
+  service frontend(internet)[Frontend] in edge
+  service cdn(cloud)[CDN] in edge
   service backend(server)[API Service] in core
   database db(database)[Data Store]
   frontend:R -- L:cdn
