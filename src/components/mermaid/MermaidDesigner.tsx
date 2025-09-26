@@ -247,6 +247,11 @@ const applyNodeDefaults = (node: MermaidNode, fallbackDiagramType?: MermaidDiagr
   const diagramType = (node.data.diagramType as MermaidDiagramType) || fallbackDiagramType || 'flowchart';
   const defaultMetadata = getNodeTemplateDefaults(diagramType, node.data.variant);
   const metadata = { ...defaultMetadata, ...(node.data.metadata || {}) } as NodeMetadata;
+  if (diagramType === 'gitGraph' && (node.data.variant === 'commit' || node.data.variant === 'merge')) {
+    const branchId = getMetadataString(metadata, 'branchId');
+    const normalizedBranchId = branchId && branchId.trim().length > 0 ? branchId.trim() : 'main';
+    metadata.branchId = normalizedBranchId;
+  }
   const fillColor = sanitizeColorValue(getMetadataString(metadata, 'fillColor') ?? '#ffffff');
   const strokeColor = sanitizeColorValue(getMetadataString(metadata, 'strokeColor') ?? '#1f2937');
   const textColor = sanitizeColorValue(getMetadataString(metadata, 'textColor') ?? '#111827');
@@ -934,6 +939,34 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     (connection: Connection) => {
       if (!supportsEdges || edgeTemplates.length === 0) return;
       if (!connection.source || !connection.target) return;
+      if (diagramType === 'gitGraph') {
+        const sourceNode = nodes.find((node) => node.id === connection.source);
+        const targetNode = nodes.find((node) => node.id === connection.target);
+        if (sourceNode && targetNode) {
+          const getNodeBranch = (node: MermaidNode): string | null => {
+            if (node.data.diagramType !== 'gitGraph') return null;
+            if (node.data.variant === 'commit' || node.data.variant === 'merge') {
+              const metadata = node.data.metadata as NodeMetadata | undefined;
+              return getMetadataString(metadata, 'branchId')?.trim() || 'main';
+            }
+            return null;
+          };
+          const sourceBranch = getNodeBranch(sourceNode);
+          const targetBranch = getNodeBranch(targetNode);
+          if (
+            sourceBranch
+            && targetBranch
+            && sourceBranch !== targetBranch
+            && sourceNode.data.variant !== 'merge'
+            && targetNode.data.variant !== 'merge'
+          ) {
+            if (typeof window !== 'undefined') {
+              window.alert('異なるブランチを接続する場合はブランチ作成→チェックアウト、またはマージノードを経由してください。');
+            }
+            return;
+          }
+        }
+      }
       recordHistory();
       const variant = getDefaultEdgeVariant(diagramType);
       const template = edgeTemplates.find((item) => item.variant === variant) ?? edgeTemplates[0];
@@ -971,7 +1004,7 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
       });
       setInspector({ type: 'edge', id });
     },
-    [diagramType, edgeTemplates, recordHistory, runWithSuppressedHistory, supportsEdges, updateEdges],
+    [diagramType, edgeTemplates, nodes, recordHistory, runWithSuppressedHistory, supportsEdges, updateEdges],
   );
 
   const handleSelectionChange = useCallback((params: { nodes: MermaidNode[]; edges: MermaidEdge[] }) => {
@@ -1969,12 +2002,20 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
     const fillColorValue = toHexColor(getMetadataString(nodeMetadata, 'fillColor'), '#ffffff');
     const strokeColorValue = toHexColor(getMetadataString(nodeMetadata, 'strokeColor'), '#1f2937');
     const textColorValue = toHexColor(getMetadataString(nodeMetadata, 'textColor'), '#1f2937');
-    const commitBranchId = getMetadataString(nodeMetadata, 'branchId') ?? '';
-    const commitBranchOptions = commitBranchId
-      ? gitBranchOptions.some((option) => option.id === commitBranchId)
-        ? gitBranchOptions
-        : [...gitBranchOptions, { id: commitBranchId, label: commitBranchId }]
-      : gitBranchOptions;
+    const commitBranchId = getMetadataString(nodeMetadata, 'branchId')?.trim() || 'main';
+    const commitBranchOptions = (() => {
+      const optionMap = new Map<string, { id: string; label: string }>();
+      optionMap.set('main', { id: 'main', label: 'main' });
+      gitBranchOptions.forEach((option) => {
+        if (!optionMap.has(option.id)) {
+          optionMap.set(option.id, option);
+        }
+      });
+      if (!optionMap.has(commitBranchId)) {
+        optionMap.set(commitBranchId, { id: commitBranchId, label: commitBranchId });
+      }
+      return Array.from(optionMap.values());
+    })();
 
     const handleNodeColorChange = (key: 'fillColor' | 'strokeColor' | 'textColor', color: string | null) => {
       updateNode(selectedNode.id, (node) => {
@@ -2067,14 +2108,10 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
               className="w-full border border-gray-300 dark:border-gray-700 rounded p-1 text-sm"
               value={commitBranchId}
               onChange={(event) => {
-                const nextBranchId = event.target.value;
+                const nextBranchId = event.target.value.trim() || 'main';
                 updateNode(selectedNode.id, (node) => {
                   const metadata = { ...(node.data.metadata || {}) } as NodeMetadata;
-                  if (nextBranchId) {
-                    metadata.branchId = nextBranchId;
-                  } else {
-                    delete metadata.branchId;
-                  }
+                  metadata.branchId = nextBranchId;
                   return {
                     ...node,
                     data: {
@@ -2085,7 +2122,6 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
                 });
               }}
             >
-              <option value="">未指定（デフォルト）</option>
               {commitBranchOptions.map((option) => (
                 <option key={option.id} value={option.id}>
                   {option.label}
