@@ -1,0 +1,20 @@
+architecture-beta
+  title クラウドアプリケーション構成
+  group edge(cloud)[エッジ]
+  service gateway(server)[API Gateway] in edge
+  service cdn(cache)[CDN] in edge
+
+  group core(server)[アプリケーション]
+  service app(server)[アプリケーションサーバー] in core
+  service worker(server)[バックグラウンドワーカー] in core
+  service cache(cache)[キャッシュ] in core
+
+  service db(database)[データベース]
+  service queue(queue)[メッセージキュー]
+
+  gateway:R --> L:cdn : 静的配信
+  gateway --> app : HTTPS
+  app --> db : SQL
+  app --> cache : キャッシュ参照
+  worker --> queue : 処理要求
+  queue --> worker : 取り出し

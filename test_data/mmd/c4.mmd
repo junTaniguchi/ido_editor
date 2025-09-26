@@ -1,0 +1,12 @@
+C4Context
+  title 業務システムのコンテキスト
+  Person(admin, "管理者", "社内システムの運用を担当")
+  Person_Ext(customer, "顧客", "Webから申し込み")
+  System(system, "業務システム", "案件を管理")
+  System_Ext(auth, "認証サービス", "SSOを提供")
+  Container(app, "Webアプリ", "Next.js", "業務UI")
+  ContainerDb(db, "業務DB", "PostgreSQL", "主要データを保存")
+  Rel(admin, system, "操作", "HTTPS")
+  Rel(customer, app, "利用", "ブラウザ")
+  Rel(system, auth, "認証連携", "OIDC")
+  Rel(app, db, "読み書き", "SQL")
