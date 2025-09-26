@@ -31,16 +31,36 @@ const sanitizeColor = (value?: string): string | undefined => {
   return value;
 };
 
-const buildStyleParts = (metadata?: Record<string, string | undefined>): string[] => {
+const buildStyleParts = (metadata?: Record<string, string | string[] | undefined>): string[] => {
   if (!metadata) return [];
   const parts: string[] = [];
-  const fill = sanitizeColor(metadata.fillColor);
-  const stroke = sanitizeColor(metadata.strokeColor);
-  const text = sanitizeColor(metadata.textColor);
+  const rawFill = metadata.fillColor;
+  const rawStroke = metadata.strokeColor;
+  const rawText = metadata.textColor;
+  const fill = sanitizeColor(Array.isArray(rawFill) ? rawFill[0] : rawFill);
+  const stroke = sanitizeColor(Array.isArray(rawStroke) ? rawStroke[0] : rawStroke);
+  const text = sanitizeColor(Array.isArray(rawText) ? rawText[0] : rawText);
   if (fill) parts.push(`fill:${fill}`);
   if (stroke) parts.push(`stroke:${stroke}`);
   if (text) parts.push(`color:${text}`);
   return parts;
+};
+
+type NodeMetadata = Record<string, string | string[]> & {
+  subgraphIds?: string[];
+  subgraphId?: string;
+};
+
+const extractSubgraphIds = (metadata?: NodeMetadata): string[] => {
+  if (!metadata) return [];
+  if (Array.isArray(metadata.subgraphIds)) {
+    return Array.from(new Set(metadata.subgraphIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)));
+  }
+  const legacy = metadata.subgraphId;
+  if (typeof legacy === 'string' && legacy.trim()) {
+    return [legacy.trim()];
+  }
+  return [];
 };
 
 const serializeFlowchart = (model: MermaidGraphModel): MermaidSerializationResult => {
@@ -88,8 +108,12 @@ const serializeFlowchart = (model: MermaidGraphModel): MermaidSerializationResul
   const subgraphs = model.subgraphs ?? [];
   subgraphs.forEach((subgraph) => {
     const title = subgraph.title ? ` [${escapeMermaidText(subgraph.title)}]` : '';
+    const nodeIds = subgraph.nodes.filter((nodeId) => !declaredNodes.has(nodeId));
+    if (nodeIds.length === 0) {
+      return;
+    }
     lines.push(`subgraph ${subgraph.id}${title}`);
-    subgraph.nodes.forEach((nodeId) => {
+    nodeIds.forEach((nodeId) => {
       const node = nodeMap.get(nodeId);
       if (!node) return;
       emitNodeDeclaration(node, '  ');
@@ -122,6 +146,15 @@ const serializeFlowchart = (model: MermaidGraphModel): MermaidSerializationResul
     }
   });
 
+  const multiSubgraphLines: string[] = [];
+  model.nodes.forEach((node) => {
+    const ids = extractSubgraphIds(node.data.metadata as NodeMetadata | undefined);
+    if (ids.length > 1) {
+      multiSubgraphLines.push(`%% ido:subgraphs ${node.id}=${ids.join(',')}`);
+    }
+  });
+
+  lines.push(...multiSubgraphLines);
   lines.push(...styleLines);
   lines.push(...edgeStyleLines);
 

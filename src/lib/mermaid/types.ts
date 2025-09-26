@@ -22,7 +22,7 @@ export interface MermaidNodeData {
   /** 補助説明（UI表示用） */
   description?: string;
   /** 追加メタデータ（自由形式） */
-  metadata?: Record<string, string>;
+  metadata?: Record<string, string | string[]>;
 }
 
 /** エッジ共通のデータ構造 */
@@ -38,7 +38,7 @@ export interface MermaidEdgeData {
   /** 同一ノード間の並列エッジ数 */
   parallelCount?: number;
   /** 追加メタデータ（自由形式） */
-  metadata?: Record<string, string>;
+  metadata?: Record<string, string | string[]>;
 }
 
 export interface MermaidSubgraph {

@@ -44,6 +44,47 @@ const sanitizeId = (id: string): string => {
 };
 const sanitizeLabel = (value: string): string => value.replace(/^"|"$/g, '').trim();
 
+type MutableMetadata = Record<string, string | string[]> & {
+  subgraphIds?: string[];
+  subgraphId?: string;
+};
+
+const extractSubgraphIds = (metadata?: MutableMetadata): string[] => {
+  if (!metadata) return [];
+  const rawIds = metadata.subgraphIds;
+  if (Array.isArray(rawIds)) {
+    return Array.from(new Set(rawIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)));
+  }
+  const legacyId = metadata.subgraphId;
+  if (typeof legacyId === 'string' && legacyId.trim()) {
+    return [legacyId.trim()];
+  }
+  return [];
+};
+
+const applySubgraphIds = (metadata: MutableMetadata, subgraphIds: string[]): MutableMetadata => {
+  const normalized = Array.from(new Set(subgraphIds.filter((id) => id && id.trim().length > 0)));
+  if (normalized.length > 0) {
+    metadata.subgraphIds = normalized;
+  } else {
+    delete metadata.subgraphIds;
+  }
+  if ('subgraphId' in metadata) {
+    delete metadata.subgraphId;
+  }
+  return metadata;
+};
+
+const appendSubgraphId = (node: MermaidNode, subgraphId: string) => {
+  if (!subgraphId) return;
+  const metadata = { ...(node.data.metadata || {}) } as MutableMetadata;
+  const current = extractSubgraphIds(metadata);
+  if (!current.includes(subgraphId)) {
+    current.push(subgraphId);
+  }
+  node.data.metadata = applySubgraphIds(metadata, current);
+};
+
 export const detectDiagramType = (source: string): MermaidDiagramType => {
   const lines = source.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0 && !line.startsWith('%%'));
   if (lines.length === 0) {
@@ -61,14 +102,20 @@ export const detectDiagramType = (source: string): MermaidDiagramType => {
   return 'flowchart';
 };
 
-const ensureNode = (model: MermaidGraphModel, id: string, variant: string, label: string, metadata?: Record<string, string>): MermaidNode => {
+const ensureNode = (
+  model: MermaidGraphModel,
+  id: string,
+  variant: string,
+  label: string,
+  metadata?: Record<string, string | string[]>,
+): MermaidNode => {
   const existing = model.nodes.find((node) => node.id === id);
   if (existing) {
     if (label && existing.data.label === existing.id) {
       existing.data.label = label;
     }
     if (metadata) {
-      existing.data.metadata = { ...(existing.data.metadata || {}), ...metadata };
+      existing.data.metadata = { ...(existing.data.metadata || {}), ...metadata } as Record<string, string | string[]>;
     }
     return existing;
   }
@@ -81,14 +128,21 @@ const ensureNode = (model: MermaidGraphModel, id: string, variant: string, label
       diagramType: model.type,
       variant,
       label: label || id,
-      metadata: metadata ? { ...metadata } : {},
+      metadata: metadata ? ({ ...metadata } as Record<string, string | string[]>) : {},
     },
   };
   model.nodes.push(node);
   return node;
 };
 
-const addEdge = (model: MermaidGraphModel, source: string, target: string, variant: string, label?: string, metadata?: Record<string, string>): void => {
+const addEdge = (
+  model: MermaidGraphModel,
+  source: string,
+  target: string,
+  variant: string,
+  label?: string,
+  metadata?: Record<string, string | string[]>,
+): void => {
   const edgeId = `edge_${model.edges.length}_${source}_${target}`;
   const edge: MermaidEdge = {
     id: edgeId,
@@ -119,11 +173,29 @@ const parseFlowchart = (source: string): MermaidGraphModel => {
   const edgePattern = /([\p{L}\p{N}_-]+)\s*((?=[-\.=>ox]*[-\.=>])[-\.=>ox]+)\s*(?:\|([^|]+)\|)?\s*([\p{L}\p{N}_-]+)/gu;
 
   const subgraphMap = new Map<string, { title: string; nodes: Set<string> }>();
+  const pendingMultiSubgraphs = new Map<string, string[]>();
   let currentSubgraphId: string | null = null;
 
   lines.forEach((line) => {
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('%%')) return;
+    if (!trimmed) return;
+
+    if (trimmed.startsWith('%%')) {
+      const multiMatch = trimmed.match(/^%%\s*ido:subgraphs\s+([^=\s]+)\s*=\s*(.+)$/i);
+      if (multiMatch) {
+        const nodeId = sanitizeId(multiMatch[1]);
+        const ids = multiMatch[2]
+          .split(',')
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0)
+          .map((item) => sanitizeId(item))
+          .filter((id) => id.length > 0);
+        if (ids.length > 0) {
+          pendingMultiSubgraphs.set(nodeId, ids);
+        }
+      }
+      return;
+    }
     const orientationMatch = trimmed.match(orientationPattern);
     if (orientationMatch) {
       model.config = { type: 'flowchart', orientation: orientationMatch[1].toUpperCase() as any };
@@ -207,12 +279,10 @@ const parseFlowchart = (source: string): MermaidGraphModel => {
         matchedNodeIds.add(id);
         const label = sanitizeLabel(match[2]);
         const node = ensureNode(model, id, variant, label);
-        if (currentSubgraphId && !node.data.metadata?.subgraphId) {
+        if (currentSubgraphId) {
           const entry = subgraphMap.get(currentSubgraphId);
-          if (entry) {
-            entry.nodes.add(node.id);
-          }
-          node.data.metadata = { ...(node.data.metadata || {}), subgraphId: currentSubgraphId };
+          entry?.nodes.add(node.id);
+          appendSubgraphId(node, currentSubgraphId);
         }
       }
     });
@@ -229,20 +299,10 @@ const parseFlowchart = (source: string): MermaidGraphModel => {
       const targetNode = ensureNode(model, target, 'process', target);
       if (currentSubgraphId) {
         const entry = subgraphMap.get(currentSubgraphId);
-        if (entry) {
-          if (!sourceNode.data.metadata?.subgraphId) {
-            entry.nodes.add(sourceNode.id);
-          }
-          if (!targetNode.data.metadata?.subgraphId) {
-            entry.nodes.add(targetNode.id);
-          }
-        }
-        if (!sourceNode.data.metadata?.subgraphId) {
-          sourceNode.data.metadata = { ...(sourceNode.data.metadata || {}), subgraphId: currentSubgraphId };
-        }
-        if (!targetNode.data.metadata?.subgraphId) {
-          targetNode.data.metadata = { ...(targetNode.data.metadata || {}), subgraphId: currentSubgraphId };
-        }
+        entry?.nodes.add(sourceNode.id);
+        entry?.nodes.add(targetNode.id);
+        appendSubgraphId(sourceNode, currentSubgraphId);
+        appendSubgraphId(targetNode, currentSubgraphId);
       }
 
       let variant = 'arrow';
@@ -255,6 +315,22 @@ const parseFlowchart = (source: string): MermaidGraphModel => {
       addEdge(model, source, target, variant, label);
     }
   });
+
+  if (pendingMultiSubgraphs.size > 0) {
+    pendingMultiSubgraphs.forEach((ids, nodeId) => {
+      const node = model.nodes.find((item) => item.id === nodeId);
+      if (!node) return;
+      const metadata = { ...(node.data.metadata || {}) } as MutableMetadata;
+      applySubgraphIds(metadata, ids);
+      node.data.metadata = metadata;
+      ids.forEach((id) => {
+        const entry = subgraphMap.get(id);
+        if (entry) {
+          entry.nodes.add(nodeId);
+        }
+      });
+    });
+  }
 
   if (subgraphMap.size > 0) {
     model.subgraphs = Array.from(subgraphMap.entries()).map(([id, value]) => ({

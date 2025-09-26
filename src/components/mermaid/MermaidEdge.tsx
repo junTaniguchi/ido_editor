@@ -70,11 +70,20 @@ const MermaidEdge: React.FC<EdgeProps<MermaidEdgeData>> = ({
   style,
   label,
 }) => {
+  const metadata = (data?.metadata || {}) as Record<string, string | string[]>;
+  const pickMetadata = (key: string): string | undefined => {
+    const value = metadata[key];
+    if (Array.isArray(value)) {
+      return value.length > 0 ? value[0] : undefined;
+    }
+    return value;
+  };
+
   const parallelCount = data?.parallelCount ?? 1;
   const parallelIndex = data?.parallelIndex ?? 0;
-  const strokeColor = data?.metadata?.strokeColor;
-  const labelTextColor = data?.metadata?.textColor;
-  const labelBackground = data?.metadata?.fillColor;
+  const strokeColor = pickMetadata('strokeColor');
+  const labelTextColor = pickMetadata('textColor');
+  const labelBackground = pickMetadata('fillColor');
 
   let path = '';
   let labelX = (sourceX + targetX) / 2;
@@ -120,10 +129,12 @@ const MermaidEdge: React.FC<EdgeProps<MermaidEdgeData>> = ({
     labelY = y;
   }
 
+  const strokeColorValue = strokeColor ? sanitizeColorValue(strokeColor) : undefined;
+
   const baseStyle = buildStrokeStyle(data?.variant);
   const mergedStyle: CSSProperties = {
     ...baseStyle,
-    ...(strokeColor ? { stroke: strokeColor } : {}),
+    ...(strokeColorValue ? { stroke: strokeColorValue } : {}),
     ...(style ?? {}),
   };
 
