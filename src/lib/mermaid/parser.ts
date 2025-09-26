@@ -695,7 +695,11 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
   let skippingOptions = false;
   let braceDepth = 0;
 
-  const createCommandNode = (variant: string, label: string, metadata: Record<string, string> = {}) => {
+  const createCommandNode = (
+    variant: string,
+    label: string,
+    metadata: Record<string, string> = {},
+  ): MermaidNode => {
     const index = commandIndex;
     const nodeId = `git_${index.toString(36).padStart(4, '0')}`;
     const baseMetadata: Record<string, string> = { ...metadata };
@@ -716,6 +720,7 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
     };
     model.nodes.push(node);
     commandIndex += 1;
+    return node;
   };
 
   const parseAttributes = (input: string): { attributes: Record<string, string>; remainder: string } => {
@@ -733,6 +738,109 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
       .replace(/\s+/g, ' ')
       .trim();
     return { attributes, remainder };
+  };
+
+  interface BranchState {
+    key: string;
+    name: string;
+    node: MermaidNode;
+  }
+
+  interface PendingCheckout {
+    sourceCommitId?: string;
+    targetBranchId: string;
+    metadata?: Record<string, string>;
+  }
+
+  const branchStates = new Map<string, BranchState>();
+  const lastCommitByBranch = new Map<string, string>();
+  let currentBranch: BranchState | null = null;
+  const DEFAULT_BRANCH_ID = '__default__';
+  let pendingCheckout: PendingCheckout | null = null;
+
+  const getBranchKey = (name: string) => name.trim().toLowerCase();
+
+  const ensureBranch = (name: string, metadata: Record<string, string> = {}): BranchState => {
+    const key = getBranchKey(name);
+    const existing = branchStates.get(key);
+    if (existing) {
+      if (metadata.order) {
+        const currentMetadata = existing.node.data.metadata || {};
+        if (currentMetadata.order !== metadata.order) {
+          existing.node.data.metadata = { ...currentMetadata, order: metadata.order };
+        }
+      }
+      return existing;
+    }
+    const node = createCommandNode('branch', name, metadata);
+    const state: BranchState = { key, name, node };
+    branchStates.set(key, state);
+    return state;
+  };
+
+  const findBranch = (name: string): BranchState | null => {
+    const key = getBranchKey(name);
+    return branchStates.get(key) ?? null;
+  };
+
+  const setPendingCheckout = (
+    targetBranchId: string,
+    sourceCommitId?: string,
+    metadata?: Record<string, string>,
+  ) => {
+    if (!sourceCommitId) {
+      pendingCheckout = null;
+      return;
+    }
+    const normalizedMetadata = metadata
+      ? Object.fromEntries(
+          Object.entries(metadata).filter(([, value]) => typeof value === 'string' && value.trim().length > 0),
+        )
+      : undefined;
+    pendingCheckout = {
+      targetBranchId,
+      sourceCommitId,
+      metadata: normalizedMetadata && Object.keys(normalizedMetadata).length > 0 ? normalizedMetadata : undefined,
+    };
+  };
+
+  const applyPendingCheckout = (branchId: string, commitNode: MermaidNode) => {
+    if (!pendingCheckout) return;
+    if (pendingCheckout.targetBranchId !== branchId) return;
+    if (pendingCheckout.sourceCommitId) {
+      addEdge(
+        model,
+        pendingCheckout.sourceCommitId,
+        commitNode.id,
+        'gitCheckout',
+        undefined,
+        pendingCheckout.metadata,
+      );
+    }
+    pendingCheckout = null;
+  };
+
+  const recordCommit = (branchId: string, commitNode: MermaidNode, branchName?: string) => {
+    const existingMetadata = (commitNode.data.metadata || {}) as Record<string, string>;
+    const normalizedBranchId = branchId === DEFAULT_BRANCH_ID ? 'main' : branchId;
+    if (existingMetadata.branchId !== normalizedBranchId) {
+      commitNode.data.metadata = { ...existingMetadata, branchId: normalizedBranchId };
+    } else if (commitNode.data.metadata !== existingMetadata) {
+      commitNode.data.metadata = existingMetadata;
+    }
+    const parentCommitId = lastCommitByBranch.get(branchId);
+    if (parentCommitId) {
+      addEdge(
+        model,
+        parentCommitId,
+        commitNode.id,
+        'gitCommit',
+        undefined,
+        branchName ? { branch: branchName } : undefined,
+      );
+    }
+    applyPendingCheckout(branchId, commitNode);
+    lastCommitByBranch.set(branchId, commitNode.id);
   };
 
   lines.forEach((line) => {
@@ -796,7 +904,9 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
       metadata.type = typeValue || 'NORMAL';
       const fallbackLabel = remainder ? sanitizeLabel(remainder) : '';
       const label = metadata.id || fallbackLabel || `commit_${commandIndex + 1}`;
-      createCommandNode('commit', label, metadata);
+      const commitNode = createCommandNode('commit', label, metadata);
+      const branchId = currentBranch ? currentBranch.node.id : DEFAULT_BRANCH_ID;
+      recordCommit(branchId, commitNode, currentBranch?.name);
       return;
     }
 
@@ -811,7 +921,21 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
       if (attributes.order) {
         metadata.order = attributes.order;
       }
-      createCommandNode('branch', branchName, metadata);
+      const fromBranch = currentBranch;
+      const branch = ensureBranch(branchName, metadata);
+      const inheritedFromBranch = fromBranch ? lastCommitByBranch.get(fromBranch.node.id) : undefined;
+      const inheritedFromDefault = !fromBranch ? lastCommitByBranch.get(DEFAULT_BRANCH_ID) : undefined;
+      const inheritedCommitId = inheritedFromBranch ?? inheritedFromDefault;
+      if (inheritedFromBranch) {
+        lastCommitByBranch.set(branch.node.id, inheritedFromBranch);
+      } else if (inheritedFromDefault && !lastCommitByBranch.has(branch.node.id)) {
+        lastCommitByBranch.set(branch.node.id, inheritedFromDefault);
+      }
+      setPendingCheckout(branch.node.id, inheritedCommitId, {
+        from: fromBranch?.name ?? '',
+        to: branch.name,
+      });
+      currentBranch = branch;
       return;
     }
 
@@ -827,6 +951,20 @@ const parseGitGraph = (source: string): MermaidGraphModel => {
         metadata.command = 'switch';
       }
       createCommandNode('checkout', branchName, metadata);
+      const previousBranch = currentBranch;
+      const targetBranch = findBranch(branchName);
+      const fromBranchId = previousBranch ? previousBranch.node.id : DEFAULT_BRANCH_ID;
+      const sourceCommitId = lastCommitByBranch.get(fromBranchId);
+      if (targetBranch) {
+        setPendingCheckout(targetBranch.node.id, sourceCommitId, {
+          from: previousBranch?.name ?? '',
+          to: targetBranch.name,
+        });
+        currentBranch = targetBranch;
+      } else {
+        pendingCheckout = null;
+        currentBranch = null;
+      }
       return;
     }
 
