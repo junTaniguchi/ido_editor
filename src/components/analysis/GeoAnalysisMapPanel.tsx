@@ -1330,7 +1330,6 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
         <DeckGL
           controller={controllerSettings}
           layers={dataLayers}
-          initialViewState={computedViewState}
           viewState={viewState}
           onViewStateChange={handleViewStateChange}
           getTooltip={tooltipFormatter}
