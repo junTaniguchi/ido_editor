@@ -265,15 +265,8 @@ export const useEditorStore = create<EditorStore>()(
       })),
       mapSettings: {
         dataSource: 'queryResult',
-        latitudeColumn: undefined,
-        longitudeColumn: undefined,
-        geoJsonColumn: undefined,
-        wktColumn: undefined,
-        pathColumn: undefined,
-        polygonColumn: undefined,
-        heightColumn: undefined,
-        categoryColumn: undefined,
-        colorColumn: undefined,
+        activeDataSourceIds: [],
+        layerSettings: {},
         aggregation: 'sum',
         pointRadius: 8,
         columnRadius: 200,
@@ -425,15 +418,8 @@ export const useEditorStore = create<EditorStore>()(
           if (!state.mapSettings) {
             state.mapSettings = {
               dataSource: 'queryResult',
-              latitudeColumn: undefined,
-              longitudeColumn: undefined,
-              geoJsonColumn: undefined,
-              wktColumn: undefined,
-              pathColumn: undefined,
-              polygonColumn: undefined,
-              heightColumn: undefined,
-              categoryColumn: undefined,
-              colorColumn: undefined,
+              activeDataSourceIds: [],
+              layerSettings: {},
               aggregation: 'sum',
               pointRadius: 8,
               columnRadius: 200,
@@ -441,7 +427,17 @@ export const useEditorStore = create<EditorStore>()(
               basemap: 'osm-standard',
               basemapOverlays: { ...DEFAULT_MAP_BASEMAP_OVERLAYS },
             };
-          } else if (!state.mapSettings.basemap) {
+          } else {
+            if (!state.mapSettings.activeDataSourceIds) {
+              state.mapSettings.activeDataSourceIds = state.mapSettings.dataSource
+                ? [state.mapSettings.dataSource]
+                : [];
+            }
+            if (!state.mapSettings.layerSettings) {
+              state.mapSettings.layerSettings = {};
+            }
+          }
+          if (!state.mapSettings.basemap) {
             state.mapSettings.basemap = 'osm-standard';
           }
 
