@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "postinstall": "node scripts/check-geospatial-deps.mjs",
     "dev:web": "next dev",
     "dev:electron": "ELECTRON_DEV=1 electron .",
     "dist": "npm run build && electron-builder",
