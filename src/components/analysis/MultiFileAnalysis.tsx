@@ -792,17 +792,6 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
               data = geoResult.data;
               break;
             }
-            case 'shp':
-            case 'shapefile': {
-              const buffer = binaryContent ?? (await file.arrayBuffer());
-              const geoResult = await parseGeospatialData(buffer, {
-                fileName,
-                formatHint: 'shapefile',
-              });
-              if (geoResult.error) throw new Error(geoResult.error);
-              data = geoResult.data;
-              break;
-            }
             case 'xlsx':
             case 'xls':
               // Excelファイルの処理

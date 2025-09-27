@@ -134,7 +134,6 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     | 'geojson'
     | 'topojson'
     | 'wkt'
-    | 'shapefile'
     | null
   >(null);
   const [parsedData, setParsedData] = useState<any>(null);
@@ -525,37 +524,19 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
 
         case 'geojson':
         case 'topojson':
-        case 'wkt':
-        case 'shapefile': {
+        case 'wkt': {
           try {
             const tab = tabs.get(tabId);
-            let parseInput: string | ArrayBuffer | Blob = content;
-
-            if (type === 'shapefile') {
-              let buffer: ArrayBuffer | null = null;
-              if (tab?.file && 'getFile' in (tab.file as FileSystemFileHandle)) {
-                const file = await (tab.file as FileSystemFileHandle).getFile();
-                buffer = await file.arrayBuffer();
-              } else if (tab?.file instanceof File) {
-                buffer = await tab.file.arrayBuffer();
-              }
-
-              if (!buffer) {
-                throw new Error('シェープファイルのバイナリデータを取得できませんでした');
-              }
-              parseInput = buffer;
-            }
-
-            const geoResult = await parseGeospatialData(parseInput, {
+            const geoResult = await parseGeospatialData(content, {
               fileName: tab?.name,
-              formatHint: type === 'shapefile' ? 'shapefile' : (type as 'geojson' | 'topojson' | 'wkt'),
+              formatHint: type as 'geojson' | 'topojson' | 'wkt',
             });
 
             if (geoResult.error) {
               setError(geoResult.error);
             } else {
               setParsedData(geoResult.data);
-              setOriginalData(geoResult.data);
+              setOriginalData(geoResult.geoJson);
               setColumns(geoResult.columns);
             }
           } catch (err) {

@@ -63,8 +63,7 @@ const MainLayout = () => {
       type === 'excel' ||
       type === 'geojson' ||
       type === 'topojson' ||
-      type === 'wkt' ||
-      type === 'shapefile';
+      type === 'wkt';
 
     return {
       isMarkdown,

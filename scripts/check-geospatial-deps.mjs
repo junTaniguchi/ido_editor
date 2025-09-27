@@ -2,7 +2,6 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 const requiredPackages = [
-  '@loaders.gl/shapefile',
   '@loaders.gl/wkt',
   'wellknown'
 ];

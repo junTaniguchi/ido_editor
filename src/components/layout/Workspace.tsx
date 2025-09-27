@@ -54,8 +54,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
       fileType === 'excel' ||
       fileType === 'geojson' ||
       fileType === 'topojson' ||
-      fileType === 'wkt' ||
-      fileType === 'shapefile';
+      fileType === 'wkt';
 
     return {
       isMarkdown: markdown,

@@ -3,7 +3,6 @@ import YAML from 'js-yaml';
 import { tableFromArrays, Table } from 'apache-arrow';
 import * as XLSX from 'xlsx';
 import { load } from '@loaders.gl/core';
-import { ShapefileLoader } from '@loaders.gl/shapefile';
 import { WKTLoader } from '@loaders.gl/wkt';
 import { feature as topojsonFeature } from 'topojson-client';
 import type { Feature, FeatureCollection, Geometry } from 'geojson';
@@ -285,7 +284,7 @@ export const flattenGeoJsonFeatures = (featureCollection: FeatureCollection | nu
   };
 };
 
-type ParseGeospatialFormat = 'geojson' | 'topojson' | 'wkt' | 'shapefile';
+type ParseGeospatialFormat = 'geojson' | 'topojson' | 'wkt';
 
 interface ParseGeospatialOptions {
   fileName?: string;
@@ -309,16 +308,6 @@ const textFromInput = async (input: string | ArrayBuffer | Blob): Promise<string
   return new TextDecoder().decode(input);
 };
 
-const arrayBufferFromInput = async (input: string | ArrayBuffer | Blob): Promise<ArrayBuffer> => {
-  if (input instanceof ArrayBuffer) {
-    return input;
-  }
-  if (input instanceof Blob) {
-    return await input.arrayBuffer();
-  }
-  return new TextEncoder().encode(input).buffer;
-};
-
 const detectGeospatialFormat = async (
   input: string | ArrayBuffer | Blob,
   options: ParseGeospatialOptions = {},
@@ -329,9 +318,6 @@ const detectGeospatialFormat = async (
 
   const fileName = options.fileName?.toLowerCase();
   if (fileName) {
-    if (fileName.endsWith('.shp')) {
-      return 'shapefile';
-    }
     if (fileName.endsWith('.topojson')) {
       return 'topojson';
     }
@@ -343,11 +329,8 @@ const detectGeospatialFormat = async (
     }
   }
 
-  if (typeof input !== 'string') {
-    return 'shapefile';
-  }
-
-  const trimmed = input.trim();
+  const text = typeof input === 'string' ? input : await textFromInput(input);
+  const trimmed = text.trim();
   if (!trimmed) {
     return 'geojson';
   }
@@ -385,12 +368,6 @@ export const parseGeospatialData = async (
     let featureCollection: FeatureCollection | null = null;
 
     switch (format) {
-      case 'shapefile': {
-        const buffer = await arrayBufferFromInput(input);
-        const loaded = await load(buffer, ShapefileLoader);
-        featureCollection = toFeatureCollection(loaded);
-        break;
-      }
       case 'topojson': {
         const text = typeof input === 'string' ? input : await textFromInput(input);
         let topoJson: any = null;

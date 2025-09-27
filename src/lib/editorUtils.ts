@@ -140,7 +140,7 @@ export const getEditorExtensions = (
  */
 export const getFileType = (
   fileName: string,
-): 'text' | 'markdown' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' | 'excel' | 'ipynb' | 'pdf' | 'geojson' | 'topojson' | 'wkt' | 'shapefile' => {
+): 'text' | 'markdown' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' | 'excel' | 'ipynb' | 'pdf' | 'geojson' | 'topojson' | 'wkt' => {
   const lowerFileName = fileName.toLowerCase();
 
   if (lowerFileName.endsWith('.md') || lowerFileName.endsWith('.markdown')) {

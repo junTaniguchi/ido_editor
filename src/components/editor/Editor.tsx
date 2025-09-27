@@ -42,7 +42,6 @@ const SUPPORTED_CLIPBOARD_FILE_TYPES = new Set<TabData['type']>([
   'geojson',
   'topojson',
   'wkt',
-  'shapefile',
 ]);
 
 const MIME_FALLBACK_EXTENSION: Record<string, string> = {

@@ -595,29 +595,11 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
 
         case 'geojson':
         case 'topojson':
-        case 'wkt':
-        case 'shapefile': {
+        case 'wkt': {
           try {
-            let parseInput: string | ArrayBuffer | Blob = content;
-
-            if (type === 'shapefile') {
-              let buffer: ArrayBuffer | null = null;
-              if (currentTab?.file && 'getFile' in (currentTab.file as FileSystemFileHandle)) {
-                const file = await (currentTab.file as FileSystemFileHandle).getFile();
-                buffer = await file.arrayBuffer();
-              } else if (currentTab?.file instanceof File) {
-                buffer = await currentTab.file.arrayBuffer();
-              }
-
-              if (!buffer) {
-                throw new Error('シェープファイルのバイナリデータを取得できませんでした');
-              }
-              parseInput = buffer;
-            }
-
-            const geoResult = await parseGeospatialData(parseInput, {
+            const geoResult = await parseGeospatialData(content, {
               fileName: currentTab?.name,
-              formatHint: type === 'shapefile' ? 'shapefile' : (type as 'geojson' | 'topojson' | 'wkt'),
+              formatHint: type as 'geojson' | 'topojson' | 'wkt',
             });
 
             if (geoResult.error) {
