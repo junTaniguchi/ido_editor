@@ -3,6 +3,7 @@ import YAML from 'js-yaml';
 import { tableFromArrays, Table } from 'apache-arrow';
 import * as XLSX from 'xlsx';
 import { load } from '@loaders.gl/core';
+import type { LoaderWithParser } from '@loaders.gl/core';
 import { WKTLoader } from '@loaders.gl/wkt';
 import { feature as topojsonFeature } from 'topojson-client';
 import type { Feature, FeatureCollection, Geometry } from 'geojson';
