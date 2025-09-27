@@ -4343,6 +4343,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
               dataSources={mapDataSources}
               mapSettings={mapSettings}
               onUpdateSettings={updateMapSettings}
+              noDataMessage="クエリ結果がありません。SQLタブでクエリを実行してください。"
               noCoordinateMessage="設定パネルで緯度・経度列やGeoJSON/WKT列を選択してください。"
               settingsPlacement="external"
               settingsContainer={mapSettingsContainer}

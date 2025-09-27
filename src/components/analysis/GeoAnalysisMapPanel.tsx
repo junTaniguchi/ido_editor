@@ -445,6 +445,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
   }, []);
 
   const activeColumns = activeSource?.columns ?? [];
+
   const handleZoom = useCallback((delta: number) => {
     setViewState((prev) => {
       const currentZoom = Number.isFinite(prev.zoom) ? prev.zoom : DEFAULT_VIEW_STATE.zoom;
@@ -504,6 +505,9 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
 
           <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
             <span>GeoJSON列</span>
+            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+              GeoJSONのFeature / FeatureCollection / Geometryオブジェクトを含む列を指定すると、そのままラインやポリゴンを描画できます。
+            </span>
             <select
               value={validGeoJsonColumn ?? ''}
               onChange={(event) => onUpdateSettings({ geoJsonColumn: event.target.value || undefined })}
@@ -521,6 +525,9 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
 
           <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
             <span>WKT列</span>
+            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+              POINT / LINESTRING / POLYGON などのWell-Known Text形式を含む列を選ぶと、文字列から地物を生成して表示します。
+            </span>
             <select
               value={validWktColumn ?? ''}
               onChange={(event) => onUpdateSettings({ wktColumn: event.target.value || undefined })}
@@ -538,6 +545,9 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
 
           <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
             <span>ライン列</span>
+            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+              経度・緯度のペア配列（例: [[lon, lat], ...] や "lon lat; ..."）を持つ列を指定すると、PathLayerでルートを描画します。
+            </span>
             <select
               value={validPathColumn ?? ''}
               onChange={(event) => onUpdateSettings({ pathColumn: event.target.value || undefined })}
@@ -555,6 +565,9 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
 
           <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
             <span>ポリゴン列</span>
+            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+              経度・緯度のリング配列（例: [[[lon, lat], ...]]]）を含む列を指定すると、面データを塗りつぶして表示します。
+            </span>
             <select
               value={validPolygonColumn ?? ''}
               onChange={(event) => onUpdateSettings({ polygonColumn: event.target.value || undefined })}
@@ -582,6 +595,9 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
             <span>カテゴリ列</span>
+            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+              選択するとカテゴリごとに凡例が作成され、点やカラムをグループ別に色分けできます。
+            </span>
             <select
               value={validCategoryColumn ?? ''}
               onChange={(event) => onUpdateSettings({ categoryColumn: event.target.value || undefined })}
@@ -599,6 +615,9 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
 
           <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
             <span>色分け列</span>
+            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+              数値やカテゴリ値を基に自動配色します。カテゴリ列と別の値で色分けしたいときに指定してください。
+            </span>
             <select
               value={validColorColumn ?? ''}
               onChange={(event) => onUpdateSettings({ colorColumn: event.target.value || undefined })}
@@ -616,6 +635,9 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
 
           <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
             <span>高さ列</span>
+            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+              ColumnLayerで棒グラフを表示するときの高さに使う指標列を指定します。集計方法と組み合わせて集計値を立体化できます。
+            </span>
             <select
               value={validHeightColumn ?? ''}
               onChange={(event) => onUpdateSettings({ heightColumn: event.target.value || undefined })}
@@ -633,6 +655,9 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
 
           <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
             <span>集計方法</span>
+            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+              同一座標に複数行がある場合に高さ列の値をどのように集約するかを指定します。ツールチップや棒グラフの高さに反映されます。
+            </span>
             <select
               value={mapSettings.aggregation}
               onChange={(event) => onUpdateSettings({ aggregation: event.target.value as MapSettings['aggregation'] })}
