@@ -737,7 +737,7 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
           let textContent: string | null = null;
           let binaryContent: ArrayBuffer | null = null;
 
-          if (extension === 'shp') {
+          if (extension === 'shp' || extension === 'shpz' || extension === 'shz' || (extension === 'zip' && fileName.toLowerCase().includes('.shp'))) {
             binaryContent = await file.arrayBuffer();
           } else {
             textContent = await file.text();
@@ -787,6 +787,23 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
               const geoResult = await parseGeospatialData(textContent ?? '', {
                 fileName,
                 formatHint: extension as 'geojson' | 'topojson' | 'wkt',
+              });
+              if (geoResult.error) throw new Error(geoResult.error);
+              data = geoResult.data;
+              break;
+            }
+            case 'shp':
+            case 'shpz':
+            case 'shz':
+            case 'zip': {
+              if (extension === 'zip' && !fileName.toLowerCase().includes('.shp')) {
+                console.warn(`Zipファイル ${fileName} はShapefileとして処理できませんでした。`);
+                break;
+              }
+              const geospatialInput = binaryContent ?? textContent ?? '';
+              const geoResult = await parseGeospatialData(geospatialInput, {
+                fileName,
+                formatHint: 'shapefile',
               });
               if (geoResult.error) throw new Error(geoResult.error);
               data = geoResult.data;

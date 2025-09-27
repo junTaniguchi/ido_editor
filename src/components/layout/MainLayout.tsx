@@ -63,7 +63,8 @@ const MainLayout = () => {
       type === 'excel' ||
       type === 'geojson' ||
       type === 'topojson' ||
-      type === 'wkt';
+      type === 'wkt' ||
+      type === 'shapefile';
 
     return {
       isMarkdown,
@@ -227,6 +228,8 @@ const MainLayout = () => {
         try {
           if (fileType === 'excel') {
             content = '';
+          } else if (fileType === 'shapefile') {
+            content = '# Shapefile binary data. プレビューで表示してください。';
           } else if (fileType === 'pdf') {
             content = URL.createObjectURL(file);
           } else if (fileType === 'shapefile') {

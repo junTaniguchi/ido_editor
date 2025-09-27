@@ -4,6 +4,7 @@ import { tableFromArrays, Table } from 'apache-arrow';
 import * as XLSX from 'xlsx';
 import { load } from '@loaders.gl/core';
 import { WKTLoader } from '@loaders.gl/wkt';
+import { ShapefileLoader } from '@loaders.gl/shapefile';
 import { feature as topojsonFeature } from 'topojson-client';
 import type { Feature, FeatureCollection, Geometry } from 'geojson';
 
@@ -284,7 +285,7 @@ export const flattenGeoJsonFeatures = (featureCollection: FeatureCollection | nu
   };
 };
 
-type ParseGeospatialFormat = 'geojson' | 'topojson' | 'wkt';
+type ParseGeospatialFormat = 'geojson' | 'topojson' | 'wkt' | 'shapefile';
 
 interface ParseGeospatialOptions {
   fileName?: string;
@@ -308,6 +309,19 @@ const textFromInput = async (input: string | ArrayBuffer | Blob): Promise<string
   return new TextDecoder().decode(input);
 };
 
+const arrayBufferFromInput = async (input: string | ArrayBuffer | Blob): Promise<ArrayBuffer | null> => {
+  if (input instanceof ArrayBuffer) {
+    return input;
+  }
+  if (input instanceof Blob) {
+    return await input.arrayBuffer();
+  }
+  if (typeof input === 'string') {
+    return new TextEncoder().encode(input).buffer;
+  }
+  return null;
+};
+
 const detectGeospatialFormat = async (
   input: string | ArrayBuffer | Blob,
   options: ParseGeospatialOptions = {},
@@ -318,6 +332,9 @@ const detectGeospatialFormat = async (
 
   const fileName = options.fileName?.toLowerCase();
   if (fileName) {
+    if (/(\.shp|\.shpz|\.shz|\.dbf)$/.test(fileName) || (fileName.endsWith('.zip') && fileName.includes('.shp'))) {
+      return 'shapefile';
+    }
     if (fileName.endsWith('.topojson')) {
       return 'topojson';
     }
@@ -333,6 +350,10 @@ const detectGeospatialFormat = async (
   const trimmed = text.trim();
   if (!trimmed) {
     return 'geojson';
+  }
+
+  if (typeof input !== 'string') {
+    return 'shapefile';
   }
 
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
@@ -369,23 +390,23 @@ export const parseGeospatialData = async (
 
     switch (format) {
       case 'topojson': {
-        const text = typeof input === 'string' ? input : await textFromInput(input);
-        let topoJson: any = null;
+        const dataInput = typeof input === 'string' ? input : await textFromInput(input);
+        let topoSource: any = null;
         try {
-          topoJson = JSON.parse(text);
+          topoSource = JSON.parse(dataInput);
         } catch (parseError) {
           throw new Error('TopoJSONの解析に失敗しました');
         }
 
-        const objectEntries = topoJson && typeof topoJson === 'object' && topoJson.objects
-          ? Object.entries(topoJson.objects as Record<string, any>)
+        const objectEntries = topoSource && typeof topoSource === 'object' && (topoSource as any).objects
+          ? Object.entries((topoSource as any).objects as Record<string, any>)
           : [];
 
         const features: Feature[] = [];
         if (objectEntries.length > 0) {
           for (const [key, topoObject] of objectEntries) {
             try {
-              const result = topojsonFeature(topoJson, topoObject as any);
+              const result = topojsonFeature(topoSource, topoObject as any);
               if (!result) {
                 continue;
               }
@@ -406,7 +427,7 @@ export const parseGeospatialData = async (
             features,
           };
         } else {
-          featureCollection = toFeatureCollection(topoJson);
+          featureCollection = toFeatureCollection(topoSource);
         }
         break;
       }
@@ -457,6 +478,27 @@ export const parseGeospatialData = async (
             features,
           };
         }
+        break;
+      }
+      case 'shapefile': {
+        const buffer = await arrayBufferFromInput(input);
+        if (!buffer) {
+          throw new Error('Shapefileのバイナリデータを読み込めませんでした');
+        }
+
+        let loaded: any = null;
+        try {
+          loaded = await load(buffer, ShapefileLoader);
+        } catch (shapeError) {
+          console.error('ShapefileLoaderの解析に失敗しました:', shapeError);
+          throw new Error('Shapefileの解析に失敗しました');
+        }
+
+        const collection = toFeatureCollection(loaded);
+        if (!collection) {
+          throw new Error('ShapefileからGeoJSONを生成できませんでした');
+        }
+        featureCollection = collection;
         break;
       }
       case 'geojson':
