@@ -7,7 +7,7 @@ export interface TabData {
   content: string;
   originalContent: string;
   isDirty: boolean;
-  type: 'text' | 'markdown' | 'md' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' | 'mmd' | 'excel' | 'pdf' | 'ipynb' | 'geojson' | 'topojson' | 'wkt' | 'shapefile';
+  type: 'text' | 'markdown' | 'md' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' | 'mmd' | 'excel' | 'pdf' | 'ipynb' | 'geojson' | 'topojson' | 'wkt';
   isReadOnly: boolean;
   file?: FileSystemFileHandle | File;
 }

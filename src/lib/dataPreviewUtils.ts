@@ -8,43 +8,20 @@ import { WKTLoader } from '@loaders.gl/wkt';
 import { feature as topojsonFeature } from 'topojson-client';
 import type { Feature, FeatureCollection, Geometry } from 'geojson';
 
-const getShapefileLoader = (() => {
-  let cachedPromise: Promise<LoaderWithParser | null> | null = null;
+const SHAPEFILE_EXTENSION_PATTERN = /\.(?:shp|shpz|shz|dbf)$/;
 
-  return async (): Promise<LoaderWithParser | null> => {
-    if (!cachedPromise) {
-      cachedPromise = (async () => {
-        const moduleIdParts = ['@loaders.gl', 'shapefile'];
-        const moduleId = moduleIdParts.join('/');
-        try {
-          console.debug('[debug] Attempting to dynamically import shapefile loader', {
-            moduleId,
-          });
-          const module = await import(moduleId);
-          const availableKeys = module ? Object.keys(module) : [];
-          const loader = module?.ShapefileLoader as LoaderWithParser | undefined;
-          if (!loader) {
-            console.warn('[debug] ShapefileLoader export is unavailable.', {
-              moduleId,
-              availableKeys,
-            });
-          } else {
-            console.debug('[debug] ShapefileLoader export resolved successfully.');
-          }
-          return loader ?? null;
-        } catch (error) {
-          console.warn(
-            'Shapefile support is unavailable. Install @loaders.gl/shapefile to enable shapefile previews.'
-          );
-          console.error(error);
-          return null;
-        }
-      })();
-    }
+const isLikelyShapefile = (fileName?: string): boolean => {
+  if (!fileName) {
+    return false;
+  }
 
-    return cachedPromise;
-  };
-})();
+  const normalized = fileName.toLowerCase();
+  if (/\.zip$/.test(normalized)) {
+    return normalized.includes('.shp');
+  }
+
+  return SHAPEFILE_EXTENSION_PATTERN.test(normalized);
+};
 
 /**
  * CSVデータをパースする
@@ -323,7 +300,7 @@ export const flattenGeoJsonFeatures = (featureCollection: FeatureCollection | nu
   };
 };
 
-type ParseGeospatialFormat = 'geojson' | 'topojson' | 'wkt' | 'shapefile';
+type ParseGeospatialFormat = 'geojson' | 'topojson' | 'wkt';
 
 interface ParseGeospatialOptions {
   fileName?: string;
@@ -347,19 +324,6 @@ const textFromInput = async (input: string | ArrayBuffer | Blob): Promise<string
   return new TextDecoder().decode(input);
 };
 
-const arrayBufferFromInput = async (input: string | ArrayBuffer | Blob): Promise<ArrayBuffer | null> => {
-  if (input instanceof ArrayBuffer) {
-    return input;
-  }
-  if (input instanceof Blob) {
-    return await input.arrayBuffer();
-  }
-  if (typeof input === 'string') {
-    return new TextEncoder().encode(input).buffer;
-  }
-  return null;
-};
-
 const detectGeospatialFormat = async (
   input: string | ArrayBuffer | Blob,
   options: ParseGeospatialOptions = {},
@@ -370,9 +334,6 @@ const detectGeospatialFormat = async (
 
   const fileName = options.fileName?.toLowerCase();
   if (fileName) {
-    if (/(\.shp|\.shpz|\.shz|\.dbf)$/.test(fileName) || (fileName.endsWith('.zip') && fileName.includes('.shp'))) {
-      return 'shapefile';
-    }
     if (fileName.endsWith('.topojson')) {
       return 'topojson';
     }
@@ -388,10 +349,6 @@ const detectGeospatialFormat = async (
   const trimmed = text.trim();
   if (!trimmed) {
     return 'geojson';
-  }
-
-  if (typeof input !== 'string') {
-    return 'shapefile';
   }
 
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
@@ -423,6 +380,23 @@ export const parseGeospatialData = async (
   options: ParseGeospatialOptions = {},
 ): Promise<ParseGeospatialResult> => {
   try {
+    const fileName = options.fileName;
+    const isBinaryInput =
+      input instanceof ArrayBuffer ||
+      (input instanceof Blob &&
+        input.type !== '' &&
+        !/^text\//.test(input.type) &&
+        !/json$/i.test(input.type));
+
+    if (isLikelyShapefile(fileName) || isBinaryInput) {
+      return {
+        columns: [],
+        data: [],
+        geoJson: null,
+        error: 'Shapefile形式の地理空間データは現在サポートしていません。',
+      };
+    }
+
     const format = await detectGeospatialFormat(input, options);
     let featureCollection: FeatureCollection | null = null;
 
@@ -516,32 +490,6 @@ export const parseGeospatialData = async (
             features,
           };
         }
-        break;
-      }
-      case 'shapefile': {
-        const buffer = await arrayBufferFromInput(input);
-        if (!buffer) {
-          throw new Error('Shapefileのバイナリデータを読み込めませんでした');
-        }
-
-        const shapefileLoader = await getShapefileLoader();
-        if (!shapefileLoader) {
-          throw new Error('Shapefileサポートが有効になっていません。@loaders.gl/shapefile をインストールしてください。');
-        }
-
-        let loaded: any = null;
-        try {
-          loaded = await load(buffer, shapefileLoader);
-        } catch (shapeError) {
-          console.error('ShapefileLoaderの解析に失敗しました:', shapeError);
-          throw new Error('Shapefileの解析に失敗しました');
-        }
-
-        const collection = toFeatureCollection(loaded);
-        if (!collection) {
-          throw new Error('ShapefileからGeoJSONを生成できませんでした');
-        }
-        featureCollection = collection;
         break;
       }
       case 'geojson':

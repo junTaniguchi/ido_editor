@@ -595,26 +595,14 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
 
         case 'geojson':
         case 'topojson':
-        case 'wkt':
-        case 'shapefile': {
+        case 'wkt': {
           try {
             const fileHandle = currentTab?.file;
             let geospatialInput: string | ArrayBuffer | Blob = content;
 
-            if (type === 'shapefile') {
-              if (fileHandle && 'getFile' in (fileHandle as FileSystemFileHandle)) {
-                const file = await (fileHandle as FileSystemFileHandle).getFile();
-                geospatialInput = await file.arrayBuffer();
-              } else if (fileHandle instanceof File) {
-                geospatialInput = await fileHandle.arrayBuffer();
-              } else if (typeof content === 'string') {
-                geospatialInput = new TextEncoder().encode(content).buffer;
-              }
-            }
-
             const geoResult = await parseGeospatialData(geospatialInput, {
               fileName: currentTab?.name,
-              formatHint: type as 'geojson' | 'topojson' | 'wkt' | 'shapefile',
+              formatHint: type as 'geojson' | 'topojson' | 'wkt',
             });
 
             if (geoResult.error) {
