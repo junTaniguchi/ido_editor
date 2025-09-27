@@ -140,15 +140,13 @@ export const getEditorExtensions = (
  */
 export const getFileType = (
   fileName: string,
-): 'text' | 'markdown' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' | 'excel' | 'ipynb' | 'pdf' | 'geojson' | 'topojson' | 'wkt' | 'shapefile' => {
+): 'text' | 'markdown' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' | 'excel' | 'ipynb' | 'pdf' | 'geojson' | 'topojson' | 'wkt' => {
   const lowerFileName = fileName.toLowerCase();
 
   if (lowerFileName.endsWith('.md') || lowerFileName.endsWith('.markdown')) {
     return 'markdown';
   } else if (lowerFileName.endsWith('.html') || lowerFileName.endsWith('.htm')) {
     return 'html';
-  } else if (lowerFileName.endsWith('.shp') || lowerFileName.endsWith('.shpz') || lowerFileName.endsWith('.shz') || (lowerFileName.endsWith('.zip') && lowerFileName.includes('.shp'))) {
-    return 'shapefile';
   } else if (lowerFileName.endsWith('.geojson')) {
     return 'geojson';
   } else if (lowerFileName.endsWith('.topojson')) {
@@ -171,8 +169,6 @@ export const getFileType = (
     return 'mermaid';
   } else if (lowerFileName.endsWith('.xlsx') || lowerFileName.endsWith('.xls')) {
     return 'excel';
-  } else if (lowerFileName.endsWith('.shp')) {
-    return 'shapefile';
   } else if (lowerFileName.endsWith('.ipynb')) {
     return 'ipynb';
   } else if (lowerFileName.endsWith('.pdf')) {

@@ -2,11 +2,63 @@ import Papa from 'papaparse';
 import YAML from 'js-yaml';
 import { tableFromArrays, Table } from 'apache-arrow';
 import * as XLSX from 'xlsx';
-import { load } from '@loaders.gl/core';
-import { WKTLoader } from '@loaders.gl/wkt';
-import { ShapefileLoader } from '@loaders.gl/shapefile';
-import { feature as topojsonFeature } from 'topojson-client';
 import type { Feature, FeatureCollection, Geometry } from 'geojson';
+import { feature as topojsonFeature } from 'topojson-client';
+
+type WellknownModule = typeof import('wellknown');
+
+const SHAPEFILE_EXTENSION_PATTERN = /\.(?:shp|shpz|shz|dbf)$/;
+
+const isLikelyShapefile = (fileName?: string): boolean => {
+  if (!fileName) {
+    return false;
+  }
+
+  const normalized = fileName.toLowerCase();
+  if (/\.zip$/.test(normalized)) {
+    return normalized.includes('.shp');
+  }
+
+  return SHAPEFILE_EXTENSION_PATTERN.test(normalized);
+};
+
+const normalizeWktEntry = (value: string): string => value.replace(/^SRID=\d+;/i, '').trim();
+
+const toFeaturesFromParsedWkt = (parsed: unknown): Feature[] => {
+  if (!parsed || typeof parsed !== 'object') {
+    return [];
+  }
+
+  if ((parsed as FeatureCollection).type === 'FeatureCollection' && Array.isArray((parsed as FeatureCollection).features)) {
+    return (parsed as FeatureCollection).features as Feature[];
+  }
+
+  if ((parsed as Feature).type === 'Feature' && (parsed as Feature).geometry) {
+    return [parsed as Feature];
+  }
+
+  const maybeGeometryCollection = parsed as { type?: string; geometries?: Geometry[] };
+  if (maybeGeometryCollection.type === 'GeometryCollection' && Array.isArray(maybeGeometryCollection.geometries)) {
+    return maybeGeometryCollection.geometries
+      .filter((geometry): geometry is Geometry => Boolean(geometry && typeof geometry === 'object' && 'type' in geometry))
+      .map((geometry) => ({
+        type: 'Feature',
+        geometry,
+        properties: {},
+      }));
+  }
+
+  const maybeGeometry = parsed as Geometry;
+  if (maybeGeometry && typeof maybeGeometry.type === 'string' && 'coordinates' in maybeGeometry) {
+    return [{
+      type: 'Feature',
+      geometry: maybeGeometry,
+      properties: {},
+    }];
+  }
+
+  return [];
+};
 
 /**
  * CSVデータをパースする
@@ -285,7 +337,7 @@ export const flattenGeoJsonFeatures = (featureCollection: FeatureCollection | nu
   };
 };
 
-type ParseGeospatialFormat = 'geojson' | 'topojson' | 'wkt' | 'shapefile';
+type ParseGeospatialFormat = 'geojson' | 'topojson' | 'wkt';
 
 interface ParseGeospatialOptions {
   fileName?: string;
@@ -309,19 +361,6 @@ const textFromInput = async (input: string | ArrayBuffer | Blob): Promise<string
   return new TextDecoder().decode(input);
 };
 
-const arrayBufferFromInput = async (input: string | ArrayBuffer | Blob): Promise<ArrayBuffer | null> => {
-  if (input instanceof ArrayBuffer) {
-    return input;
-  }
-  if (input instanceof Blob) {
-    return await input.arrayBuffer();
-  }
-  if (typeof input === 'string') {
-    return new TextEncoder().encode(input).buffer;
-  }
-  return null;
-};
-
 const detectGeospatialFormat = async (
   input: string | ArrayBuffer | Blob,
   options: ParseGeospatialOptions = {},
@@ -332,9 +371,6 @@ const detectGeospatialFormat = async (
 
   const fileName = options.fileName?.toLowerCase();
   if (fileName) {
-    if (/(\.shp|\.shpz|\.shz|\.dbf)$/.test(fileName) || (fileName.endsWith('.zip') && fileName.includes('.shp'))) {
-      return 'shapefile';
-    }
     if (fileName.endsWith('.topojson')) {
       return 'topojson';
     }
@@ -350,10 +386,6 @@ const detectGeospatialFormat = async (
   const trimmed = text.trim();
   if (!trimmed) {
     return 'geojson';
-  }
-
-  if (typeof input !== 'string') {
-    return 'shapefile';
   }
 
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
@@ -385,6 +417,23 @@ export const parseGeospatialData = async (
   options: ParseGeospatialOptions = {},
 ): Promise<ParseGeospatialResult> => {
   try {
+    const fileName = options.fileName;
+    const isBinaryInput =
+      input instanceof ArrayBuffer ||
+      (input instanceof Blob &&
+        input.type !== '' &&
+        !/^text\//.test(input.type) &&
+        !/json$/i.test(input.type));
+
+    if (isLikelyShapefile(fileName) || isBinaryInput) {
+      return {
+        columns: [],
+        data: [],
+        geoJson: null,
+        error: 'Shapefile形式の地理空間データは現在サポートしていません。',
+      };
+    }
+
     const format = await detectGeospatialFormat(input, options);
     let featureCollection: FeatureCollection | null = null;
 
@@ -435,70 +484,42 @@ export const parseGeospatialData = async (
         const text = typeof input === 'string' ? input : await textFromInput(input);
         const entries = text
           .split(/\r?\n+/)
-          .map((line) => line.trim())
+          .map((line) => normalizeWktEntry(line))
           .filter((line) => line.length > 0);
+
+        let wellknownModule: WellknownModule | null = null;
+        const parseWithWellknown = async (value: string) => {
+          if (!wellknownModule) {
+            wellknownModule = await import('wellknown');
+          }
+          return wellknownModule.parse(value);
+        };
+
         const features: Feature[] = [];
-        if (entries.length === 0) {
-          const loaded = await load(text, WKTLoader);
-          const collection = toFeatureCollection(loaded);
-          if (collection) {
-            featureCollection = collection;
-            break;
+        const targets = entries.length > 0 ? entries : [normalizeWktEntry(text)];
+
+        for (const entry of targets) {
+          if (!entry) {
+            continue;
+          }
+
+          try {
+            const parsed = await parseWithWellknown(entry);
+            const entryFeatures = toFeaturesFromParsedWkt(parsed);
+            if (entryFeatures.length > 0) {
+              features.push(...entryFeatures);
+            }
+          } catch (error) {
+            console.warn('WKTの解析に失敗しました:', error);
           }
         }
-        for (const entry of (entries.length > 0 ? entries : [text])) {
-          try {
-            const loaded = await load(entry, WKTLoader);
-            const collection = toFeatureCollection(loaded);
-            if (collection) {
-              features.push(...collection.features);
-              continue;
-            }
-          } catch {
-            // フォールバックで後続処理
-          }
-          try {
-            // wellknown互換のフォールバック
-            const wellknownModule = await import('wellknown');
-            const geometry = wellknownModule.parse(entry) as Geometry | null;
-            if (geometry) {
-              features.push({
-                type: 'Feature',
-                geometry,
-                properties: {},
-              });
-            }
-          } catch {
-            // 無効な行はスキップ
-          }
-        }
+
         if (features.length > 0) {
           featureCollection = {
             type: 'FeatureCollection',
             features,
           };
         }
-        break;
-      }
-      case 'shapefile': {
-        const buffer = await arrayBufferFromInput(input);
-        if (!buffer) {
-          throw new Error('Shapefileのバイナリデータを読み込めませんでした');
-        }
-
-        let loaded: any = null;
-        try {
-          loaded = await load(buffer, ShapefileLoader);
-        } catch (shapeError) {
-          console.error('ShapefileLoaderの解析に失敗しました:', shapeError);
-          throw new Error('Shapefileの解析に失敗しました');
-        }
-
-        const collection = toFeatureCollection(loaded);
-        if (!collection) {
-          throw new Error('ShapefileからGeoJSONを生成できませんでした');
-        }
-        featureCollection = collection;
         break;
       }
       case 'geojson':
