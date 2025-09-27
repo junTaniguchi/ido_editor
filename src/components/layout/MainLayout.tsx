@@ -60,10 +60,7 @@ const MainLayout = () => {
       type === 'json' ||
       type === 'yaml' ||
       type === 'parquet' ||
-      type === 'excel' ||
-      type === 'geojson' ||
-      type === 'topojson' ||
-      type === 'wkt';
+      type === 'excel';
 
     return {
       isMarkdown,

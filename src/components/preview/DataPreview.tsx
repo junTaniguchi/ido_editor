@@ -30,7 +30,6 @@ import {
   parseParquet,
   flattenNestedObjects,
   parseMermaid,
-  parseGeospatialData,
 } from '@/lib/dataPreviewUtils';
 import { formatData } from '@/lib/dataFormatUtils';
 import DataTable from './DataTable';
@@ -131,9 +130,6 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     | 'ipynb'
     | 'pdf'
     | 'excel'
-    | 'geojson'
-    | 'topojson'
-    | 'wkt'
     | null
   >(null);
   const [parsedData, setParsedData] = useState<any>(null);
@@ -535,31 +531,6 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
             setError(`Excelファイルの読み込みに失敗しました: ${err instanceof Error ? err.message : 'Unknown error'}`);
           }
           break;
-
-        case 'geojson':
-        case 'topojson':
-        case 'wkt': {
-          try {
-            const tab = tabs.get(tabId);
-            let geospatialInput: string | ArrayBuffer | Blob = content;
-
-            const geoResult = await parseGeospatialData(geospatialInput, {
-              fileName: tab?.name,
-              formatHint: type as 'geojson' | 'topojson' | 'wkt',
-            });
-
-            if (geoResult.error) {
-              setError(geoResult.error);
-            } else {
-              setParsedData(geoResult.data);
-              setOriginalData(geoResult.geoJson);
-              setColumns(geoResult.columns);
-            }
-          } catch (err) {
-            setError(err instanceof Error ? err.message : '地理空間データの解析に失敗しました');
-          }
-          break;
-        }
 
         case 'mermaid':
           // Mermaidファイルのパース処理
