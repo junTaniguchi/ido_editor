@@ -5,6 +5,8 @@ import { createPortal } from 'react-dom';
 import DeckGL from '@deck.gl/react';
 import { TileLayer } from '@deck.gl/geo-layers';
 import { BitmapLayer, ColumnLayer, ScatterplotLayer, PathLayer, GeoJsonLayer } from '@deck.gl/layers';
+import { load } from '@loaders.gl/core';
+import { ImageLoader } from '@loaders.gl/images';
 import { inferCoordinateColumns, buildGeoJsonFromRows } from '@/lib/dataAnalysisUtils';
 import type { MapSettings, MapBasemap, MapBasemapOverlay, MapBasemapOverlayState, MapLayerSettings } from '@/types';
 import { IoInformationCircleOutline, IoOptionsOutline, IoCloseOutline } from 'react-icons/io5';
@@ -174,16 +176,40 @@ const createBitmapTileLayer = (
     const url = buildTileUrl(urlTemplates[templateIndex], x, y, z);
 
     try {
-      const response = await fetch(url, { signal, mode: 'cors' });
+      const loadedImage = await load(url, ImageLoader, {
+        fetch: {
+          signal,
+          mode: 'cors',
+          credentials: 'omit',
+        },
+        image: {
+          type: 'imagebitmap',
+          decode: true,
+        },
+      });
+
+      if (loadedImage) {
+        return loadedImage as ImageBitmap | ImageData | HTMLImageElement;
+      }
+    } catch (error) {
+      const err = error as Error;
+      if (err?.name === 'AbortError') {
+        return null;
+      }
+      // 失敗した場合はフォールバックのフェッチに切り替え
+    }
+
+    try {
+      const response = await fetch(url, { signal, mode: 'cors', credentials: 'omit' });
       if (!response.ok) {
         throw new Error(`Failed to fetch tile: ${response.status} ${response.statusText}`);
       }
       const blob = await response.blob();
 
-      if (typeof window !== 'undefined' && 'createImageBitmap' in window && window.createImageBitmap) {
+      if (typeof window !== 'undefined' && 'createImageBitmap' in window && typeof window.createImageBitmap === 'function') {
         try {
           return await window.createImageBitmap(blob);
-        } catch (error) {
+        } catch {
           // フォールバックとして HTMLImageElement を生成
         }
       }
@@ -212,8 +238,9 @@ const createBitmapTileLayer = (
 
         const handleAbort = () => {
           cleanup();
-          const abortReason = signal && 'reason' in signal ? (signal as any).reason : undefined;
-          reject(abortReason instanceof Error ? abortReason : new Error('Tile fetch aborted'));
+          const abortError = new Error('Tile fetch aborted');
+          abortError.name = 'AbortError';
+          reject(abortError);
         };
 
         if (signal?.aborted) {
