@@ -171,6 +171,29 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
     return sources;
   }, [parsedData, queryResult, columns, queryColumns]);
 
+  const queryColumns = useMemo(() => {
+    if (queryResult && queryResult.length > 0) {
+      return Object.keys(queryResult[0]);
+    }
+    return [] as string[];
+  }, [queryResult]);
+
+  const mapDataSources = useMemo(() => {
+    const sources: Array<{ id: string; label: string; rows: any[]; columns: string[] }> = [];
+    const originalColumns = columns && columns.length > 0
+      ? columns
+      : parsedData && parsedData.length > 0
+        ? Object.keys(parsedData[0])
+        : [];
+    if (parsedData && parsedData.length > 0) {
+      sources.push({ id: 'originalData', label: '元データ', rows: parsedData, columns: originalColumns });
+    }
+    if (queryResult && queryResult.length > 0) {
+      sources.push({ id: 'queryResult', label: 'クエリ結果', rows: queryResult, columns: queryColumns });
+    }
+    return sources;
+  }, [parsedData, queryResult, columns, queryColumns]);
+
   const notebookCells = useMemo(() => sqlNotebook[tabId] || [], [sqlNotebook, tabId]);
   const hasNotebookCells = notebookCells.length > 0;
 
