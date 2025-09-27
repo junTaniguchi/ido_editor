@@ -665,7 +665,6 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
       )}
       {settingsPlacement === 'external' && settingsContainer
         && createPortal(<div className="space-y-4">{settingsContent}</div>, settingsContainer)}
-
       <div className="relative flex-1 bg-gray-200 dark:bg-gray-900">
         <DeckGL
           controller

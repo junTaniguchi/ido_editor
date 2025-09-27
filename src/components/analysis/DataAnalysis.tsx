@@ -171,29 +171,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
     return sources;
   }, [parsedData, queryResult, columns, queryColumns]);
 
-  const queryColumns = useMemo(() => {
-    if (queryResult && queryResult.length > 0) {
-      return Object.keys(queryResult[0]);
-    }
-    return [] as string[];
-  }, [queryResult]);
-
-  const mapDataSources = useMemo(() => {
-    const sources: Array<{ id: string; label: string; rows: any[]; columns: string[] }> = [];
-    const originalColumns = columns && columns.length > 0
-      ? columns
-      : parsedData && parsedData.length > 0
-        ? Object.keys(parsedData[0])
-        : [];
-    if (parsedData && parsedData.length > 0) {
-      sources.push({ id: 'originalData', label: '元データ', rows: parsedData, columns: originalColumns });
-    }
-    if (queryResult && queryResult.length > 0) {
-      sources.push({ id: 'queryResult', label: 'クエリ結果', rows: queryResult, columns: queryColumns });
-    }
-    return sources;
-  }, [parsedData, queryResult, columns, queryColumns]);
-
   const notebookCells = useMemo(() => sqlNotebook[tabId] || [], [sqlNotebook, tabId]);
   const hasNotebookCells = notebookCells.length > 0;
 
@@ -267,17 +244,17 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
   // データソースが変更されたときに、選択されている列をリセットする
   useEffect(() => {
     if (chartSettings.dataSource === 'queryResult' && queryResult && queryResult.length > 0) {
-      const queryColumns = Object.keys(queryResult[0]);
+      const computedQueryColumns = Object.keys(queryResult[0]);
       // クエリ結果のカラムが存在する場合、最初の選択肢を設定
-      if (queryColumns.length > 0) {
+      if (computedQueryColumns.length > 0) {
         let numericCol = '';
         let categoryCol = '';
-        
+
         // 数値カラムとカテゴリカラムを探す
-        for (const col of queryColumns) {
+        for (const col of computedQueryColumns) {
           const values = queryResult.map(row => row[col]);
           const isNumeric = values.some(val => typeof val === 'number' && !isNaN(val));
-          
+
           if (isNumeric && !numericCol) {
             numericCol = col;
           } else if (!categoryCol) {
@@ -286,11 +263,11 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
           
           if (numericCol && categoryCol) break;
         }
-        
+
         // 適切な列が見つかれば設定、見つからなければ最初の列を使用
         updateChartSettings({
-          xAxis: categoryCol || queryColumns[0],
-          yAxis: numericCol || queryColumns[queryColumns.length > 1 ? 1 : 0]
+          xAxis: categoryCol || computedQueryColumns[0],
+          yAxis: numericCol || computedQueryColumns[computedQueryColumns.length > 1 ? 1 : 0]
         });
       }
     } else if (parsedData && parsedData.length > 0 && columns.length > 0) {
