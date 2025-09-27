@@ -4,11 +4,12 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useEditorStore } from '@/store/editorStore';
 import { parseCSV, parseJSON, parseYAML, parseParquet, parseExcel, flattenNestedObjects } from '@/lib/dataPreviewUtils';
 import { executeQuery, calculateStatistics, aggregateData, prepareChartData, calculateInfo, downloadData } from '@/lib/dataAnalysisUtils';
-import { IoAlertCircleOutline, IoAnalyticsOutline, IoBarChartOutline, IoStatsChartOutline, IoCodeSlash, IoEye, IoLayersOutline, IoCreate, IoSave, IoGitNetwork, IoChevronUpOutline, IoChevronDownOutline, IoBookOutline, IoAddOutline, IoPlay, IoPlayForward, IoTrashOutline, IoDownloadOutline } from 'react-icons/io5';
+import { IoAlertCircleOutline, IoAnalyticsOutline, IoBarChartOutline, IoStatsChartOutline, IoCodeSlash, IoEye, IoLayersOutline, IoCreate, IoSave, IoGitNetwork, IoChevronUpOutline, IoChevronDownOutline, IoBookOutline, IoAddOutline, IoPlay, IoPlayForward, IoTrashOutline, IoDownloadOutline, IoMapOutline } from 'react-icons/io5';
 import QueryResultTable from './QueryResultTable';
 import InfoResultTable from './InfoResultTable';
 import EditableQueryResultTable from './EditableQueryResultTable';
 import ResultChartPanel from './ResultChartPanel';
+import GeoAnalysisMapPanel from './GeoAnalysisMapPanel';
 import { 
   Chart as ChartJS, 
   CategoryScale, 
@@ -60,8 +61,10 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
     tabs, 
     analysisData, 
     setAnalysisData, 
-    chartSettings, 
+    chartSettings,
     updateChartSettings,
+    mapSettings,
+    updateMapSettings,
     paneState,
     updatePaneState,
     getViewMode,
@@ -104,7 +107,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
   const [statisticsResult, setStatisticsResult] = useState<Record<string, any> | null>(null);
   const [infoResult, setInfoResult] = useState<Record<string, any> | null>(null);
   const [chartData, setChartData] = useState<any | null>(null);
-  const [activeTab, setActiveTab] = useState<'query' | 'stats' | 'chart' | 'relationship'>('query');
+  const [activeTab, setActiveTab] = useState<'query' | 'stats' | 'chart' | 'map' | 'relationship'>('query');
   const [isQueryEditing, setIsQueryEditing] = useState(false);
   const [editedQueryResult, setEditedQueryResult] = useState<any[] | null>(null);
   const [notebookSnapshotMeta, setNotebookSnapshotMeta] = useState<{ name: string; exportedAt?: string } | null>(null);
@@ -140,6 +143,34 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
   const [isNotebookMode, setIsNotebookMode] = useState(false);
   const [runAllInProgress, setRunAllInProgress] = useState(false);
   const [cellViewModes, setCellViewModes] = useState<Record<string, 'table' | 'chart'>>({});
+  const [mapSettingsContainer, setMapSettingsContainer] = useState<HTMLDivElement | null>(null);
+  const mapSettingsContainerRef = useCallback((node: HTMLDivElement | null) => {
+    setMapSettingsContainer(node);
+  }, []);
+
+  const queryRowsForMap = useMemo(() => {
+    if (editedQueryResult && editedQueryResult.length > 0) {
+      return editedQueryResult;
+    }
+    if (queryResult && queryResult.length > 0) {
+      return queryResult;
+    }
+    return [] as any[];
+  }, [editedQueryResult, queryResult]);
+
+  const queryColumns = useMemo(() => {
+    if (queryRowsForMap.length > 0) {
+      return Object.keys(queryRowsForMap[0]);
+    }
+    return [] as string[];
+  }, [queryRowsForMap]);
+
+  const mapDataSources = useMemo(() => {
+    if (queryRowsForMap.length > 0) {
+      return [{ id: 'queryResult', label: 'クエリ結果', rows: queryRowsForMap, columns: queryColumns }];
+    }
+    return [];
+  }, [queryRowsForMap, queryColumns]);
 
   const notebookCells = useMemo(() => sqlNotebook[tabId] || [], [sqlNotebook, tabId]);
   const hasNotebookCells = notebookCells.length > 0;
@@ -214,17 +245,17 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
   // データソースが変更されたときに、選択されている列をリセットする
   useEffect(() => {
     if (chartSettings.dataSource === 'queryResult' && queryResult && queryResult.length > 0) {
-      const queryColumns = Object.keys(queryResult[0]);
+      const computedQueryColumns = Object.keys(queryResult[0]);
       // クエリ結果のカラムが存在する場合、最初の選択肢を設定
-      if (queryColumns.length > 0) {
+      if (computedQueryColumns.length > 0) {
         let numericCol = '';
         let categoryCol = '';
-        
+
         // 数値カラムとカテゴリカラムを探す
-        for (const col of queryColumns) {
+        for (const col of computedQueryColumns) {
           const values = queryResult.map(row => row[col]);
           const isNumeric = values.some(val => typeof val === 'number' && !isNaN(val));
-          
+
           if (isNumeric && !numericCol) {
             numericCol = col;
           } else if (!categoryCol) {
@@ -233,11 +264,11 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
           
           if (numericCol && categoryCol) break;
         }
-        
+
         // 適切な列が見つかれば設定、見つからなければ最初の列を使用
         updateChartSettings({
-          xAxis: categoryCol || queryColumns[0],
-          yAxis: numericCol || queryColumns[queryColumns.length > 1 ? 1 : 0]
+          xAxis: categoryCol || computedQueryColumns[0],
+          yAxis: numericCol || computedQueryColumns[computedQueryColumns.length > 1 ? 1 : 0]
         });
       }
     } else if (parsedData && parsedData.length > 0 && columns.length > 0) {
@@ -3716,6 +3747,19 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
         </button>
         <button
           className={`px-4 py-2 ${
+            activeTab === 'map'
+              ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
+              : 'text-gray-600 dark:text-gray-400'
+          }`}
+          onClick={() => setActiveTab('map')}
+        >
+          <div className="flex items-center">
+            <IoMapOutline className="mr-1" size={18} />
+            マップ
+          </div>
+        </button>
+        <button
+          className={`px-4 py-2 ${
             activeTab === 'relationship'
               ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
               : 'text-gray-600 dark:text-gray-400'
@@ -4244,6 +4288,13 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                 </div>
               </div>
             )}
+
+            {/* マップ設定 */}
+            {activeTab === 'map' && (
+              <div className="space-y-4">
+                <div ref={mapSettingsContainerRef} className="space-y-4" />
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -4284,7 +4335,22 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
             {renderChart()}
           </div>
         )}
-        
+
+        {/* マップタブ */}
+        {activeTab === 'map' && (
+          <div className="h-full overflow-hidden">
+            <GeoAnalysisMapPanel
+              dataSources={mapDataSources}
+              mapSettings={mapSettings}
+              onUpdateSettings={updateMapSettings}
+              noDataMessage="クエリ結果がありません。SQLタブでクエリを実行してください。"
+              noCoordinateMessage="設定パネルで緯度・経度列やGeoJSON/WKT列を選択してください。"
+              settingsPlacement="external"
+              settingsContainer={mapSettingsContainer}
+            />
+          </div>
+        )}
+
         {/* 関係グラフタブ */}
         {activeTab === 'relationship' && (
           <div className="h-full overflow-auto p-4" ref={graphContainerRef}>
