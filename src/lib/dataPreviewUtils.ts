@@ -3,10 +3,34 @@ import YAML from 'js-yaml';
 import { tableFromArrays, Table } from 'apache-arrow';
 import * as XLSX from 'xlsx';
 import { load } from '@loaders.gl/core';
+import type { LoaderWithParser } from '@loaders.gl/core';
 import { WKTLoader } from '@loaders.gl/wkt';
-import { ShapefileLoader } from '@loaders.gl/shapefile';
 import { feature as topojsonFeature } from 'topojson-client';
 import type { Feature, FeatureCollection, Geometry } from 'geojson';
+
+const getShapefileLoader = (() => {
+  let cachedPromise: Promise<LoaderWithParser | null> | null = null;
+
+  return async (): Promise<LoaderWithParser | null> => {
+    if (!cachedPromise) {
+      cachedPromise = (async () => {
+        const moduleId = '@loaders.gl/' + 'shapefile';
+        try {
+          const module = await import(moduleId);
+          return module?.ShapefileLoader as LoaderWithParser;
+        } catch (error) {
+          console.warn(
+            'Shapefile support is unavailable. Install @loaders.gl/shapefile to enable shapefile previews.'
+          );
+          console.error(error);
+          return null;
+        }
+      })();
+    }
+
+    return cachedPromise;
+  };
+})();
 
 /**
  * CSVデータをパースする
@@ -486,9 +510,14 @@ export const parseGeospatialData = async (
           throw new Error('Shapefileのバイナリデータを読み込めませんでした');
         }
 
+        const shapefileLoader = await getShapefileLoader();
+        if (!shapefileLoader) {
+          throw new Error('Shapefileサポートが有効になっていません。@loaders.gl/shapefile をインストールしてください。');
+        }
+
         let loaded: any = null;
         try {
-          loaded = await load(buffer, ShapefileLoader);
+          loaded = await load(buffer, shapefileLoader);
         } catch (shapeError) {
           console.error('ShapefileLoaderの解析に失敗しました:', shapeError);
           throw new Error('Shapefileの解析に失敗しました');
