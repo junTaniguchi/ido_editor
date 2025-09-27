@@ -23,6 +23,7 @@ import MarkdownHelpDialog from './MarkdownHelpDialog';
 import TableWizard from './TableWizard';
 import { readDirectoryContents } from '@/lib/fileSystemUtils';
 import type { TabData } from '@/types';
+import type { EditorRefValue } from '@/types/editor';
 
 type TableAlignment = 'left' | 'center' | 'right' | null;
 
@@ -255,7 +256,7 @@ const buildImageMarkdown = (fileName: string, altText: string) => {
 
 interface MarkdownEditorExtensionProps {
   tabId: string;
-  editorRef: React.RefObject<any>;
+  editorRef: React.RefObject<EditorRefValue | null>;
 }
 
 /**

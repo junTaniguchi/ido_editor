@@ -10,16 +10,17 @@
  */
 
 import React, { useState } from 'react';
-import { 
+import {
   IoText, IoTextOutline, IoList, IoListOutline, IoLink, IoImage,
-  IoCodeOutline, IoChatbox, IoCheckbox, 
+  IoCodeOutline, IoChatbox, IoCheckbox,
   IoRemove, IoDocumentText, IoHelpCircleOutline
 } from 'react-icons/io5';
 import { TbTable, TbQuote } from 'react-icons/tb';
 import MarkdownHelpDialog from './MarkdownHelpDialog';
+import type { EditorRefValue } from '@/types/editor';
 
 interface MarkdownToolbarProps {
-  editorRef: React.RefObject<any>;
+  editorRef: React.RefObject<EditorRefValue | null>;
   onOpenTableWizard: () => void;
 }
 
@@ -27,21 +28,24 @@ const MarkdownToolbar: React.FC<MarkdownToolbarProps> = ({ editorRef, onOpenTabl
   const [showHelpDialog, setShowHelpDialog] = useState(false);
 
   const insertMarkdown = (prefix: string, suffix: string, placeholder: string) => {
-    const editor = editorRef.current?.getCodeMirror();
+    const editor = editorRef.current?.view;
     if (!editor) return;
-    
-    const selection = editor.getSelection();
-    const text = selection || placeholder;
-    editor.replaceSelection(prefix + text + suffix);
-    
-    // カーソル位置の調整
-    if (!selection) {
-      const cursor = editor.getCursor();
-      editor.setCursor({ 
-        line: cursor.line, 
-        ch: cursor.ch - suffix.length - (placeholder.length) + prefix.length
-      });
-    }
+
+    const { state } = editor;
+    const { from, to } = state.selection.main;
+    const selectedText = state.sliceDoc(from, to);
+    const text = selectedText || placeholder;
+    const insertText = `${prefix}${text}${suffix}`;
+
+    editor.dispatch({
+      changes: { from, to, insert: insertText },
+      selection: {
+        anchor: from + prefix.length,
+        head: from + prefix.length + text.length,
+      },
+      scrollIntoView: true,
+    });
+
     editor.focus();
   };
   

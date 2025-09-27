@@ -24,6 +24,7 @@ import MarkdownEditorExtension from '@/components/markdown/MarkdownEditorExtensi
 import ExportModal from '@/components/preview/ExportModal';
 import { parseCSV, parseJSON, parseYAML, parseParquet } from '@/lib/dataPreviewUtils';
 import { writeFileContent } from '@/lib/fileSystemUtils';
+import type { EditorRefValue } from '@/types/editor';
 
 const SUPPORTED_CLIPBOARD_FILE_TYPES = new Set<TabData['type']>([
   'text',
@@ -100,10 +101,16 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
   const [isInitialized, setIsInitialized] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [parsedDataForExport, setParsedDataForExport] = useState<any[] | null>(null);
-  const editorRef = useRef(null);
+  const editorRef = useRef<EditorRefValue | null>(null);
   // CodeMirrorのscroller要素をrefで取得
   const codeMirrorScrollerRef = useRef<HTMLDivElement | null>(null);
   const saveShortcutHandlerRef = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    return () => {
+      editorRef.current = null;
+    };
+  }, []);
   
   // テーマ切替時にCodeMirrorのscroller背景色も同期させる
   // 早期returnの前に配置し、フックの順序が変化しないようにする
@@ -568,6 +575,7 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
               }}
               // CodeMirrorのscroller要素にrefを付与
               onCreateEditor={editor => {
+                editorRef.current = { view: editor };
                 // CodeMirror v6: scroller要素は editor.contentDOM.parentElement
                 if (editor && editor.contentDOM && editor.contentDOM.parentElement) {
                   codeMirrorScrollerRef.current = editor.contentDOM.parentElement as HTMLDivElement;
