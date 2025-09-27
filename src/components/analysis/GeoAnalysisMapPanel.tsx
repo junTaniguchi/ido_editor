@@ -7,7 +7,7 @@ import { TileLayer } from '@deck.gl/geo-layers';
 import { BitmapLayer, ColumnLayer, ScatterplotLayer, PathLayer, GeoJsonLayer } from '@deck.gl/layers';
 import { inferCoordinateColumns, buildGeoJsonFromRows } from '@/lib/dataAnalysisUtils';
 import type { MapSettings, MapBasemap, MapBasemapOverlay, MapBasemapOverlayState } from '@/types';
-import { IoInformationCircleOutline } from 'react-icons/io5';
+import { IoInformationCircleOutline, IoOptionsOutline, IoCloseOutline } from 'react-icons/io5';
 
 interface MapDataSource {
   id: string;
@@ -219,6 +219,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
   settingsPlacement = 'inline',
 }) => {
   const [viewState, setViewState] = useState(DEFAULT_VIEW_STATE);
+  const [isOptionalSidebarOpen, setIsOptionalSidebarOpen] = useState(true);
 
   useEffect(() => {
     if (!dataSources.length) {
@@ -739,218 +740,6 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
         </div>
       </div>
 
-      <div className="space-y-3">
-        <div>
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">任意設定</h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            色分けや棒グラフの高さ、ベースマップなど表示スタイルを調整できます。
-          </p>
-        </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-            <span>カテゴリ列</span>
-            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-              選択するとカテゴリごとに凡例が作成され、点やカラムをグループ別に色分けできます。
-            </span>
-            <select
-              value={validCategoryColumn ?? ''}
-              onChange={(event) => onUpdateSettings({ categoryColumn: event.target.value || undefined })}
-              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-              disabled={!activeSource}
-            >
-              <option value="">未選択</option>
-              {activeColumns.map((column) => (
-                <option key={column} value={column}>
-                  {column}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-            <span>色分け列</span>
-            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-              数値やカテゴリ値を基に自動配色します。カテゴリ列と別の値で色分けしたいときに指定してください。
-            </span>
-            <select
-              value={validColorColumn ?? ''}
-              onChange={(event) => onUpdateSettings({ colorColumn: event.target.value || undefined })}
-              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-              disabled={!activeSource}
-            >
-              <option value="">未選択</option>
-              {activeColumns.map((column) => (
-                <option key={column} value={column}>
-                  {column}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-            <span>高さ列</span>
-            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-              ColumnLayerで棒グラフを表示するときの高さに使う指標列を指定します。集計方法と組み合わせて集計値を立体化できます。
-            </span>
-            <select
-              value={validHeightColumn ?? ''}
-              onChange={(event) => onUpdateSettings({ heightColumn: event.target.value || undefined })}
-              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-              disabled={!activeSource}
-            >
-              <option value="">未選択</option>
-              {activeColumns.map((column) => (
-                <option key={column} value={column}>
-                  {column}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-            <span>集計方法</span>
-            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-              同一座標に複数行がある場合に高さ列の値をどのように集約するかを指定します。ツールチップや棒グラフの高さに反映されます。
-            </span>
-            <select
-              value={mapSettings.aggregation}
-              onChange={(event) => onUpdateSettings({ aggregation: event.target.value as MapSettings['aggregation'] })}
-              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            >
-              <option value="sum">合計</option>
-              <option value="avg">平均</option>
-              <option value="count">件数</option>
-              <option value="min">最小</option>
-              <option value="max">最大</option>
-              <option value="none">値をそのまま使用</option>
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-            <span>点サイズ (px)</span>
-            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-              ScatterplotLayerの点の大きさをピクセル単位で調整します。視認性に応じてサイズを変更してください。
-            </span>
-            <input
-              type="number"
-              min={1}
-              value={mapSettings.pointRadius}
-              onChange={(event) => {
-                const value = Number(event.target.value);
-                if (Number.isFinite(value)) {
-                  onUpdateSettings({ pointRadius: Math.max(1, value) });
-                }
-              }}
-              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            />
-          </label>
-
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-            <span>カラム半径 (m)</span>
-            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-              ColumnLayerで描画する円柱の半径をメートル単位で指定します。値を大きくすると棒グラフの太さが増します。
-            </span>
-            <input
-              type="number"
-              min={10}
-              value={mapSettings.columnRadius}
-              onChange={(event) => {
-                const value = Number(event.target.value);
-                if (Number.isFinite(value)) {
-                  onUpdateSettings({ columnRadius: Math.max(10, value) });
-                }
-              }}
-              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            />
-          </label>
-
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-            <span>高さスケール</span>
-            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-              棒グラフの高さを掛け算で拡大・縮小します。値が大きいほど柱が高く表示されます。
-            </span>
-            <input
-              type="number"
-              min={1}
-              value={mapSettings.elevationScale}
-              onChange={(event) => {
-                const value = Number(event.target.value);
-                if (Number.isFinite(value)) {
-                  onUpdateSettings({ elevationScale: Math.max(1, value) });
-                }
-              }}
-              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            />
-          </label>
-
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-            <span>ベースマップ</span>
-            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-              標準タイルは真上から、立体ビューを選ぶとピッチ45°の斜め視点と回転操作が有効になります。
-            </span>
-            <select
-              value={mapSettings.basemap}
-              onChange={(event) => onUpdateSettings({ basemap: event.target.value as MapBasemap })}
-              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            >
-              {Object.entries(BASEMAPS).map(([value, option]) => (
-                <option key={value} value={value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <div className="col-span-3 rounded border border-gray-200 bg-white p-3 text-xs text-gray-700 shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
-            <div className="font-medium">OpenStreetMap オーバーレイ</div>
-            <div className="mt-1 text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-              道路・鉄道・起伏のタイルレイヤーを個別にON/OFFできます。見たい情報に合わせて切り替えてください。
-            </div>
-            <div className="mt-3 flex flex-wrap gap-3">
-              {(Object.entries(BASEMAP_OVERLAYS) as [MapBasemapOverlay, typeof BASEMAP_OVERLAYS[MapBasemapOverlay]][]).map(([key, overlay]) => (
-                <label key={key} className="flex items-center gap-2 rounded border border-gray-200 px-2 py-1 font-medium text-gray-700 dark:border-gray-700 dark:text-gray-200">
-                  <input
-                    type="checkbox"
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600"
-                    checked={Boolean(overlaySettings[key])}
-                    onChange={(event) => {
-                      const nextValue = event.target.checked;
-                      onUpdateSettings({
-                        basemapOverlays: {
-                          ...overlaySettings,
-                          [key]: nextValue,
-                        },
-                      });
-                    }}
-                  />
-                  <span className="flex flex-col">
-                    <span>{overlay.label}</span>
-                    <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">{overlay.description}</span>
-                  </span>
-                </label>
-              ))}
-            </div>
-            <div className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
-              提供元: {Object.values(BASEMAP_OVERLAYS).map((overlay) => overlay.attribution).join(' / ')}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {geoData && geoData.categories.length > 0 && (
-        <div className="flex flex-wrap gap-3 text-xs text-gray-600 dark:text-gray-300">
-          {geoData.categories.map((category) => {
-            const color = getColorForValue(category);
-            return (
-              <span key={category} className="flex items-center gap-2 rounded bg-white/70 px-2 py-1 shadow dark:bg-gray-900/60">
-                <span className="h-3 w-3 rounded" style={{ backgroundColor: toCssColor(color) }} />
-                {category}
-              </span>
-            );
-          })}
-        </div>
-      )}
-
       {!hasGeometrySelection && (
         <div className="flex items-center gap-2 rounded border border-dashed border-yellow-400 bg-yellow-50 p-3 text-xs text-yellow-700 dark:border-yellow-500 dark:bg-yellow-900/30 dark:text-yellow-200">
           <IoInformationCircleOutline size={16} />
@@ -959,6 +748,206 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
           </span>
         </div>
       )}
+    </div>
+  );
+
+  const optionalSettingsContent = (
+    <div className="space-y-3">
+      <div>
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">任意設定</h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          色分けや棒グラフの高さ、ベースマップなど表示スタイルを調整できます。
+        </p>
+      </div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <span>カテゴリ列</span>
+          <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+            選択するとカテゴリごとに凡例が作成され、点やカラムをグループ別に色分けできます。
+          </span>
+          <select
+            value={validCategoryColumn ?? ''}
+            onChange={(event) => onUpdateSettings({ categoryColumn: event.target.value || undefined })}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+            disabled={!activeSource}
+          >
+            <option value="">未選択</option>
+            {activeColumns.map((column) => (
+              <option key={column} value={column}>
+                {column}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <span>色分け列</span>
+          <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+            数値やカテゴリ値を基に自動配色します。カテゴリ列と別の値で色分けしたいときに指定してください。
+          </span>
+          <select
+            value={validColorColumn ?? ''}
+            onChange={(event) => onUpdateSettings({ colorColumn: event.target.value || undefined })}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+            disabled={!activeSource}
+          >
+            <option value="">未選択</option>
+            {activeColumns.map((column) => (
+              <option key={column} value={column}>
+                {column}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <span>高さ列</span>
+          <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+            ColumnLayerで棒グラフを表示するときの高さに使う指標列を指定します。集計方法と組み合わせて集計値を立体化できます。
+          </span>
+          <select
+            value={validHeightColumn ?? ''}
+            onChange={(event) => onUpdateSettings({ heightColumn: event.target.value || undefined })}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+            disabled={!activeSource}
+          >
+            <option value="">未選択</option>
+            {activeColumns.map((column) => (
+              <option key={column} value={column}>
+                {column}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <span>集計方法</span>
+          <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+            同一座標に複数行がある場合に高さ列の値をどのように集約するかを指定します。ツールチップや棒グラフの高さに反映されます。
+          </span>
+          <select
+            value={mapSettings.aggregation}
+            onChange={(event) => onUpdateSettings({ aggregation: event.target.value as MapSettings['aggregation'] })}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+          >
+            <option value="sum">合計</option>
+            <option value="avg">平均</option>
+            <option value="count">件数</option>
+            <option value="min">最小</option>
+            <option value="max">最大</option>
+            <option value="none">値をそのまま使用</option>
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <span>点サイズ (px)</span>
+          <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+            ScatterplotLayerの点の大きさをピクセル単位で調整します。視認性に応じてサイズを変更してください。
+          </span>
+          <input
+            type="number"
+            min={1}
+            value={mapSettings.pointRadius}
+            onChange={(event) => {
+              const value = Number(event.target.value);
+              if (Number.isFinite(value)) {
+                onUpdateSettings({ pointRadius: Math.max(1, value) });
+              }
+            }}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <span>カラム半径 (m)</span>
+          <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+            ColumnLayerで描画する円柱の半径をメートル単位で指定します。値を大きくすると棒グラフの太さが増します。
+          </span>
+          <input
+            type="number"
+            min={10}
+            value={mapSettings.columnRadius}
+            onChange={(event) => {
+              const value = Number(event.target.value);
+              if (Number.isFinite(value)) {
+                onUpdateSettings({ columnRadius: Math.max(10, value) });
+              }
+            }}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <span>高さスケール</span>
+          <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+            棒グラフの高さを掛け算で拡大・縮小します。値が大きいほど柱が高く表示されます。
+          </span>
+          <input
+            type="number"
+            min={1}
+            value={mapSettings.elevationScale}
+            onChange={(event) => {
+              const value = Number(event.target.value);
+              if (Number.isFinite(value)) {
+                onUpdateSettings({ elevationScale: Math.max(1, value) });
+              }
+            }}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <span>ベースマップ</span>
+          <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+            標準タイルは真上から、立体ビューを選ぶとピッチ45°の斜め視点と回転操作が有効になります。
+          </span>
+          <select
+            value={mapSettings.basemap}
+            onChange={(event) => onUpdateSettings({ basemap: event.target.value as MapBasemap })}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+          >
+            {Object.entries(BASEMAPS).map(([value, option]) => (
+              <option key={value} value={value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <div className="col-span-3 rounded border border-gray-200 bg-white p-3 text-xs text-gray-700 shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
+          <div className="font-medium">OpenStreetMap オーバーレイ</div>
+          <div className="mt-1 text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+            道路・鉄道・起伏のタイルレイヤーを個別にON/OFFできます。見たい情報に合わせて切り替えてください。
+          </div>
+          <div className="mt-3 flex flex-wrap gap-3">
+            {(Object.entries(BASEMAP_OVERLAYS) as [MapBasemapOverlay, typeof BASEMAP_OVERLAYS[MapBasemapOverlay]][]).map(([key, overlay]) => (
+              <label key={key} className="flex items-center gap-2 rounded border border-gray-200 px-2 py-1 font-medium text-gray-700 dark:border-gray-700 dark:text-gray-200">
+                <input
+                  type="checkbox"
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600"
+                  checked={Boolean(overlaySettings[key])}
+                  onChange={(event) => {
+                    const nextValue = event.target.checked;
+                    onUpdateSettings({
+                      basemapOverlays: {
+                        ...overlaySettings,
+                        [key]: nextValue,
+                      },
+                    });
+                  }}
+                />
+                <span className="flex flex-col">
+                  <span>{overlay.label}</span>
+                  <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">{overlay.description}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <div className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
+            提供元: {Object.values(BASEMAP_OVERLAYS).map((overlay) => overlay.attribution).join(' / ')}
+          </div>
+        </div>
+      </div>
     </div>
   );
 
@@ -990,6 +979,40 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
           onViewStateChange={handleViewStateChange}
           getTooltip={tooltipFormatter}
         />
+        <div className="pointer-events-none absolute inset-y-0 left-0 flex items-start">
+          {isOptionalSidebarOpen ? (
+            <div className="pointer-events-auto flex h-full max-h-full w-80 max-w-[90vw] flex-col border-r border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
+              <div className="flex items-center justify-between border-b border-gray-200 px-3 py-2 dark:border-gray-700">
+                <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  <IoOptionsOutline size={16} />
+                  詳細設定
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsOptionalSidebarOpen(false)}
+                  className="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-gray-100"
+                  aria-label="詳細設定を閉じる"
+                >
+                  <IoCloseOutline size={16} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto px-3 py-4">
+                {optionalSettingsContent}
+              </div>
+            </div>
+          ) : (
+            <div className="pointer-events-auto p-3">
+              <button
+                type="button"
+                onClick={() => setIsOptionalSidebarOpen(true)}
+                className="flex items-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 shadow hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+              >
+                <IoOptionsOutline size={16} />
+                詳細設定を開く
+              </button>
+            </div>
+          )}
+        </div>
         <div className="pointer-events-none absolute right-4 top-4 flex flex-col gap-3">
           <div className="pointer-events-auto overflow-hidden rounded-md bg-white text-gray-700 shadow dark:bg-gray-800 dark:text-gray-100">
             <button
@@ -1016,6 +1039,22 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
             {selectedBasemap.attribution}
           </span>
         </div>
+        {geoData && geoData.categories.length > 0 && (
+          <div className="pointer-events-none absolute bottom-3 right-3 flex max-w-[50vw] flex-wrap gap-2 text-xs text-gray-600 dark:text-gray-300">
+            {geoData.categories.map((category) => {
+              const color = getColorForValue(category);
+              return (
+                <span
+                  key={category}
+                  className="pointer-events-auto flex items-center gap-2 rounded bg-white/80 px-2 py-1 shadow dark:bg-gray-900/70"
+                >
+                  <span className="h-3 w-3 rounded" style={{ backgroundColor: toCssColor(color) }} />
+                  {category}
+                </span>
+              );
+            })}
+          </div>
+        )}
         {!hasRenderableData && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-gray-600 dark:text-gray-300">
             {hasGeometrySelection
