@@ -219,6 +219,9 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
           visible,
           opacity,
         } = props;
+        if (!data) {
+          return null;
+        }
         const {
           west,
           south,
@@ -227,6 +230,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
         } = tile.bbox;
         return new BitmapLayer(props, {
           id: `${props.id}-bitmap`,
+          data: null,
           image: data,
           bounds: [west, south, east, north],
           visible,
