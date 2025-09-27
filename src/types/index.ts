@@ -1,5 +1,3 @@
-import type { FeatureCollection } from 'geojson';
-
 // タブに関する型定義
 export interface TabData {
   id: string;
@@ -7,7 +5,7 @@ export interface TabData {
   content: string;
   originalContent: string;
   isDirty: boolean;
-  type: 'text' | 'markdown' | 'md' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' | 'mmd' | 'excel' | 'pdf' | 'ipynb' | 'geojson' | 'topojson' | 'wkt' | 'shapefile';
+  type: 'text' | 'markdown' | 'md' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' | 'mmd' | 'excel' | 'pdf' | 'ipynb';
   isReadOnly: boolean;
   file?: FileSystemFileHandle | File;
 }
@@ -79,7 +77,6 @@ export interface SearchMatch {
 export interface AnalysisData {
   columns: string[];
   rows: any[];
-  geoJson?: FeatureCollection | null;
 }
 
 // SQLクエリ結果に関する型定義
@@ -125,41 +122,6 @@ export interface ChartSettings {
     taskNameField?: string;
     vennFields?: string[];
   }
-}
-
-export type MapAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'none';
-
-export type MapBasemap = 'osm-standard' | 'osm-humanitarian' | 'osm-germany' | 'osm-standard-oblique';
-
-export type MapBasemapOverlay = 'roads' | 'railways' | 'terrain';
-
-export type MapBasemapOverlayState = Record<MapBasemapOverlay, boolean>;
-
-export interface MapLayerSettings {
-  latitudeColumn?: string;
-  longitudeColumn?: string;
-  geoJsonColumn?: string;
-  wktColumn?: string;
-  pathColumn?: string;
-  polygonColumn?: string;
-  heightColumn?: string;
-  categoryColumn?: string;
-  colorColumn?: string;
-}
-
-export interface MapSettings {
-  /**
-   * @deprecated 以前の単一データソース選択用のフィールド。activeDataSourceIds を使用してください。
-   */
-  dataSource?: string;
-  activeDataSourceIds: string[];
-  layerSettings: Record<string, MapLayerSettings>;
-  aggregation: MapAggregation;
-  pointRadius: number;
-  columnRadius: number;
-  elevationScale: number;
-  basemap: MapBasemap;
-  basemapOverlays: MapBasemapOverlayState;
 }
 
 // SQLノートブックセルに関する型定義
