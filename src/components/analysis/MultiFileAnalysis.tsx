@@ -176,11 +176,26 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
   }, [queryRowsForMap]);
 
   const mapDataSources = useMemo(() => {
-    if (queryRowsForMap.length > 0) {
-      return [{ id: 'queryResult', label: 'クエリ結果', rows: queryRowsForMap, columns: queryColumns }];
+    const sources: { id: string; label: string; rows: any[]; columns: string[] }[] = [];
+
+    fileDataMap.forEach((rows, filePath) => {
+      const fileName = filePath.split('/').pop() || filePath;
+      const label = `ファイル: ${fileName}`;
+      const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+      sources.push({ id: `file:${filePath}`, label, rows, columns });
+    });
+
+    if (combinedData && combinedData.length > 0) {
+      const columns = Object.keys(combinedData[0]);
+      sources.push({ id: 'combinedData', label: '統合データ', rows: combinedData, columns });
     }
-    return [];
-  }, [queryRowsForMap, queryColumns]);
+
+    if (queryRowsForMap.length > 0) {
+      sources.push({ id: 'queryResult', label: 'クエリ結果', rows: queryRowsForMap, columns: queryColumns });
+    }
+
+    return sources;
+  }, [combinedData, fileDataMap, queryColumns, queryRowsForMap]);
 
   // テーマ関連
   const [currentTheme, setCurrentTheme] = useState<string>('light');
