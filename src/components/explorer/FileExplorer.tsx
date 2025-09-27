@@ -215,6 +215,8 @@ const FileExplorer = () => {
         } else if (fileType === 'pdf') {
           const file = await item.fileHandle.getFile();
           content = URL.createObjectURL(file);
+        } else if (fileType === 'shapefile') {
+          content = '';
         } else {
           content = await readFileContent(item.fileHandle);
         }

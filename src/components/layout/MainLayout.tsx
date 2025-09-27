@@ -60,7 +60,11 @@ const MainLayout = () => {
       type === 'json' ||
       type === 'yaml' ||
       type === 'parquet' ||
-      type === 'excel';
+      type === 'excel' ||
+      type === 'geojson' ||
+      type === 'topojson' ||
+      type === 'wkt' ||
+      type === 'shapefile';
 
     return {
       isMarkdown,
@@ -226,6 +230,8 @@ const MainLayout = () => {
             content = '';
           } else if (fileType === 'pdf') {
             content = URL.createObjectURL(file);
+          } else if (fileType === 'shapefile') {
+            content = '';
           } else {
             content = await file.text();
           }
