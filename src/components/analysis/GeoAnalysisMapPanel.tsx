@@ -974,7 +974,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
     <div className="flex h-full flex-col">
       {settingsPlacement === 'inline' && (
         <div className="border-b border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800">
-          <div className="space-y-4">
+          <div className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
             {settingsContent}
           </div>
         </div>

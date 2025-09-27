@@ -1928,7 +1928,10 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         {/* マップ設定 */}
         {activeTab === 'map' && (
           <div className="space-y-4">
-            <div ref={mapSettingsContainerRef} className="space-y-4" />
+            <div
+              ref={mapSettingsContainerRef}
+              className="max-h-[70vh] space-y-4 overflow-y-auto pr-1"
+            />
           </div>
         )}
 
