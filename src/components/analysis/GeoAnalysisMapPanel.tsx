@@ -27,7 +27,14 @@ interface GeoAnalysisMapPanelProps {
   settingsPlacement?: 'inline' | 'external';
 }
 
-const BASEMAPS: Record<MapBasemap, { label: string; urlTemplates: string[]; attribution: string }> = {
+const BASEMAPS: Record<MapBasemap, {
+  label: string;
+  urlTemplates: string[];
+  attribution: string;
+  defaultPitch?: number;
+  defaultBearing?: number;
+  allowTilt?: boolean;
+}> = {
   'osm-standard': {
     label: 'OpenStreetMap 標準',
     urlTemplates: [
@@ -36,6 +43,9 @@ const BASEMAPS: Record<MapBasemap, { label: string; urlTemplates: string[]; attr
       'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
     ],
     attribution: '© OpenStreetMap contributors',
+    defaultPitch: 0,
+    defaultBearing: 0,
+    allowTilt: false,
   },
   'osm-humanitarian': {
     label: 'OpenStreetMap Humanitarian',
@@ -45,6 +55,9 @@ const BASEMAPS: Record<MapBasemap, { label: string; urlTemplates: string[]; attr
       'https://c.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
     ],
     attribution: '© OpenStreetMap contributors, Humanitarian style',
+    defaultPitch: 0,
+    defaultBearing: 0,
+    allowTilt: false,
   },
   'osm-germany': {
     label: 'OpenStreetMap ドイツ',
@@ -54,6 +67,21 @@ const BASEMAPS: Record<MapBasemap, { label: string; urlTemplates: string[]; attr
       'https://c.tile.openstreetmap.de/{z}/{x}/{y}.png',
     ],
     attribution: '© OpenStreetMap contributors, German style',
+    defaultPitch: 0,
+    defaultBearing: 0,
+    allowTilt: false,
+  },
+  'osm-standard-oblique': {
+    label: 'OpenStreetMap 立体ビュー',
+    urlTemplates: [
+      'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    ],
+    attribution: '© OpenStreetMap contributors',
+    defaultPitch: 45,
+    defaultBearing: -30,
+    allowTilt: true,
   },
 };
 
@@ -238,6 +266,9 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
   }, [categoryColorMap]);
 
   const selectedBasemap = BASEMAPS[mapSettings.basemap] ?? BASEMAPS['osm-standard'];
+  const allowTilt = selectedBasemap.allowTilt ?? false;
+  const defaultPitch = selectedBasemap.defaultPitch ?? 0;
+  const defaultBearing = selectedBasemap.defaultBearing ?? 0;
 
   const tileLayer = useMemo(() => {
     return new TileLayer({
@@ -368,6 +399,11 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
   }, [tileLayer, columnLayer, scatterLayer, pathLayer, geoJsonLayer]);
 
   const computedViewState = useMemo(() => {
+    const baseState = {
+      ...DEFAULT_VIEW_STATE,
+      pitch: defaultPitch,
+      bearing: defaultBearing,
+    };
     if (geoData?.bounds) {
       const [[minLon, minLat], [maxLon, maxLat]] = geoData.bounds;
       const latitude = (minLat + maxLat) / 2;
@@ -377,16 +413,14 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
       const estimatedZoom = 8 - Math.log2(Math.max(latDiff, lonDiff));
       const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, estimatedZoom));
       return {
-        ...DEFAULT_VIEW_STATE,
+        ...baseState,
         latitude,
         longitude,
         zoom,
-        pitch: 0,
-        bearing: 0,
       };
     }
-    return { ...DEFAULT_VIEW_STATE };
-  }, [geoData?.bounds]);
+    return baseState;
+  }, [defaultBearing, defaultPitch, geoData?.bounds]);
 
   useEffect(() => {
     setViewState((prev) => {
@@ -398,11 +432,11 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
         ...prev,
         ...computedViewState,
         zoom: nextZoom,
-        pitch: 0,
-        bearing: 0,
+        pitch: allowTilt ? (computedViewState.pitch ?? defaultPitch) : defaultPitch,
+        bearing: allowTilt ? (computedViewState.bearing ?? defaultBearing) : defaultBearing,
       };
     });
-  }, [computedViewState]);
+  }, [allowTilt, computedViewState, defaultBearing, defaultPitch]);
 
   const hasGeometrySelection = Boolean(
     (validLatitudeColumn && validLongitudeColumn)
@@ -448,16 +482,49 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
 
   const handleZoom = useCallback((delta: number) => {
     setViewState((prev) => {
-      const currentZoom = Number.isFinite(prev.zoom) ? prev.zoom : DEFAULT_VIEW_STATE.zoom;
+      const currentZoom = Number.isFinite(prev.zoom)
+        ? prev.zoom
+        : (computedViewState.zoom ?? DEFAULT_VIEW_STATE.zoom);
       const nextZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, currentZoom + delta));
       return {
         ...prev,
         zoom: nextZoom,
-        pitch: 0,
-        bearing: 0,
+        pitch: allowTilt ? (prev.pitch ?? defaultPitch) : defaultPitch,
+        bearing: allowTilt ? (prev.bearing ?? defaultBearing) : defaultBearing,
       };
     });
-  }, []);
+  }, [allowTilt, computedViewState.zoom, defaultBearing, defaultPitch]);
+
+  const controllerSettings = useMemo(() => ({
+    dragRotate: allowTilt,
+    touchRotate: allowTilt,
+    minPitch: 0,
+    maxPitch: allowTilt ? 60 : 0,
+  }), [allowTilt]);
+
+  const handleViewStateChange = useCallback(({ viewState: next }: { viewState: any }) => {
+    setViewState((prev) => {
+      const nextZoom = Math.min(
+        MAX_ZOOM,
+        Math.max(MIN_ZOOM, (next?.zoom ?? prev.zoom ?? DEFAULT_VIEW_STATE.zoom)),
+      );
+      const normalizedBearing = allowTilt
+        ? (Number.isFinite(next?.bearing)
+          ? ((next.bearing % 360) + 360) % 360
+          : (prev.bearing ?? defaultBearing))
+        : defaultBearing;
+      const nextPitch = allowTilt
+        ? Math.min(60, Math.max(0, next?.pitch ?? prev.pitch ?? defaultPitch))
+        : defaultPitch;
+      return {
+        ...prev,
+        ...next,
+        zoom: nextZoom,
+        pitch: nextPitch,
+        bearing: normalizedBearing,
+      };
+    });
+  }, [allowTilt, defaultBearing, defaultPitch]);
 
   const settingsContent = (
     <div className="space-y-6">
@@ -468,9 +535,12 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
             緯度と経度の組み合わせ、または GeoJSON / WKT / ライン / ポリゴン列のいずれかを指定してください。
           </p>
         </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
           <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
             <span>緯度列</span>
+            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+              北緯（lat）の値を含む列を指定します。散布図や柱状グラフのY座標として利用されます。
+            </span>
             <select
               value={validLatitudeColumn ?? ''}
               onChange={(event) => onUpdateSettings({ latitudeColumn: event.target.value || undefined })}
@@ -488,6 +558,9 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
 
           <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
             <span>経度列</span>
+            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+              東経（lon）の値を含む列を指定します。散布図や柱状グラフのX座標として利用されます。
+            </span>
             <select
               value={validLongitudeColumn ?? ''}
               onChange={(event) => onUpdateSettings({ longitudeColumn: event.target.value || undefined })}
@@ -592,7 +665,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
             色分けや棒グラフの高さ、ベースマップなど表示スタイルを調整できます。
           </p>
         </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
           <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
             <span>カテゴリ列</span>
             <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
@@ -674,6 +747,9 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
 
           <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
             <span>点サイズ (px)</span>
+            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+              ScatterplotLayerの点の大きさをピクセル単位で調整します。視認性に応じてサイズを変更してください。
+            </span>
             <input
               type="number"
               min={1}
@@ -690,6 +766,9 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
 
           <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
             <span>カラム半径 (m)</span>
+            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+              ColumnLayerで描画する円柱の半径をメートル単位で指定します。値を大きくすると棒グラフの太さが増します。
+            </span>
             <input
               type="number"
               min={10}
@@ -706,6 +785,9 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
 
           <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
             <span>高さスケール</span>
+            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+              棒グラフの高さを掛け算で拡大・縮小します。値が大きいほど柱が高く表示されます。
+            </span>
             <input
               type="number"
               min={1}
@@ -722,6 +804,9 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
 
           <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
             <span>ベースマップ</span>
+            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+              標準タイルは真上から、立体ビューを選ぶとピッチ45°の斜め視点と回転操作が有効になります。
+            </span>
             <select
               value={mapSettings.basemap}
               onChange={(event) => onUpdateSettings({ basemap: event.target.value as MapBasemap })}
@@ -783,25 +868,11 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
         && createPortal(<div className="space-y-4">{settingsContent}</div>, settingsContainer)}
       <div className="relative flex-1 bg-gray-200 dark:bg-gray-900">
         <DeckGL
-          controller={{ dragRotate: false, touchRotate: false }}
+          controller={controllerSettings}
           layers={layers}
           initialViewState={computedViewState}
           viewState={viewState}
-          onViewStateChange={({ viewState: next }) => {
-            setViewState((prev) => {
-              const nextZoom = Math.min(
-                MAX_ZOOM,
-                Math.max(MIN_ZOOM, (next?.zoom ?? prev.zoom ?? DEFAULT_VIEW_STATE.zoom)),
-              );
-              return {
-                ...prev,
-                ...next,
-                zoom: nextZoom,
-                pitch: 0,
-                bearing: 0,
-              };
-            });
-          }}
+          onViewStateChange={handleViewStateChange}
           getTooltip={tooltipFormatter}
         />
         <div className="pointer-events-none absolute right-4 top-4 flex flex-col gap-3">

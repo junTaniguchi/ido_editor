@@ -126,7 +126,7 @@ export interface ChartSettings {
 
 export type MapAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'none';
 
-export type MapBasemap = 'osm-standard' | 'osm-humanitarian' | 'osm-germany';
+export type MapBasemap = 'osm-standard' | 'osm-humanitarian' | 'osm-germany' | 'osm-standard-oblique';
 
 export interface MapSettings {
   dataSource: string;
