@@ -141,7 +141,7 @@ const BASEMAP_OVERLAYS: Record<MapBasemapOverlay, {
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 19;
 
-const OPTIONAL_SIDEBAR_WIDTH_PX = 320;
+const RIGHT_SIDEBAR_WIDTH_PX = 320;
 
 const DEFAULT_VIEW_STATE = {
   longitude: 139.767,
@@ -316,6 +316,114 @@ const hashString = (value: string) => {
 
 const toCssColor = (color: [number, number, number]) => `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
 
+interface NumericColumnStat {
+  column: string;
+  count: number;
+  min: number;
+  max: number;
+  mean: number;
+}
+
+const COLOR_GRADIENT_START: [number, number, number] = [59, 130, 246];
+const COLOR_GRADIENT_END: [number, number, number] = [249, 115, 22];
+
+const clamp01 = (value: number) => {
+  if (!Number.isFinite(value)) return 0;
+  if (value <= 0) return 0;
+  if (value >= 1) return 1;
+  return value;
+};
+
+const interpolateColor = (value: number, min: number, max: number): [number, number, number] => {
+  if (!Number.isFinite(value)) {
+    return COLOR_GRADIENT_START;
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return COLOR_GRADIENT_START;
+  }
+  if (max <= min) {
+    return COLOR_GRADIENT_END;
+  }
+  const ratio = clamp01((value - min) / (max - min));
+  const r = Math.round(COLOR_GRADIENT_START[0] + (COLOR_GRADIENT_END[0] - COLOR_GRADIENT_START[0]) * ratio);
+  const g = Math.round(COLOR_GRADIENT_START[1] + (COLOR_GRADIENT_END[1] - COLOR_GRADIENT_START[1]) * ratio);
+  const b = Math.round(COLOR_GRADIENT_START[2] + (COLOR_GRADIENT_END[2] - COLOR_GRADIENT_START[2]) * ratio);
+  return [r, g, b];
+};
+
+const formatNumeric = (value: number) => {
+  if (!Number.isFinite(value)) {
+    return '-';
+  }
+  if (Math.abs(value) >= 1000 || Math.abs(value) < 0.01) {
+    return value.toExponential(2);
+  }
+  if (Number.isInteger(value)) {
+    return value.toLocaleString();
+  }
+  return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+};
+
+const toFiniteNumber = (value: any): number | null => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const computeNumericColumnStats = (
+  rows: any[],
+  columns: string[],
+  excludedColumns: Set<string>,
+): NumericColumnStat[] => {
+  if (!rows.length) {
+    return [];
+  }
+
+  const statsMap = new Map<string, { count: number; min: number; max: number; sum: number }>();
+
+  columns.forEach((column) => {
+    if (excludedColumns.has(column)) {
+      return;
+    }
+    statsMap.set(column, { count: 0, min: Infinity, max: -Infinity, sum: 0 });
+  });
+
+  rows.forEach((row) => {
+    statsMap.forEach((stats, column) => {
+      const numericValue = toFiniteNumber(row[column]);
+      if (numericValue === null) {
+        return;
+      }
+      stats.count += 1;
+      stats.min = Math.min(stats.min, numericValue);
+      stats.max = Math.max(stats.max, numericValue);
+      stats.sum += numericValue;
+    });
+  });
+
+  const results: NumericColumnStat[] = [];
+  statsMap.forEach((stats, column) => {
+    if (stats.count === 0) {
+      return;
+    }
+    results.push({
+      column,
+      count: stats.count,
+      min: stats.min,
+      max: stats.max,
+      mean: stats.sum / stats.count,
+    });
+  });
+
+  return results;
+};
+
 const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
   dataSources,
   mapSettings,
@@ -326,7 +434,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
   settingsPlacement = 'inline',
 }) => {
   const [viewState, setViewState] = useState(DEFAULT_VIEW_STATE);
-  const [isOptionalSidebarOpen, setIsOptionalSidebarOpen] = useState(true);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
 
   const overlaySettings: MapBasemapOverlayState = mapSettings.basemapOverlays ?? DEFAULT_BASEMAP_OVERLAYS;
@@ -453,13 +561,36 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
       ensureColumn('pathColumn', inference.pathColumns[0], inference.pathColumns);
       ensureColumn('polygonColumn', inference.polygonColumns[0], inference.polygonColumns);
 
-      (['categoryColumn', 'colorColumn', 'heightColumn'] as const).forEach((key) => {
-        const value = updated[key];
-        if (value && !source.columns.includes(value)) {
-          updated[key] = undefined;
+      if (updated.categoryColumn) {
+        updated.categoryColumn = undefined;
+        layerChanged = true;
+      }
+
+      if (updated.colorColumn) {
+        updated.colorColumn = undefined;
+        layerChanged = true;
+      }
+
+      if (updated.heightColumn && !source.columns.includes(updated.heightColumn)) {
+        updated.heightColumn = undefined;
+        layerChanged = true;
+      }
+
+      if (!updated.heightColumn) {
+        const excluded = new Set<string>();
+        (['latitudeColumn', 'longitudeColumn', 'geoJsonColumn', 'wktColumn', 'pathColumn', 'polygonColumn'] as const)
+          .forEach((key) => {
+            const column = updated[key];
+            if (column) {
+              excluded.add(column);
+            }
+          });
+        const numericStats = computeNumericColumnStats(source.rows, source.columns, excluded);
+        if (numericStats.length > 0) {
+          updated.heightColumn = numericStats[0].column;
           layerChanged = true;
         }
-      });
+      }
 
       if (layerChanged) {
         nextLayerSettings[id] = updated;
@@ -501,6 +632,8 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
     categoryColorMap: Map<string, [number, number, number]>;
     getColorForValue: (value: any) => [number, number, number];
     usingFallbackCategory: boolean;
+    numericColumns: NumericColumnStat[];
+    selectedMetric: NumericColumnStat | null;
   }
 
   const layerConfigs = useMemo<LayerConfig[]>(() => {
@@ -539,6 +672,19 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
           : undefined,
       };
 
+      const excluded = new Set<string>();
+      (['latitudeColumn', 'longitudeColumn', 'geoJsonColumn', 'wktColumn', 'pathColumn', 'polygonColumn'] as const)
+        .forEach((key) => {
+          const column = validColumns[key];
+          if (column) {
+            excluded.add(column);
+          }
+        });
+      const numericColumns = computeNumericColumnStats(source.rows, source.columns, excluded);
+      const selectedMetric = validColumns.heightColumn
+        ? (numericColumns.find((stat) => stat.column === validColumns.heightColumn) ?? null)
+        : null;
+
       const rowsWithMetadata = source.rows.map((row) => ({
         ...row,
         __layerId: id,
@@ -566,7 +712,13 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
       });
 
       const getColorForValue = (value: any) => {
+        if (typeof value === 'number' && Number.isFinite(value) && selectedMetric) {
+          return interpolateColor(value, selectedMetric.min, selectedMetric.max);
+        }
         if (value === null || value === undefined) {
+          if (selectedMetric) {
+            return interpolateColor(selectedMetric.mean, selectedMetric.min, selectedMetric.max);
+          }
           return COLOR_PALETTE[0];
         }
         const key = String(value);
@@ -585,6 +737,8 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
         categoryColorMap,
         getColorForValue,
         usingFallbackCategory,
+        numericColumns,
+        selectedMetric,
       });
     });
 
@@ -594,6 +748,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
     ? layerConfigs.find((config) => config.id === selectedLayerId) ?? null
     : (layerConfigs[0] ?? null);
   const selectedLayerColumns = selectedLayerConfig?.source.columns ?? [];
+  const selectedLayerNumericColumns = selectedLayerConfig?.numericColumns ?? [];
   const selectedLayerHasGeometrySelection = Boolean(
     selectedLayerConfig
       && (
@@ -649,6 +804,33 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
     const entries: { id: string; label: string; color: [number, number, number] }[] = [];
     layerConfigs.forEach((config) => {
       if (!config.geoData) {
+        return;
+      }
+      if (config.selectedMetric && Number.isFinite(config.selectedMetric.min) && Number.isFinite(config.selectedMetric.max)) {
+        const { min, max, mean, column } = config.selectedMetric;
+        if (min === max) {
+          entries.push({
+            id: `${config.id}:${column}:single`,
+            label: `${config.source.label}: ${column} ${formatNumeric(min)}`,
+            color: config.getColorForValue(min),
+          });
+        } else {
+          const checkpoints = [
+            { suffix: 'min', label: `最小 ${formatNumeric(min)}`, value: min },
+            { suffix: 'mean', label: `平均 ${formatNumeric(mean)}`, value: mean },
+            { suffix: 'max', label: `最大 ${formatNumeric(max)}`, value: max },
+          ];
+          checkpoints.forEach((point) => {
+            if (!Number.isFinite(point.value)) {
+              return;
+            }
+            entries.push({
+              id: `${config.id}:${column}:${point.suffix}`,
+              label: `${config.source.label}: ${column} ${point.label}`,
+              color: config.getColorForValue(point.value),
+            });
+          });
+        }
         return;
       }
       if (config.usingFallbackCategory) {
@@ -721,7 +903,9 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
           getPosition: (d: any) => d.position,
           getElevation: (d: any) => d.elevation,
           getFillColor: (d: any) => {
-            const color = getColorForValue(d.colorValue ?? d.category);
+            const metricValue = Number.isFinite(d.properties?.metricValue) ? d.properties.metricValue : undefined;
+            const baseValue = metricValue ?? d.colorValue ?? d.category;
+            const color = getColorForValue(baseValue);
             return [...color, 220];
           },
           getLineColor: [255, 255, 255, 180],
@@ -738,7 +922,9 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
           getRadius: () => mapSettings.pointRadius,
           getPosition: (d: any) => d.position,
           getFillColor: (d: any) => {
-            const color = getColorForValue(d.colorValue ?? d.category);
+            const metricValue = Number.isFinite(d.metricValue) ? d.metricValue : undefined;
+            const baseValue = metricValue ?? d.colorValue ?? d.category;
+            const color = getColorForValue(baseValue);
             return [...color, 200];
           },
           getLineColor: [255, 255, 255, 200],
@@ -754,7 +940,9 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
           widthMinPixels: 2,
           getPath: (d: any) => d.path,
           getColor: (d: any) => {
-            const color = getColorForValue(d.properties?.colorValue ?? d.properties?.categoryValue);
+            const metricValue = Number.isFinite(d.properties?.metricValue) ? d.properties.metricValue : undefined;
+            const baseValue = metricValue ?? d.properties?.colorValue ?? d.properties?.categoryValue;
+            const color = getColorForValue(baseValue);
             return [...color, 200];
           },
         }));
@@ -776,11 +964,19 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
           },
           elevationScale: mapSettings.elevationScale,
           getLineColor: (feature: any) => {
-            const color = getColorForValue(feature.properties?.colorValue ?? feature.properties?.categoryValue);
+            const metricValue = Number.isFinite(feature.properties?.metricValue)
+              ? feature.properties.metricValue
+              : undefined;
+            const baseValue = metricValue ?? feature.properties?.colorValue ?? feature.properties?.categoryValue;
+            const color = getColorForValue(baseValue);
             return [...color, 220];
           },
           getFillColor: (feature: any) => {
-            const color = getColorForValue(feature.properties?.colorValue ?? feature.properties?.categoryValue);
+            const metricValue = Number.isFinite(feature.properties?.metricValue)
+              ? feature.properties.metricValue
+              : undefined;
+            const baseValue = metricValue ?? feature.properties?.colorValue ?? feature.properties?.categoryValue;
+            const color = getColorForValue(baseValue);
             return [...color, 100];
           },
         }));
@@ -917,7 +1113,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
         <div>
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">レイヤー管理</h3>
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            地図に表示するデータセットをレイヤーとして選択し、それぞれの列設定をカスタマイズできます。
+            表示したいファイルをレイヤーとして選び、配置と指標の設定を行います。
           </p>
         </div>
         <div className="space-y-2">
@@ -970,16 +1166,16 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
         <>
           <div className="space-y-3">
             <div>
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">必須設定</h3>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">位置情報の調整</h3>
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                緯度と経度の組み合わせ、または GeoJSON / WKT / ライン / ポリゴン列のいずれかを指定してください。
+                緯度・経度やGeoJSONなどの列は自動で候補を推測します。必要に応じて表示に使う列を選び直してください。
               </p>
             </div>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
               <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
                 <span>緯度列</span>
                 <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-                  北緯（lat）の値を含む列を指定します。散布や柱状グラフのY座標として利用されます。
+                  点やカラムのY座標として使用する列です。
                 </span>
                 <select
                   value={selectedLayerConfig.validColumns.latitudeColumn ?? ''}
@@ -998,7 +1194,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
               <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
                 <span>経度列</span>
                 <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-                  東経（lon）の値を含む列を指定します。散布図や柱状グラフのX座標として利用されます。
+                  点やカラムのX座標として使用する列です。
                 </span>
                 <select
                   value={selectedLayerConfig.validColumns.longitudeColumn ?? ''}
@@ -1017,7 +1213,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
               <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
                 <span>GeoJSON列</span>
                 <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-                  GeoJSONのFeature / FeatureCollection / Geometryオブジェクトを含む列を指定すると、そのままラインやポリゴンを描画できます。
+                  GeoJSON形式の地物を含む列を選ぶとラインやポリゴンを直接描画します。
                 </span>
                 <select
                   value={selectedLayerConfig.validColumns.geoJsonColumn ?? ''}
@@ -1036,7 +1232,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
               <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
                 <span>WKT列</span>
                 <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-                  POINT / LINESTRING / POLYGON などのWell-Known Text形式を含む列を選ぶと、文字列から地物を生成して表示します。
+                  Well-Known Text形式のPOINT / LINESTRING / POLYGONを解釈して表示します。
                 </span>
                 <select
                   value={selectedLayerConfig.validColumns.wktColumn ?? ''}
@@ -1055,7 +1251,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
               <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
                 <span>ライン列</span>
                 <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-                  経度・緯度のペア配列を持つ列を指定すると、PathLayerでルートを描画します。
+                  経度・緯度の配列を持つ列を指定するとルートを描画します。
                 </span>
                 <select
                   value={selectedLayerConfig.validColumns.pathColumn ?? ''}
@@ -1074,7 +1270,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
               <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
                 <span>ポリゴン列</span>
                 <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-                  経度・緯度のリング配列を含む列を指定すると、面データを塗りつぶして表示します。
+                  座標リングを含む列を選ぶと面データを塗りつぶします。
                 </span>
                 <select
                   value={selectedLayerConfig.validColumns.polygonColumn ?? ''}
@@ -1095,10 +1291,63 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
             <div className="flex items-center gap-2 rounded border border-dashed border-yellow-400 bg-yellow-50 p-3 text-xs text-yellow-700 dark:border-yellow-500 dark:bg-yellow-900/30 dark:text-yellow-200">
               <IoInformationCircleOutline size={16} />
               <span>
-                {noCoordinateMessage ?? '設定パネルで緯度・経度またはGeoJSON / WKT 列を選択するとマップが描画されます。'}
+                {noCoordinateMessage ?? '緯度・経度またはGeoJSON / WKT列を選択するとマップが描画されます。'}
               </span>
             </div>
           )}
+
+          <div className="space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">数値項目のプロット</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                緯度・経度以外の数値列を選ぶと、地図上で高さや色に反映されます。
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              {selectedLayerNumericColumns.length ? (
+                selectedLayerNumericColumns.map((stat) => {
+                  const isSelected = selectedLayerConfig.validColumns.heightColumn === stat.column;
+                  return (
+                    <button
+                      key={stat.column}
+                      type="button"
+                      onClick={() => {
+                        if (!isSelected) {
+                          updateLayerSettings(selectedLayerConfig.id, { heightColumn: stat.column });
+                        }
+                      }}
+                      className={`rounded border px-3 py-2 text-left text-xs transition-colors ${
+                        isSelected
+                          ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-900/40 dark:text-blue-200'
+                          : 'border-gray-200 bg-white text-gray-700 hover:border-blue-400 hover:bg-blue-50/60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-400 dark:hover:bg-blue-900/20'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-semibold">{stat.column}</span>
+                        {isSelected && (
+                          <span className="rounded-full bg-blue-500 px-2 py-0.5 text-[10px] font-semibold text-white dark:bg-blue-400">
+                            選択中
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1 grid grid-cols-3 gap-2 text-[11px] text-gray-500 dark:text-gray-400">
+                        <span>件数 {stat.count.toLocaleString()}</span>
+                        <span>平均 {formatNumeric(stat.mean)}</span>
+                        <span>最大 {formatNumeric(stat.max)}</span>
+                      </div>
+                      <div className="mt-1 text-[11px] text-gray-400 dark:text-gray-500">
+                        最小 {formatNumeric(stat.min)}
+                      </div>
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="rounded border border-dashed border-gray-300 bg-gray-50 p-3 text-xs text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                  緯度・経度以外の数値列が見つかりませんでした。
+                </div>
+              )}
+            </div>
+          </div>
         </>
       ) : (
         <div className="rounded border border-dashed border-yellow-400 bg-yellow-50 p-3 text-xs text-yellow-700 dark:border-yellow-500 dark:bg-yellow-900/30 dark:text-yellow-200">
@@ -1107,201 +1356,62 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
       )}
     </div>
   );
-  const optionalSettingsContent = (
+  const basemapSettingsContent = (
     <div className="space-y-3">
       <div>
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">任意設定</h3>
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">ベースマップ設定</h3>
         <p className="text-xs text-gray-500 dark:text-gray-400">
-          色分けや棒グラフの高さ、ベースマップなど表示スタイルを調整できます。
+          表示スタイルやオーバーレイを切り替えて背景地図を調整します。
         </p>
       </div>
-      <div className="flex flex-col gap-3">
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <span>カテゴリ列</span>
-          <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-            選択するとカテゴリごとに凡例が作成され、点やカラムをグループ別に色分けできます。
-          </span>
-          <select
-            value={selectedLayerConfig?.validColumns.categoryColumn ?? ''}
-            onChange={(event) => selectedLayerConfig && updateLayerSettings(selectedLayerConfig.id, { categoryColumn: event.target.value || undefined })}
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            disabled={!selectedLayerConfig}
-          >
-            <option value="">未選択</option>
-            {selectedLayerColumns.map((column) => (
-              <option key={column} value={column}>
-                {column}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <span>色分け列</span>
-          <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-            数値やカテゴリ値を基に自動配色します。カテゴリ列と別の値で色分けしたいときに指定してください。
-          </span>
-          <select
-            value={selectedLayerConfig?.validColumns.colorColumn ?? ''}
-            onChange={(event) => selectedLayerConfig && updateLayerSettings(selectedLayerConfig.id, { colorColumn: event.target.value || undefined })}
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            disabled={!selectedLayerConfig}
-          >
-            <option value="">未選択</option>
-            {selectedLayerColumns.map((column) => (
-              <option key={column} value={column}>
-                {column}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <span>高さ列</span>
-          <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-            ColumnLayerで棒グラフを表示するときの高さに使う指標列を指定します。
-          </span>
-          <select
-            value={selectedLayerConfig?.validColumns.heightColumn ?? ''}
-            onChange={(event) => selectedLayerConfig && updateLayerSettings(selectedLayerConfig.id, { heightColumn: event.target.value || undefined })}
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            disabled={!selectedLayerConfig}
-          >
-            <option value="">未選択</option>
-            {selectedLayerColumns.map((column) => (
-              <option key={column} value={column}>
-                {column}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <span>集計方法</span>
-          <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-            同一座標に複数行がある場合に高さ列の値をどのように集約するかを指定します。
-          </span>
-          <select
-            value={mapSettings.aggregation}
-            onChange={(event) => onUpdateSettings({ aggregation: event.target.value as MapSettings['aggregation'] })}
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-          >
-            <option value="sum">合計</option>
-            <option value="avg">平均</option>
-            <option value="count">件数</option>
-            <option value="min">最小</option>
-            <option value="max">最大</option>
-            <option value="none">値をそのまま使用</option>
-          </select>
-        </label>
-
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <span>点サイズ (px)</span>
-          <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-            ScatterplotLayerの点の大きさをピクセル単位で調整します。
-          </span>
-          <input
-            type="number"
-            min={1}
-            value={mapSettings.pointRadius}
-            onChange={(event) => {
-              const value = Number(event.target.value);
-              if (Number.isFinite(value)) {
-                onUpdateSettings({ pointRadius: Math.max(1, value) });
-              }
-            }}
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-          />
-        </label>
-
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <span>カラム半径 (m)</span>
-          <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-            ColumnLayerで描画する円柱の半径をメートル単位で指定します。
-          </span>
-          <input
-            type="number"
-            min={10}
-            value={mapSettings.columnRadius}
-            onChange={(event) => {
-              const value = Number(event.target.value);
-              if (Number.isFinite(value)) {
-                onUpdateSettings({ columnRadius: Math.max(10, value) });
-              }
-            }}
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-          />
-        </label>
-
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <span>高さスケール</span>
-          <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-            棒グラフの高さを掛け算で拡大・縮小します。
-          </span>
-          <input
-            type="number"
-            min={1}
-            value={mapSettings.elevationScale}
-            onChange={(event) => {
-              const value = Number(event.target.value);
-              if (Number.isFinite(value)) {
-                onUpdateSettings({ elevationScale: Math.max(1, value) });
-              }
-            }}
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-          />
-        </label>
-
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <span>ベースマップ</span>
-          <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-            標準タイルは真上から、立体ビューを選ぶとピッチ45°の斜め視点と回転操作が有効になります。
-          </span>
-          <select
-            value={mapSettings.basemap}
-            onChange={(event) => onUpdateSettings({ basemap: event.target.value as MapBasemap })}
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-          >
-            {Object.entries(BASEMAPS).map(([value, option]) => (
-              <option key={value} value={value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <div className="rounded border border-gray-200 bg-white p-3 text-xs text-gray-700 shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
-          <div className="font-medium">OpenStreetMap オーバーレイ</div>
-          <div className="mt-1 text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-            道路・鉄道・起伏のタイルレイヤーを個別にON/OFFできます。
-          </div>
-          <div className="mt-3 flex flex-col gap-2">
-            {(Object.entries(BASEMAP_OVERLAYS) as [MapBasemapOverlay, (typeof BASEMAP_OVERLAYS)[MapBasemapOverlay]][]).map(([key, overlay]) => (
-              <label key={key} className="flex items-start gap-2 rounded border border-gray-200 px-2 py-2 font-medium text-gray-700 dark:border-gray-700 dark:text-gray-200">
-                <input
-                  type="checkbox"
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600"
-                  checked={Boolean(overlaySettings[key])}
-                  onChange={(event) => {
-                    const nextValue = event.target.checked;
-                    onUpdateSettings({
-                      basemapOverlays: {
-                        ...overlaySettings,
-                        [key]: nextValue,
-                      },
-                    });
-                  }}
-                />
-                <span className="flex flex-col gap-1">
-                  <span>{overlay.label}</span>
-                  <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">{overlay.description}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-          <div className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
-            提供元: {Object.values(BASEMAP_OVERLAYS).map((overlay) => overlay.attribution).join(' / ')}
-          </div>
+      <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+        <span>ベースマップ</span>
+        <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+          立体ビューを選ぶとピッチ角と回転操作が有効になります。
+        </span>
+        <select
+          value={mapSettings.basemap}
+          onChange={(event) => onUpdateSettings({ basemap: event.target.value as MapBasemap })}
+          className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+        >
+          {Object.entries(BASEMAPS).map(([value, option]) => (
+            <option key={value} value={value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="rounded border border-gray-200 bg-white p-3 text-xs text-gray-700 shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
+        <div className="font-medium">OpenStreetMap オーバーレイ</div>
+        <div className="mt-1 text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+          道路・鉄道・起伏タイルを個別にオン／オフできます。
+        </div>
+        <div className="mt-3 flex flex-col gap-2">
+          {(Object.entries(BASEMAP_OVERLAYS) as [MapBasemapOverlay, (typeof BASEMAP_OVERLAYS)[MapBasemapOverlay]][]).map(([key, overlay]) => (
+            <label key={key} className="flex items-start gap-2 rounded border border-gray-200 px-2 py-2 font-medium text-gray-700 dark:border-gray-700 dark:text-gray-200">
+              <input
+                type="checkbox"
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600"
+                checked={Boolean(overlaySettings[key])}
+                onChange={(event) => {
+                  const nextValue = event.target.checked;
+                  onUpdateSettings({
+                    basemapOverlays: {
+                      ...overlaySettings,
+                      [key]: nextValue,
+                    },
+                  });
+                }}
+              />
+              <span className="flex flex-col gap-1">
+                <span>{overlay.label}</span>
+                <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">{overlay.description}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <div className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
+          提供元: {Object.values(BASEMAP_OVERLAYS).map((overlay) => overlay.attribution).join(' / ')}
         </div>
       </div>
     </div>
@@ -1335,42 +1445,42 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
           getTooltip={tooltipFormatter}
         />
         <div className="pointer-events-none absolute inset-y-0 right-0 flex min-h-0 items-start justify-end">
-          {isOptionalSidebarOpen ? (
+          {isRightSidebarOpen ? (
             <div className="pointer-events-auto z-10 flex h-full max-h-full min-h-0 w-80 max-w-[90vw] flex-col border-l border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
               <div className="flex items-center justify-between border-b border-gray-200 px-3 py-2 dark:border-gray-700">
                 <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
                   <IoOptionsOutline size={16} />
-                  詳細設定
+                  ベースマップ設定
                 </div>
                 <button
                   type="button"
-                  onClick={() => setIsOptionalSidebarOpen(false)}
+                  onClick={() => setIsRightSidebarOpen(false)}
                   className="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-gray-100"
-                  aria-label="詳細設定を閉じる"
+                  aria-label="ベースマップ設定を閉じる"
                 >
                   <IoCloseOutline size={16} />
                 </button>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto pl-3 pr-4 py-4">
-                {optionalSettingsContent}
+                {basemapSettingsContent}
               </div>
             </div>
           ) : (
             <div className="pointer-events-auto p-3">
               <button
                 type="button"
-                onClick={() => setIsOptionalSidebarOpen(true)}
+                onClick={() => setIsRightSidebarOpen(true)}
                 className="flex items-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 shadow hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
               >
                 <IoOptionsOutline size={16} />
-                詳細設定を開く
+                ベースマップ設定を開く
               </button>
             </div>
           )}
         </div>
         <div
           className="pointer-events-none absolute top-4 flex flex-col gap-3"
-          style={{ right: `${isOptionalSidebarOpen ? OPTIONAL_SIDEBAR_WIDTH_PX + 24 : 16}px` }}
+          style={{ right: `${isRightSidebarOpen ? RIGHT_SIDEBAR_WIDTH_PX + 24 : 16}px` }}
         >
           <div className="pointer-events-auto overflow-hidden rounded-md bg-white text-gray-700 shadow dark:bg-gray-800 dark:text-gray-100">
             <button
@@ -1400,7 +1510,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
         {legendEntries.length > 0 && (
           <div
             className="pointer-events-none absolute bottom-3 flex max-w-[50vw] flex-wrap gap-2 text-xs text-gray-600 dark:text-gray-300"
-            style={{ right: `${isOptionalSidebarOpen ? OPTIONAL_SIDEBAR_WIDTH_PX + 24 : 12}px` }}
+            style={{ right: `${isRightSidebarOpen ? RIGHT_SIDEBAR_WIDTH_PX + 24 : 12}px` }}
           >
             {legendEntries.map((entry) => (
               <span
