@@ -232,6 +232,8 @@ const MainLayout = () => {
             content = '# Shapefile binary data. プレビューで表示してください。';
           } else if (fileType === 'pdf') {
             content = URL.createObjectURL(file);
+          } else if (fileType === 'shapefile') {
+            content = '';
           } else {
             content = await file.text();
           }

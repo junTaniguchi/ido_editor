@@ -42,7 +42,6 @@ const SUPPORTED_CLIPBOARD_FILE_TYPES = new Set<TabData['type']>([
   'geojson',
   'topojson',
   'wkt',
-  'shapefile',
 ]);
 
 const MIME_FALLBACK_EXTENSION: Record<string, string> = {
@@ -186,6 +185,8 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
                 content = '';
               } else if (fileType === 'pdf') {
                 content = URL.createObjectURL(file);
+              } else if (fileType === 'shapefile') {
+                content = '';
               } else {
                 content = await file.text();
               }

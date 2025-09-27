@@ -3,8 +3,6 @@ import path from 'node:path';
 
 const requiredPackages = [
   '@loaders.gl/wkt',
-  '@loaders.gl/shapefile',
-  '@loaders.gl/topojson',
   'wellknown'
 ];
 
