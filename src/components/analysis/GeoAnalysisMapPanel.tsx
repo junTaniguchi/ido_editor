@@ -445,7 +445,6 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
   }, []);
 
   const activeColumns = activeSource?.columns ?? [];
-
   const handleZoom = useCallback((delta: number) => {
     setViewState((prev) => {
       const currentZoom = Number.isFinite(prev.zoom) ? prev.zoom : DEFAULT_VIEW_STATE.zoom;
