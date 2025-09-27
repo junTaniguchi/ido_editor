@@ -149,6 +149,11 @@ const DEFAULT_VIEW_STATE = {
   bearing: 0,
 };
 
+const buildTileUrl = (template: string, x: number, y: number, z: number) => template
+  .replace('{x}', String(x))
+  .replace('{y}', String(y))
+  .replace('{z}', String(z));
+
 const createBitmapTileLayer = (
   id: string,
   urlTemplates: string[],
@@ -160,6 +165,79 @@ const createBitmapTileLayer = (
   maxZoom: options.maxZoom ?? MAX_ZOOM,
   tileSize: 256,
   opacity: options.opacity ?? 1,
+  getTileData: async ({ x, y, z, signal }: { x: number; y: number; z: number; signal?: AbortSignal }) => {
+    if (!urlTemplates.length) {
+      return null;
+    }
+
+    const templateIndex = ((Math.abs(x) + y + z) % urlTemplates.length + urlTemplates.length) % urlTemplates.length;
+    const url = buildTileUrl(urlTemplates[templateIndex], x, y, z);
+
+    try {
+      const response = await fetch(url, { signal, mode: 'cors' });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch tile: ${response.status} ${response.statusText}`);
+      }
+      const blob = await response.blob();
+
+      if (typeof window !== 'undefined' && 'createImageBitmap' in window && window.createImageBitmap) {
+        try {
+          return await window.createImageBitmap(blob);
+        } catch (error) {
+          // フォールバックとして HTMLImageElement を生成
+        }
+      }
+
+      return await new Promise<HTMLImageElement>((resolve, reject) => {
+        const objectUrl = URL.createObjectURL(blob);
+        const image = new Image();
+        image.crossOrigin = 'anonymous';
+
+        const cleanup = () => {
+          URL.revokeObjectURL(objectUrl);
+          image.removeEventListener('load', handleLoad);
+          image.removeEventListener('error', handleError);
+          signal?.removeEventListener('abort', handleAbort);
+        };
+
+        const handleLoad = () => {
+          cleanup();
+          resolve(image);
+        };
+
+        const handleError = () => {
+          cleanup();
+          reject(new Error(`Failed to load tile image: ${url}`));
+        };
+
+        const handleAbort = () => {
+          cleanup();
+          const abortReason = signal && 'reason' in signal ? (signal as any).reason : undefined;
+          reject(abortReason instanceof Error ? abortReason : new Error('Tile fetch aborted'));
+        };
+
+        if (signal?.aborted) {
+          handleAbort();
+          return;
+        }
+
+        image.addEventListener('load', handleLoad);
+        image.addEventListener('error', handleError);
+        if (signal) {
+          signal.addEventListener('abort', handleAbort);
+        }
+
+        image.decoding = 'async';
+        image.src = objectUrl;
+      });
+    } catch (error) {
+      const err = error as Error;
+      if (err?.name === 'AbortError') {
+        return null;
+      }
+      throw error;
+    }
+  },
   renderSubLayers: (props) => {
     const {
       tile,
