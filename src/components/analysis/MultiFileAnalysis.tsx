@@ -158,39 +158,29 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
   const [chartData, setChartData] = useState<any | null>(null);
   const { chartSettings, updateChartSettings, mapSettings, updateMapSettings } = useEditorStore();
 
-  const queryColumns = useMemo(() => {
+  const queryRowsForMap = useMemo(() => {
+    if (editedQueryResult && editedQueryResult.length > 0) {
+      return editedQueryResult;
+    }
     if (queryResult && queryResult.length > 0) {
-      return Object.keys(queryResult[0]);
+      return queryResult;
+    }
+    return [] as any[];
+  }, [editedQueryResult, queryResult]);
+
+  const queryColumns = useMemo(() => {
+    if (queryRowsForMap.length > 0) {
+      return Object.keys(queryRowsForMap[0]);
     }
     return [] as string[];
-  }, [queryResult]);
+  }, [queryRowsForMap]);
 
   const mapDataSources = useMemo(() => {
-    const sources: Array<{ id: string; label: string; rows: any[]; columns: string[] }> = [];
-    const combinedColumns = availableColumns && availableColumns.length > 0
-      ? availableColumns
-      : combinedData && combinedData.length > 0
-        ? Object.keys(combinedData[0])
-        : [];
-
-    if (combinedData && combinedData.length > 0) {
-      sources.push({ id: 'combinedData', label: '統合データ', rows: combinedData, columns: combinedColumns });
+    if (queryRowsForMap.length > 0) {
+      return [{ id: 'queryResult', label: 'クエリ結果', rows: queryRowsForMap, columns: queryColumns }];
     }
-
-    if (queryResult && queryResult.length > 0) {
-      sources.push({ id: 'queryResult', label: 'クエリ結果', rows: queryResult, columns: queryColumns });
-    }
-
-    fileDataMap.forEach((rows, path) => {
-      if (rows && rows.length > 0) {
-        const columns = Object.keys(rows[0]);
-        const fileName = path.split('/').pop() || path;
-        sources.push({ id: `file:${path}`, label: `ファイル: ${fileName}`, rows, columns });
-      }
-    });
-
-    return sources;
-  }, [combinedData, availableColumns, queryResult, queryColumns, fileDataMap]);
+    return [];
+  }, [queryRowsForMap, queryColumns]);
 
   // テーマ関連
   const [currentTheme, setCurrentTheme] = useState<string>('light');
@@ -2431,6 +2421,7 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
               dataSources={mapDataSources}
               mapSettings={mapSettings}
               onUpdateSettings={updateMapSettings}
+              noDataMessage="クエリ結果がありません。SQLクエリを実行してください。"
               noCoordinateMessage="統合データに緯度・経度が見つからない場合は、設定パネルで列を選択してください。"
               settingsPlacement="external"
               settingsContainer={mapSettingsContainer}

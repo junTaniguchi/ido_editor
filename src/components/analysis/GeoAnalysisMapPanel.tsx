@@ -6,7 +6,7 @@ import DeckGL from '@deck.gl/react';
 import { TileLayer } from '@deck.gl/geo-layers';
 import { BitmapLayer, ColumnLayer, ScatterplotLayer, PathLayer, GeoJsonLayer } from '@deck.gl/layers';
 import { inferCoordinateColumns, buildGeoJsonFromRows } from '@/lib/dataAnalysisUtils';
-import type { MapSettings } from '@/types';
+import type { MapSettings, MapBasemap } from '@/types';
 import { IoInformationCircleOutline } from 'react-icons/io5';
 
 interface MapDataSource {
@@ -27,11 +27,44 @@ interface GeoAnalysisMapPanelProps {
   settingsPlacement?: 'inline' | 'external';
 }
 
+const BASEMAPS: Record<MapBasemap, { label: string; urlTemplates: string[]; attribution: string }> = {
+  'osm-standard': {
+    label: 'OpenStreetMap 標準',
+    urlTemplates: [
+      'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    ],
+    attribution: '© OpenStreetMap contributors',
+  },
+  'osm-humanitarian': {
+    label: 'OpenStreetMap Humanitarian',
+    urlTemplates: [
+      'https://a.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
+      'https://b.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
+      'https://c.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
+    ],
+    attribution: '© OpenStreetMap contributors, Humanitarian style',
+  },
+  'osm-germany': {
+    label: 'OpenStreetMap ドイツ',
+    urlTemplates: [
+      'https://a.tile.openstreetmap.de/{z}/{x}/{y}.png',
+      'https://b.tile.openstreetmap.de/{z}/{x}/{y}.png',
+      'https://c.tile.openstreetmap.de/{z}/{x}/{y}.png',
+    ],
+    attribution: '© OpenStreetMap contributors, German style',
+  },
+};
+
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 19;
+
 const DEFAULT_VIEW_STATE = {
   longitude: 139.767,
   latitude: 35.681,
   zoom: 3,
-  pitch: 45,
+  pitch: 0,
   bearing: 0,
 };
 
@@ -204,13 +237,14 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
     return COLOR_PALETTE[index];
   }, [categoryColorMap]);
 
+  const selectedBasemap = BASEMAPS[mapSettings.basemap] ?? BASEMAPS['osm-standard'];
+
   const tileLayer = useMemo(() => {
-    const subDomains = ['a', 'b', 'c'];
     return new TileLayer({
-      id: 'osm-tile-layer',
-      data: subDomains.map((subDomain) => `https://${subDomain}.tile.openstreetmap.org/{z}/{x}/{y}.png`),
-      minZoom: 0,
-      maxZoom: 19,
+      id: `osm-tile-layer-${mapSettings.basemap}`,
+      data: selectedBasemap.urlTemplates,
+      minZoom: MIN_ZOOM,
+      maxZoom: MAX_ZOOM,
       tileSize: 256,
       renderSubLayers: (props) => {
         const {
@@ -238,7 +272,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
         });
       },
     });
-  }, []);
+  }, [mapSettings.basemap, selectedBasemap]);
 
   const scatterLayer = useMemo(() => {
     if (!geoData || !geoData.points.length) return null;
@@ -340,22 +374,34 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
       const longitude = (minLon + maxLon) / 2;
       const latDiff = Math.max(Math.abs(maxLat - minLat), 0.0001);
       const lonDiff = Math.max(Math.abs(maxLon - minLon), 0.0001);
-      const zoom = Math.min(16, Math.max(2, 8 - Math.log2(Math.max(latDiff, lonDiff))));
+      const estimatedZoom = 8 - Math.log2(Math.max(latDiff, lonDiff));
+      const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, estimatedZoom));
       return {
         ...DEFAULT_VIEW_STATE,
         latitude,
         longitude,
         zoom,
+        pitch: 0,
+        bearing: 0,
       };
     }
-    return DEFAULT_VIEW_STATE;
+    return { ...DEFAULT_VIEW_STATE };
   }, [geoData?.bounds]);
 
   useEffect(() => {
-    setViewState((prev) => ({
-      ...prev,
-      ...computedViewState,
-    }));
+    setViewState((prev) => {
+      const nextZoom = Math.min(
+        MAX_ZOOM,
+        Math.max(MIN_ZOOM, computedViewState.zoom ?? DEFAULT_VIEW_STATE.zoom),
+      );
+      return {
+        ...prev,
+        ...computedViewState,
+        zoom: nextZoom,
+        pitch: 0,
+        bearing: 0,
+      };
+    });
   }, [computedViewState]);
 
   const hasGeometrySelection = Boolean(
@@ -398,231 +444,272 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
     return { text: lines.length ? lines.join('\n') : '地物' };
   }, []);
 
+  const activeColumns = activeSource?.columns ?? [];
+  const handleZoom = useCallback((delta: number) => {
+    setViewState((prev) => {
+      const currentZoom = Number.isFinite(prev.zoom) ? prev.zoom : DEFAULT_VIEW_STATE.zoom;
+      const nextZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, currentZoom + delta));
+      return {
+        ...prev,
+        zoom: nextZoom,
+        pitch: 0,
+        bearing: 0,
+      };
+    });
+  }, []);
+
   const settingsContent = (
-    <>
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300 md:col-span-3">
-          <span>データソース</span>
-          <select
-            value={activeSource?.id ?? ''}
-            onChange={(event) => onUpdateSettings({ dataSource: event.target.value })}
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-          >
-            {dataSources.map((source) => (
-              <option key={source.id} value={source.id}>
-                {source.label}
-              </option>
-            ))}
-          </select>
-        </label>
+    <div className="space-y-6">
+      <div className="space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">必須設定</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            緯度と経度の組み合わせ、または GeoJSON / WKT / ライン / ポリゴン列のいずれかを指定してください。
+          </p>
+        </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+            <span>緯度列</span>
+            <select
+              value={validLatitudeColumn ?? ''}
+              onChange={(event) => onUpdateSettings({ latitudeColumn: event.target.value || undefined })}
+              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+              disabled={!activeSource}
+            >
+              <option value="">未選択</option>
+              {activeColumns.map((column) => (
+                <option key={column} value={column}>
+                  {column}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <span>緯度列</span>
-          <select
-            value={validLatitudeColumn ?? ''}
-            onChange={(event) => onUpdateSettings({ latitudeColumn: event.target.value || undefined })}
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-          >
-            <option value="">未選択</option>
-            {activeSource?.columns.map((column) => (
-              <option key={column} value={column}>
-                {column}
-              </option>
-            ))}
-          </select>
-        </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+            <span>経度列</span>
+            <select
+              value={validLongitudeColumn ?? ''}
+              onChange={(event) => onUpdateSettings({ longitudeColumn: event.target.value || undefined })}
+              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+              disabled={!activeSource}
+            >
+              <option value="">未選択</option>
+              {activeColumns.map((column) => (
+                <option key={column} value={column}>
+                  {column}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <span>経度列</span>
-          <select
-            value={validLongitudeColumn ?? ''}
-            onChange={(event) => onUpdateSettings({ longitudeColumn: event.target.value || undefined })}
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-          >
-            <option value="">未選択</option>
-            {activeSource?.columns.map((column) => (
-              <option key={column} value={column}>
-                {column}
-              </option>
-            ))}
-          </select>
-        </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+            <span>GeoJSON列</span>
+            <select
+              value={validGeoJsonColumn ?? ''}
+              onChange={(event) => onUpdateSettings({ geoJsonColumn: event.target.value || undefined })}
+              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+              disabled={!activeSource}
+            >
+              <option value="">未選択</option>
+              {activeColumns.map((column) => (
+                <option key={column} value={column}>
+                  {column}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <span>GeoJSON列</span>
-          <select
-            value={validGeoJsonColumn ?? ''}
-            onChange={(event) => onUpdateSettings({ geoJsonColumn: event.target.value || undefined })}
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-          >
-            <option value="">未選択</option>
-            {activeSource?.columns.map((column) => (
-              <option key={column} value={column}>
-                {column}
-              </option>
-            ))}
-          </select>
-        </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+            <span>WKT列</span>
+            <select
+              value={validWktColumn ?? ''}
+              onChange={(event) => onUpdateSettings({ wktColumn: event.target.value || undefined })}
+              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+              disabled={!activeSource}
+            >
+              <option value="">未選択</option>
+              {activeColumns.map((column) => (
+                <option key={column} value={column}>
+                  {column}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <span>WKT列</span>
-          <select
-            value={validWktColumn ?? ''}
-            onChange={(event) => onUpdateSettings({ wktColumn: event.target.value || undefined })}
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-          >
-            <option value="">未選択</option>
-            {activeSource?.columns.map((column) => (
-              <option key={column} value={column}>
-                {column}
-              </option>
-            ))}
-          </select>
-        </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+            <span>ライン列</span>
+            <select
+              value={validPathColumn ?? ''}
+              onChange={(event) => onUpdateSettings({ pathColumn: event.target.value || undefined })}
+              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+              disabled={!activeSource}
+            >
+              <option value="">未選択</option>
+              {activeColumns.map((column) => (
+                <option key={column} value={column}>
+                  {column}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <span>ライン列</span>
-          <select
-            value={validPathColumn ?? ''}
-            onChange={(event) => onUpdateSettings({ pathColumn: event.target.value || undefined })}
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-          >
-            <option value="">未選択</option>
-            {activeSource?.columns.map((column) => (
-              <option key={column} value={column}>
-                {column}
-              </option>
-            ))}
-          </select>
-        </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+            <span>ポリゴン列</span>
+            <select
+              value={validPolygonColumn ?? ''}
+              onChange={(event) => onUpdateSettings({ polygonColumn: event.target.value || undefined })}
+              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+              disabled={!activeSource}
+            >
+              <option value="">未選択</option>
+              {activeColumns.map((column) => (
+                <option key={column} value={column}>
+                  {column}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </div>
 
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <span>ポリゴン列</span>
-          <select
-            value={validPolygonColumn ?? ''}
-            onChange={(event) => onUpdateSettings({ polygonColumn: event.target.value || undefined })}
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-          >
-            <option value="">未選択</option>
-            {activeSource?.columns.map((column) => (
-              <option key={column} value={column}>
-                {column}
-              </option>
-            ))}
-          </select>
-        </label>
+      <div className="space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">任意設定</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            色分けや棒グラフの高さ、ベースマップなど表示スタイルを調整できます。
+          </p>
+        </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+            <span>カテゴリ列</span>
+            <select
+              value={validCategoryColumn ?? ''}
+              onChange={(event) => onUpdateSettings({ categoryColumn: event.target.value || undefined })}
+              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+              disabled={!activeSource}
+            >
+              <option value="">未選択</option>
+              {activeColumns.map((column) => (
+                <option key={column} value={column}>
+                  {column}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <span>カテゴリ列</span>
-          <select
-            value={validCategoryColumn ?? ''}
-            onChange={(event) => onUpdateSettings({ categoryColumn: event.target.value || undefined })}
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-          >
-            <option value="">未選択</option>
-            {activeSource?.columns.map((column) => (
-              <option key={column} value={column}>
-                {column}
-              </option>
-            ))}
-          </select>
-        </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+            <span>色分け列</span>
+            <select
+              value={validColorColumn ?? ''}
+              onChange={(event) => onUpdateSettings({ colorColumn: event.target.value || undefined })}
+              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+              disabled={!activeSource}
+            >
+              <option value="">未選択</option>
+              {activeColumns.map((column) => (
+                <option key={column} value={column}>
+                  {column}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <span>色分け列</span>
-          <select
-            value={validColorColumn ?? ''}
-            onChange={(event) => onUpdateSettings({ colorColumn: event.target.value || undefined })}
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-          >
-            <option value="">未選択</option>
-            {activeSource?.columns.map((column) => (
-              <option key={column} value={column}>
-                {column}
-              </option>
-            ))}
-          </select>
-        </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+            <span>高さ列</span>
+            <select
+              value={validHeightColumn ?? ''}
+              onChange={(event) => onUpdateSettings({ heightColumn: event.target.value || undefined })}
+              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+              disabled={!activeSource}
+            >
+              <option value="">未選択</option>
+              {activeColumns.map((column) => (
+                <option key={column} value={column}>
+                  {column}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <span>高さ列</span>
-          <select
-            value={validHeightColumn ?? ''}
-            onChange={(event) => onUpdateSettings({ heightColumn: event.target.value || undefined })}
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-          >
-            <option value="">未選択</option>
-            {activeSource?.columns.map((column) => (
-              <option key={column} value={column}>
-                {column}
-              </option>
-            ))}
-          </select>
-        </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+            <span>集計方法</span>
+            <select
+              value={mapSettings.aggregation}
+              onChange={(event) => onUpdateSettings({ aggregation: event.target.value as MapSettings['aggregation'] })}
+              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+            >
+              <option value="sum">合計</option>
+              <option value="avg">平均</option>
+              <option value="count">件数</option>
+              <option value="min">最小</option>
+              <option value="max">最大</option>
+              <option value="none">値をそのまま使用</option>
+            </select>
+          </label>
 
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <span>集計方法</span>
-          <select
-            value={mapSettings.aggregation}
-            onChange={(event) => onUpdateSettings({ aggregation: event.target.value as MapSettings['aggregation'] })}
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-          >
-            <option value="sum">合計</option>
-            <option value="avg">平均</option>
-            <option value="count">件数</option>
-            <option value="min">最小</option>
-            <option value="max">最大</option>
-            <option value="none">値をそのまま使用</option>
-          </select>
-        </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+            <span>点サイズ (px)</span>
+            <input
+              type="number"
+              min={1}
+              value={mapSettings.pointRadius}
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                if (Number.isFinite(value)) {
+                  onUpdateSettings({ pointRadius: Math.max(1, value) });
+                }
+              }}
+              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+            />
+          </label>
 
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <span>点サイズ (px)</span>
-          <input
-            type="number"
-            min={1}
-            value={mapSettings.pointRadius}
-            onChange={(event) => {
-              const value = Number(event.target.value);
-              if (Number.isFinite(value)) {
-                onUpdateSettings({ pointRadius: Math.max(1, value) });
-              }
-            }}
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-          />
-        </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+            <span>カラム半径 (m)</span>
+            <input
+              type="number"
+              min={10}
+              value={mapSettings.columnRadius}
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                if (Number.isFinite(value)) {
+                  onUpdateSettings({ columnRadius: Math.max(10, value) });
+                }
+              }}
+              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+            />
+          </label>
 
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <span>カラム半径 (m)</span>
-          <input
-            type="number"
-            min={10}
-            value={mapSettings.columnRadius}
-            onChange={(event) => {
-              const value = Number(event.target.value);
-              if (Number.isFinite(value)) {
-                onUpdateSettings({ columnRadius: Math.max(10, value) });
-              }
-            }}
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-          />
-        </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+            <span>高さスケール</span>
+            <input
+              type="number"
+              min={1}
+              value={mapSettings.elevationScale}
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                if (Number.isFinite(value)) {
+                  onUpdateSettings({ elevationScale: Math.max(1, value) });
+                }
+              }}
+              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+            />
+          </label>
 
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <span>高さスケール</span>
-          <input
-            type="number"
-            min={1}
-            value={mapSettings.elevationScale}
-            onChange={(event) => {
-              const value = Number(event.target.value);
-              if (Number.isFinite(value)) {
-                onUpdateSettings({ elevationScale: Math.max(1, value) });
-              }
-            }}
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-          />
-        </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+            <span>ベースマップ</span>
+            <select
+              value={mapSettings.basemap}
+              onChange={(event) => onUpdateSettings({ basemap: event.target.value as MapBasemap })}
+              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+            >
+              {Object.entries(BASEMAPS).map(([value, option]) => (
+                <option key={value} value={value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
 
       {geoData && geoData.categories.length > 0 && (
@@ -647,7 +734,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
           </span>
         </div>
       )}
-    </>
+    </div>
   );
 
   if (!dataSources.length) {
@@ -671,13 +758,53 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
         && createPortal(<div className="space-y-4">{settingsContent}</div>, settingsContainer)}
       <div className="relative flex-1 bg-gray-200 dark:bg-gray-900">
         <DeckGL
-          controller
+          controller={{ dragRotate: false, touchRotate: false }}
           layers={layers}
           initialViewState={computedViewState}
           viewState={viewState}
-          onViewStateChange={({ viewState: next }) => setViewState(next as typeof viewState)}
+          onViewStateChange={({ viewState: next }) => {
+            setViewState((prev) => {
+              const nextZoom = Math.min(
+                MAX_ZOOM,
+                Math.max(MIN_ZOOM, (next?.zoom ?? prev.zoom ?? DEFAULT_VIEW_STATE.zoom)),
+              );
+              return {
+                ...prev,
+                ...next,
+                zoom: nextZoom,
+                pitch: 0,
+                bearing: 0,
+              };
+            });
+          }}
           getTooltip={tooltipFormatter}
         />
+        <div className="pointer-events-none absolute right-4 top-4 flex flex-col gap-3">
+          <div className="pointer-events-auto overflow-hidden rounded-md bg-white text-gray-700 shadow dark:bg-gray-800 dark:text-gray-100">
+            <button
+              type="button"
+              className="block px-3 py-2 text-sm font-semibold hover:bg-gray-100 dark:hover:bg-gray-700"
+              onClick={() => handleZoom(0.75)}
+              aria-label="ズームイン"
+            >
+              ＋
+            </button>
+            <div className="h-px bg-gray-200 dark:bg-gray-700" />
+            <button
+              type="button"
+              className="block px-3 py-2 text-sm font-semibold hover:bg-gray-100 dark:hover:bg-gray-700"
+              onClick={() => handleZoom(-0.75)}
+              aria-label="ズームアウト"
+            >
+              −
+            </button>
+          </div>
+        </div>
+        <div className="pointer-events-none absolute bottom-3 left-3 text-[10px] text-gray-600 dark:text-gray-300">
+          <span className="rounded bg-white/80 px-2 py-1 shadow dark:bg-gray-900/70">
+            {selectedBasemap.attribution}
+          </span>
+        </div>
         {!hasRenderableData && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-gray-600 dark:text-gray-300">
             {hasGeometrySelection

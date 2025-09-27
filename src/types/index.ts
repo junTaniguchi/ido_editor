@@ -126,6 +126,8 @@ export interface ChartSettings {
 
 export type MapAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'none';
 
+export type MapBasemap = 'osm-standard' | 'osm-humanitarian' | 'osm-germany';
+
 export interface MapSettings {
   dataSource: string;
   latitudeColumn?: string;
@@ -141,6 +143,7 @@ export interface MapSettings {
   pointRadius: number;
   columnRadius: number;
   elevationScale: number;
+  basemap: MapBasemap;
 }
 
 // SQLノートブックセルに関する型定義

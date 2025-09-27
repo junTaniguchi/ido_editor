@@ -148,28 +148,29 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
     setMapSettingsContainer(node);
   }, []);
 
-  const queryColumns = useMemo(() => {
+  const queryRowsForMap = useMemo(() => {
+    if (editedQueryResult && editedQueryResult.length > 0) {
+      return editedQueryResult;
+    }
     if (queryResult && queryResult.length > 0) {
-      return Object.keys(queryResult[0]);
+      return queryResult;
+    }
+    return [] as any[];
+  }, [editedQueryResult, queryResult]);
+
+  const queryColumns = useMemo(() => {
+    if (queryRowsForMap.length > 0) {
+      return Object.keys(queryRowsForMap[0]);
     }
     return [] as string[];
-  }, [queryResult]);
+  }, [queryRowsForMap]);
 
   const mapDataSources = useMemo(() => {
-    const sources: Array<{ id: string; label: string; rows: any[]; columns: string[] }> = [];
-    const originalColumns = columns && columns.length > 0
-      ? columns
-      : parsedData && parsedData.length > 0
-        ? Object.keys(parsedData[0])
-        : [];
-    if (parsedData && parsedData.length > 0) {
-      sources.push({ id: 'originalData', label: '元データ', rows: parsedData, columns: originalColumns });
+    if (queryRowsForMap.length > 0) {
+      return [{ id: 'queryResult', label: 'クエリ結果', rows: queryRowsForMap, columns: queryColumns }];
     }
-    if (queryResult && queryResult.length > 0) {
-      sources.push({ id: 'queryResult', label: 'クエリ結果', rows: queryResult, columns: queryColumns });
-    }
-    return sources;
-  }, [parsedData, queryResult, columns, queryColumns]);
+    return [];
+  }, [queryRowsForMap, queryColumns]);
 
   const notebookCells = useMemo(() => sqlNotebook[tabId] || [], [sqlNotebook, tabId]);
   const hasNotebookCells = notebookCells.length > 0;

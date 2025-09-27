@@ -272,6 +272,7 @@ export const useEditorStore = create<EditorStore>()(
         pointRadius: 8,
         columnRadius: 200,
         elevationScale: 20,
+        basemap: 'osm-standard',
       },
       updateMapSettings: (settings) => set((state) => ({
         mapSettings: { ...state.mapSettings, ...settings }
@@ -430,7 +431,10 @@ export const useEditorStore = create<EditorStore>()(
               pointRadius: 8,
               columnRadius: 200,
               elevationScale: 20,
+              basemap: 'osm-standard',
             };
+          } else if (!state.mapSettings.basemap) {
+            state.mapSettings.basemap = 'osm-standard';
           }
         }
       }
