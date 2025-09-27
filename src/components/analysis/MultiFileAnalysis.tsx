@@ -15,12 +15,12 @@ import {
   aggregateData,
   downloadData
 } from '@/lib/dataAnalysisUtils';
-import { 
-  IoAnalyticsOutline, 
-  IoBarChartOutline, 
-  IoStatsChartOutline, 
-  IoCloseOutline, 
-  IoCheckboxOutline, 
+import {
+  IoAnalyticsOutline,
+  IoBarChartOutline,
+  IoStatsChartOutline,
+  IoCloseOutline,
+  IoCheckboxOutline,
   IoSquareOutline,
   IoCodeSlash,
   IoEye,
@@ -33,12 +33,14 @@ import {
   IoBookOutline,
   IoDownloadOutline,
   IoAddOutline,
-  IoTrashOutline
+  IoTrashOutline,
+  IoMapOutline
 } from 'react-icons/io5';
 import QueryResultTable from './QueryResultTable';
 import InfoResultTable from './InfoResultTable';
 import EditableQueryResultTable from './EditableQueryResultTable';
 import ResultChartPanel from './ResultChartPanel';
+import GeoAnalysisMapPanel from './GeoAnalysisMapPanel';
 import { SqlNotebookCell } from '@/types';
 import { 
   Chart as ChartJS, 
@@ -112,7 +114,7 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
   }>>(new Map());
   
   // 分析タブの管理
-  const [activeTab, setActiveTab] = useState<'excel-settings' | 'combine' | 'query' | 'stats' | 'chart' | 'relationship'>('excel-settings');
+  const [activeTab, setActiveTab] = useState<'excel-settings' | 'combine' | 'query' | 'stats' | 'chart' | 'map' | 'relationship'>('excel-settings');
   const [isSettingsCollapsed, setIsSettingsCollapsed] = useState(false);
   const [isQueryCollapsed, setIsQueryCollapsed] = useState(false);
   
@@ -151,10 +153,44 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
   // 統計情報関連
   const [statisticsResult, setStatisticsResult] = useState<Record<string, any> | null>(null);
   const [infoResult, setInfoResult] = useState<Record<string, any> | null>(null);
-  
+
   // チャート関連
   const [chartData, setChartData] = useState<any | null>(null);
-  const { chartSettings, updateChartSettings } = useEditorStore();
+  const { chartSettings, updateChartSettings, mapSettings, updateMapSettings } = useEditorStore();
+
+  const queryColumns = useMemo(() => {
+    if (queryResult && queryResult.length > 0) {
+      return Object.keys(queryResult[0]);
+    }
+    return [] as string[];
+  }, [queryResult]);
+
+  const mapDataSources = useMemo(() => {
+    const sources: Array<{ id: string; label: string; rows: any[]; columns: string[] }> = [];
+    const combinedColumns = availableColumns && availableColumns.length > 0
+      ? availableColumns
+      : combinedData && combinedData.length > 0
+        ? Object.keys(combinedData[0])
+        : [];
+
+    if (combinedData && combinedData.length > 0) {
+      sources.push({ id: 'combinedData', label: '統合データ', rows: combinedData, columns: combinedColumns });
+    }
+
+    if (queryResult && queryResult.length > 0) {
+      sources.push({ id: 'queryResult', label: 'クエリ結果', rows: queryResult, columns: queryColumns });
+    }
+
+    fileDataMap.forEach((rows, path) => {
+      if (rows && rows.length > 0) {
+        const columns = Object.keys(rows[0]);
+        const fileName = path.split('/').pop() || path;
+        sources.push({ id: `file:${path}`, label: `ファイル: ${fileName}`, rows, columns });
+      }
+    });
+
+    return sources;
+  }, [combinedData, availableColumns, queryResult, queryColumns, fileDataMap]);
 
   // テーマ関連
   const [currentTheme, setCurrentTheme] = useState<string>('light');
@@ -1286,6 +1322,17 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         </button>
         <button
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'map'
+              ? 'text-blue-600 border-blue-600'
+              : 'text-gray-600 border-transparent hover:text-gray-800 hover:border-gray-300'
+          }`}
+          onClick={() => setActiveTab('map')}
+        >
+          <IoMapOutline className="inline mr-1" size={16} />
+          マップ
+        </button>
+        <button
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             activeTab === 'relationship'
               ? 'text-blue-600 border-blue-600'
               : 'text-gray-600 border-transparent hover:text-gray-800 hover:border-gray-300'
@@ -2348,22 +2395,33 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
                     }}
                   />
                 )}
-                {chartSettings.type === 'histogram' && (
-                  <Bar 
-                    data={chartData} 
-                    options={{
-                      responsive: true,
-                      maintainAspectRatio: false,
-                      plugins: {
-                        datalabels: {
-                          display: false
-                        }
-                      }
-                    }}
-                  />
-                )}
-              </div>
-            </div>
+        {chartSettings.type === 'histogram' && (
+          <Bar
+            data={chartData}
+            options={{
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                datalabels: {
+                  display: false
+                }
+              }
+            }}
+          />
+        )}
+      </div>
+    </div>
+  </div>
+)}
+
+        {activeTab === 'map' && (
+          <div className="flex-1 min-h-0">
+            <GeoAnalysisMapPanel
+              dataSources={mapDataSources}
+              mapSettings={mapSettings}
+              onUpdateSettings={updateMapSettings}
+              noCoordinateMessage="統合データに緯度・経度が見つからない場合は、マップ設定から列を選択してください。"
+            />
           </div>
         )}
 
