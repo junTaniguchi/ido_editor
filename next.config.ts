@@ -30,7 +30,17 @@ const nextConfig: NextConfig = {
         },
       };
     }
-    
+
+    const shapefileWarningPattern = /Critical dependency: the request of a dependency is an expression/;
+    const shapefileModulePattern = /dataPreviewUtils\.ts$/;
+    config.ignoreWarnings = [
+      ...(config.ignoreWarnings ?? []),
+      (warning) =>
+        typeof warning.message === 'string' &&
+        shapefileWarningPattern.test(warning.message) &&
+        shapefileModulePattern.test((warning.module?.resource as string | undefined) ?? ''),
+    ];
+
     return config;
   },
   // TypeScriptの設定
