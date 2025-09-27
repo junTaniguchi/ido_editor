@@ -35,7 +35,6 @@
     "@loaders.gl/core": "^4.3.4",
     "@loaders.gl/gis": "^4.3.4",
     "@loaders.gl/images": "^4.3.4",
-    "@loaders.gl/shapefile": "^4.3.4",
     "@loaders.gl/topojson": "npm:@loaders.gl/json@^4.3.4",
     "@loaders.gl/wkt": "^4.3.4",
     "@tanstack/react-table": "^8.21.3",

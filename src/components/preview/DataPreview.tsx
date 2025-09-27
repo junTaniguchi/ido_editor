@@ -134,7 +134,6 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     | 'geojson'
     | 'topojson'
     | 'wkt'
-    | 'shapefile'
     | null
   >(null);
   const [parsedData, setParsedData] = useState<any>(null);
@@ -285,7 +284,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
 
     // コンテンツが空の場合（Excelファイルは除く）
     const isStringContent = typeof content === 'string';
-    if (type !== 'excel' && type !== 'shapefile') {
+    if (type !== 'excel') {
       if (!content || (isStringContent && content.trim() === '')) {
         setLoading(false);
         setParsedData(null);
@@ -294,7 +293,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     }
 
     const stringContent = isStringContent ? content : '';
-    if (!stringContent && isStringContent && type !== 'excel' && type !== 'shapefile') {
+    if (!stringContent && isStringContent && type !== 'excel') {
       setLoading(false);
       setParsedData(null);
       return;
@@ -539,26 +538,14 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
 
         case 'geojson':
         case 'topojson':
-        case 'wkt':
-        case 'shapefile': {
+        case 'wkt': {
           try {
             const tab = tabs.get(tabId);
             let geospatialInput: string | ArrayBuffer | Blob = content;
 
-            if (type === 'shapefile') {
-              if (tab?.file && 'getFile' in (tab.file as FileSystemFileHandle)) {
-                const file = await (tab.file as FileSystemFileHandle).getFile();
-                geospatialInput = await file.arrayBuffer();
-              } else if (tab?.file instanceof File) {
-                geospatialInput = await tab.file.arrayBuffer();
-              } else if (typeof content === 'string') {
-                geospatialInput = new TextEncoder().encode(content).buffer;
-              }
-            }
-
             const geoResult = await parseGeospatialData(geospatialInput, {
               fileName: tab?.name,
-              formatHint: type as 'geojson' | 'topojson' | 'wkt' | 'shapefile',
+              formatHint: type as 'geojson' | 'topojson' | 'wkt',
             });
 
             if (geoResult.error) {
