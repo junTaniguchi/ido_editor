@@ -60,6 +60,21 @@ const toFeaturesFromParsedWkt = (parsed: unknown): Feature[] => {
   return [];
 };
 
+const SHAPEFILE_EXTENSION_PATTERN = /\.(?:shp|shpz|shz|dbf)$/;
+
+const isLikelyShapefile = (fileName?: string): boolean => {
+  if (!fileName) {
+    return false;
+  }
+
+  const normalized = fileName.toLowerCase();
+  if (/\.zip$/.test(normalized)) {
+    return normalized.includes('.shp');
+  }
+
+  return SHAPEFILE_EXTENSION_PATTERN.test(normalized);
+};
+
 /**
  * CSVデータをパースする
  * @param content CSVの文字列データ
