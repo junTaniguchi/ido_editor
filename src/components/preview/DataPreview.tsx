@@ -23,7 +23,15 @@
 import React, { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useEditorStore } from '@/store/editorStore';
-import { parseCSV, parseJSON, parseYAML, parseParquet, flattenNestedObjects, parseMermaid } from '@/lib/dataPreviewUtils';
+import {
+  parseCSV,
+  parseJSON,
+  parseYAML,
+  parseParquet,
+  flattenNestedObjects,
+  parseMermaid,
+  parseGeospatialData,
+} from '@/lib/dataPreviewUtils';
 import { formatData } from '@/lib/dataFormatUtils';
 import DataTable from './DataTable';
 import EditableDataTable from './EditableDataTable';
@@ -109,7 +117,25 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   };
   const { tabs, updateTab, getViewMode, setViewMode, paneState, updatePaneState, editorSettings, updateEditorSettings } = useEditorStore();
   const [content, setContent] = useState('');
-  const [type, setType] = useState<'text' | 'markdown' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' | 'ipynb' | 'pdf' | 'excel' | null>(null);
+  const [type, setType] = useState<
+    | 'text'
+    | 'markdown'
+    | 'html'
+    | 'json'
+    | 'yaml'
+    | 'sql'
+    | 'csv'
+    | 'tsv'
+    | 'parquet'
+    | 'mermaid'
+    | 'ipynb'
+    | 'pdf'
+    | 'excel'
+    | 'geojson'
+    | 'topojson'
+    | 'wkt'
+    | null
+  >(null);
   const [parsedData, setParsedData] = useState<any>(null);
   const [originalData, setOriginalData] = useState<any>(null); // 元のネスト構造データ
   const [columns, setColumns] = useState<string[]>([]);
@@ -460,8 +486,8 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
         case 'excel':
           // Excelファイルの処理
           try {
-            console.log('Excel処理開始:', { 
-              hasTab: !!tab, 
+            console.log('Excel処理開始:', {
+              hasTab: !!tab,
               tabName: tab?.name, 
               hasFile: !!tab?.file, 
               fileType: typeof tab?.file,
@@ -495,7 +521,30 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
             setError(`Excelファイルの読み込みに失敗しました: ${err instanceof Error ? err.message : 'Unknown error'}`);
           }
           break;
-          
+
+        case 'geojson':
+        case 'topojson':
+        case 'wkt': {
+          try {
+            const tab = tabs.get(tabId);
+            const geoResult = await parseGeospatialData(content, {
+              fileName: tab?.name,
+              formatHint: type as 'geojson' | 'topojson' | 'wkt',
+            });
+
+            if (geoResult.error) {
+              setError(geoResult.error);
+            } else {
+              setParsedData(geoResult.data);
+              setOriginalData(geoResult.geoJson);
+              setColumns(geoResult.columns);
+            }
+          } catch (err) {
+            setError(err instanceof Error ? err.message : '地理空間データの解析に失敗しました');
+          }
+          break;
+        }
+
         case 'mermaid':
           // Mermaidファイルのパース処理
           const mermaidResult = parseMermaid(content);

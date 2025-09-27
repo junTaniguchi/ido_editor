@@ -2,14 +2,14 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useEditorStore } from '@/store/editorStore';
-import { parseCSV, parseJSON, parseYAML, parseParquet, parseExcel, flattenNestedObjects } from '@/lib/dataPreviewUtils';
+import { parseCSV, parseJSON, parseYAML, parseParquet, parseExcel, flattenNestedObjects, parseGeospatialData } from '@/lib/dataPreviewUtils';
 import { executeQuery, calculateStatistics, aggregateData, prepareChartData, calculateInfo, downloadData } from '@/lib/dataAnalysisUtils';
 import { IoAlertCircleOutline, IoAnalyticsOutline, IoBarChartOutline, IoStatsChartOutline, IoCodeSlash, IoEye, IoLayersOutline, IoCreate, IoSave, IoGitNetwork, IoChevronUpOutline, IoChevronDownOutline, IoBookOutline, IoAddOutline, IoPlay, IoPlayForward, IoTrashOutline, IoDownloadOutline } from 'react-icons/io5';
 import QueryResultTable from './QueryResultTable';
 import InfoResultTable from './InfoResultTable';
 import EditableQueryResultTable from './EditableQueryResultTable';
 import ResultChartPanel from './ResultChartPanel';
-import { 
+import {
   Chart as ChartJS, 
   CategoryScale, 
   LinearScale, 
@@ -36,6 +36,7 @@ import ChartDataLabels from 'chartjs-plugin-datalabels';
 // 関係グラフコンポーネントを動的インポート（SSR回避）
 const RelationshipGraph = dynamic(() => import('./RelationshipGraph'), { ssr: false });
 import { SqlNotebookCell } from '@/types';
+import type { FeatureCollection } from 'geojson';
 
 // Chart.jsコンポーネントを登録
 ChartJS.register(
@@ -299,6 +300,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
     try {
       let data: any[] = [];
       let cols: string[] = [];
+      let geoJson: FeatureCollection | null = null;
 
       const currentTab = tabs.get(tabId);
       const trimmedContent = typeof content === 'string' ? content.trim() : '';
@@ -359,7 +361,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
             setOriginalData(null);
             setOriginalQueryResult(null);
             setInfoResult(null);
-            setAnalysisData({ columns: [], rows: [] });
+            setAnalysisData({ columns: [], rows: [], geoJson: null });
             setLoading(false);
             return;
           }
@@ -590,7 +592,34 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
             return;
           }
           break;
-          
+
+        case 'geojson':
+        case 'topojson':
+        case 'wkt': {
+          try {
+            const geoResult = await parseGeospatialData(content, {
+              fileName: currentTab?.name,
+              formatHint: type as 'geojson' | 'topojson' | 'wkt',
+            });
+
+            if (geoResult.error) {
+              setError(geoResult.error);
+              setLoading(false);
+              return;
+            }
+
+            data = geoResult.data;
+            cols = geoResult.columns;
+            geoJson = geoResult.geoJson;
+            setOriginalData(geoResult.data);
+          } catch (err) {
+            setError(err instanceof Error ? err.message : '地理空間データの解析に失敗しました');
+            setLoading(false);
+            return;
+          }
+          break;
+        }
+
         default:
           setError('分析に対応していないファイル形式です');
           setLoading(false);
@@ -599,7 +628,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
       
       setParsedData(data);
       setColumns(cols);
-      setAnalysisData({ columns: cols, rows: data });
+      setAnalysisData({ columns: cols, rows: data, geoJson });
       
       // 統計情報を計算
       const statsResult = calculateStatistics(data, true);

@@ -1,3 +1,5 @@
+import type { FeatureCollection } from 'geojson';
+
 // タブに関する型定義
 export interface TabData {
   id: string;
@@ -5,7 +7,7 @@ export interface TabData {
   content: string;
   originalContent: string;
   isDirty: boolean;
-  type: 'text' | 'markdown' | 'md' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' | 'mmd' | 'excel' | 'pdf' | 'ipynb';
+  type: 'text' | 'markdown' | 'md' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' | 'mmd' | 'excel' | 'pdf' | 'ipynb' | 'geojson' | 'topojson' | 'wkt';
   isReadOnly: boolean;
   file?: FileSystemFileHandle | File;
 }
@@ -77,6 +79,7 @@ export interface SearchMatch {
 export interface AnalysisData {
   columns: string[];
   rows: any[];
+  geoJson?: FeatureCollection | null;
 }
 
 // SQLクエリ結果に関する型定義
