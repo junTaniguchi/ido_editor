@@ -124,6 +124,28 @@ export interface ChartSettings {
   }
 }
 
+export type MapAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'none';
+
+export type MapBasemap = 'osm-standard' | 'osm-humanitarian' | 'osm-germany' | 'osm-standard-oblique';
+
+export interface MapSettings {
+  dataSource: string;
+  latitudeColumn?: string;
+  longitudeColumn?: string;
+  geoJsonColumn?: string;
+  wktColumn?: string;
+  pathColumn?: string;
+  polygonColumn?: string;
+  heightColumn?: string;
+  categoryColumn?: string;
+  colorColumn?: string;
+  aggregation: MapAggregation;
+  pointRadius: number;
+  columnRadius: number;
+  elevationScale: number;
+  basemap: MapBasemap;
+}
+
 // SQLノートブックセルに関する型定義
 export interface SqlNotebookCell {
   id: string;
