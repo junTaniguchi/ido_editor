@@ -739,6 +739,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
           </label>
         </div>
       </div>
+
       {!hasGeometrySelection && (
         <div className="flex items-center gap-2 rounded border border-dashed border-yellow-400 bg-yellow-50 p-3 text-xs text-yellow-700 dark:border-yellow-500 dark:bg-yellow-900/30 dark:text-yellow-200">
           <IoInformationCircleOutline size={16} />
