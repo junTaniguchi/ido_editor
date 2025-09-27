@@ -3,7 +3,6 @@ import YAML from 'js-yaml';
 import { tableFromArrays, Table } from 'apache-arrow';
 import * as XLSX from 'xlsx';
 import { load } from '@loaders.gl/core';
-import { GeoJSONLoader } from '@loaders.gl/gis';
 import { ShapefileLoader } from '@loaders.gl/shapefile';
 import { WKTLoader } from '@loaders.gl/wkt';
 import { feature as topojsonFeature } from 'topojson-client';
@@ -485,23 +484,12 @@ export const parseGeospatialData = async (
       }
       case 'geojson':
       default: {
-        if (typeof input === 'string') {
-          try {
-            const parsed = JSON.parse(input);
-            featureCollection = toFeatureCollection(parsed);
-          } catch {
-            const loaded = await load(input, GeoJSONLoader);
-            featureCollection = toFeatureCollection(loaded);
-          }
-        } else {
-          const text = await textFromInput(input);
-          try {
-            const parsed = JSON.parse(text);
-            featureCollection = toFeatureCollection(parsed);
-          } catch {
-            const loaded = await load(text, GeoJSONLoader);
-            featureCollection = toFeatureCollection(loaded);
-          }
+        const text = typeof input === 'string' ? input : await textFromInput(input);
+        try {
+          const parsed = JSON.parse(text);
+          featureCollection = toFeatureCollection(parsed);
+        } catch {
+          featureCollection = null;
         }
         break;
       }
