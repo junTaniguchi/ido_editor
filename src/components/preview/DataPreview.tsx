@@ -23,7 +23,15 @@
 import React, { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useEditorStore } from '@/store/editorStore';
-import { parseCSV, parseJSON, parseYAML, parseParquet, flattenNestedObjects, parseMermaid } from '@/lib/dataPreviewUtils';
+import {
+  parseCSV,
+  parseJSON,
+  parseYAML,
+  parseParquet,
+  flattenNestedObjects,
+  parseMermaid,
+  parseGeospatialData,
+} from '@/lib/dataPreviewUtils';
 import { formatData } from '@/lib/dataFormatUtils';
 import DataTable from './DataTable';
 import EditableDataTable from './EditableDataTable';
@@ -109,7 +117,26 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   };
   const { tabs, updateTab, getViewMode, setViewMode, paneState, updatePaneState, editorSettings, updateEditorSettings } = useEditorStore();
   const [content, setContent] = useState('');
-  const [type, setType] = useState<'text' | 'markdown' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' | 'ipynb' | 'pdf' | 'excel' | null>(null);
+  const [type, setType] = useState<
+    | 'text'
+    | 'markdown'
+    | 'html'
+    | 'json'
+    | 'yaml'
+    | 'sql'
+    | 'csv'
+    | 'tsv'
+    | 'parquet'
+    | 'mermaid'
+    | 'ipynb'
+    | 'pdf'
+    | 'excel'
+    | 'geojson'
+    | 'topojson'
+    | 'wkt'
+    | 'shapefile'
+    | null
+  >(null);
   const [parsedData, setParsedData] = useState<any>(null);
   const [originalData, setOriginalData] = useState<any>(null); // 元のネスト構造データ
   const [columns, setColumns] = useState<string[]>([]);
@@ -257,7 +284,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     const tab = tabs.get(tabId);
     
     // コンテンツが空の場合（Excelファイルは除く）
-    if ((!content || content.trim() === '') && type !== 'excel') {
+    if ((!content || content.trim() === '') && type !== 'excel' && type !== 'shapefile') {
       setLoading(false);
       setParsedData(null);
       return;
@@ -460,8 +487,8 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
         case 'excel':
           // Excelファイルの処理
           try {
-            console.log('Excel処理開始:', { 
-              hasTab: !!tab, 
+            console.log('Excel処理開始:', {
+              hasTab: !!tab,
               tabName: tab?.name, 
               hasFile: !!tab?.file, 
               fileType: typeof tab?.file,
@@ -495,7 +522,48 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
             setError(`Excelファイルの読み込みに失敗しました: ${err instanceof Error ? err.message : 'Unknown error'}`);
           }
           break;
-          
+
+        case 'geojson':
+        case 'topojson':
+        case 'wkt':
+        case 'shapefile': {
+          try {
+            const tab = tabs.get(tabId);
+            let parseInput: string | ArrayBuffer | Blob = content;
+
+            if (type === 'shapefile') {
+              let buffer: ArrayBuffer | null = null;
+              if (tab?.file && 'getFile' in (tab.file as FileSystemFileHandle)) {
+                const file = await (tab.file as FileSystemFileHandle).getFile();
+                buffer = await file.arrayBuffer();
+              } else if (tab?.file instanceof File) {
+                buffer = await tab.file.arrayBuffer();
+              }
+
+              if (!buffer) {
+                throw new Error('シェープファイルのバイナリデータを取得できませんでした');
+              }
+              parseInput = buffer;
+            }
+
+            const geoResult = await parseGeospatialData(parseInput, {
+              fileName: tab?.name,
+              formatHint: type === 'shapefile' ? 'shapefile' : (type as 'geojson' | 'topojson' | 'wkt'),
+            });
+
+            if (geoResult.error) {
+              setError(geoResult.error);
+            } else {
+              setParsedData(geoResult.data);
+              setOriginalData(geoResult.data);
+              setColumns(geoResult.columns);
+            }
+          } catch (err) {
+            setError(err instanceof Error ? err.message : '地理空間データの解析に失敗しました');
+          }
+          break;
+        }
+
         case 'mermaid':
           // Mermaidファイルのパース処理
           const mermaidResult = parseMermaid(content);

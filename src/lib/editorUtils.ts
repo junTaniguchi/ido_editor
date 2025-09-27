@@ -138,17 +138,25 @@ export const getEditorExtensions = (
 /**
  * ファイルの種類を判定する
  */
-export const getFileType = (fileName: string): 'text' | 'markdown' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' | 'excel' => {
+export const getFileType = (
+  fileName: string,
+): 'text' | 'markdown' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' | 'excel' | 'ipynb' | 'pdf' | 'geojson' | 'topojson' | 'wkt' | 'shapefile' => {
   const lowerFileName = fileName.toLowerCase();
-  
+
   if (lowerFileName.endsWith('.md') || lowerFileName.endsWith('.markdown')) {
     return 'markdown';
   } else if (lowerFileName.endsWith('.html') || lowerFileName.endsWith('.htm')) {
     return 'html';
+  } else if (lowerFileName.endsWith('.geojson')) {
+    return 'geojson';
+  } else if (lowerFileName.endsWith('.topojson')) {
+    return 'topojson';
   } else if (lowerFileName.endsWith('.json') || lowerFileName.endsWith('.ipynb')) {
     return 'json';
   } else if (lowerFileName.endsWith('.yml') || lowerFileName.endsWith('.yaml')) {
     return 'yaml';
+  } else if (lowerFileName.endsWith('.wkt')) {
+    return 'wkt';
   } else if (lowerFileName.endsWith('.sql')) {
     return 'sql';
   } else if (lowerFileName.endsWith('.csv')) {
@@ -161,6 +169,8 @@ export const getFileType = (fileName: string): 'text' | 'markdown' | 'html' | 'j
     return 'mermaid';
   } else if (lowerFileName.endsWith('.xlsx') || lowerFileName.endsWith('.xls')) {
     return 'excel';
+  } else if (lowerFileName.endsWith('.shp')) {
+    return 'shapefile';
   } else if (lowerFileName.endsWith('.ipynb')) {
     return 'ipynb';
   } else if (lowerFileName.endsWith('.pdf')) {
