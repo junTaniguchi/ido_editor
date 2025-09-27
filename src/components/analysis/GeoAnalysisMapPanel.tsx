@@ -6,7 +6,7 @@ import DeckGL from '@deck.gl/react';
 import { TileLayer } from '@deck.gl/geo-layers';
 import { BitmapLayer, ColumnLayer, ScatterplotLayer, PathLayer, GeoJsonLayer } from '@deck.gl/layers';
 import { inferCoordinateColumns, buildGeoJsonFromRows } from '@/lib/dataAnalysisUtils';
-import type { MapSettings, MapBasemap } from '@/types';
+import type { MapSettings, MapBasemap, MapBasemapOverlay, MapBasemapOverlayState } from '@/types';
 import { IoInformationCircleOutline } from 'react-icons/io5';
 
 interface MapDataSource {
@@ -85,6 +85,55 @@ const BASEMAPS: Record<MapBasemap, {
   },
 };
 
+const DEFAULT_BASEMAP_OVERLAYS: MapBasemapOverlayState = {
+  roads: true,
+  railways: false,
+  terrain: false,
+};
+
+const BASEMAP_OVERLAYS: Record<MapBasemapOverlay, {
+  label: string;
+  description: string;
+  urlTemplates: string[];
+  attribution: string;
+  opacity?: number;
+  minZoom?: number;
+  maxZoom?: number;
+}> = {
+  roads: {
+    label: '道路',
+    description: 'OpenStreetMapの道路を強調表示します。',
+    urlTemplates: [
+      'https://stamen-tiles.a.ssl.fastly.net/toner-lines/{z}/{x}/{y}.png',
+      'https://stamen-tiles.b.ssl.fastly.net/toner-lines/{z}/{x}/{y}.png',
+      'https://stamen-tiles.c.ssl.fastly.net/toner-lines/{z}/{x}/{y}.png',
+    ],
+    attribution: 'Map tiles by Stamen Design, under CC BY 3.0. Data by © OpenStreetMap contributors.',
+    opacity: 0.65,
+  },
+  railways: {
+    label: '鉄道',
+    description: 'OpenRailwayMapの鉄道路線を重ねて表示します。',
+    urlTemplates: [
+      'https://a.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png',
+      'https://b.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png',
+      'https://c.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png',
+    ],
+    attribution: '© OpenRailwayMap contributors (OpenStreetMap data)',
+    opacity: 0.9,
+  },
+  terrain: {
+    label: '起伏',
+    description: 'ヒルシェード（陰影起伏）タイルを重ねます。',
+    urlTemplates: [
+      'https://tiles.wmflabs.org/hillshading/{z}/{x}/{y}.png',
+    ],
+    attribution: 'Hillshading: © OpenStreetMap contributors, SRTM.',
+    opacity: 0.6,
+    maxZoom: 18,
+  },
+};
+
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 19;
 
@@ -95,6 +144,44 @@ const DEFAULT_VIEW_STATE = {
   pitch: 0,
   bearing: 0,
 };
+
+const createBitmapTileLayer = (
+  id: string,
+  urlTemplates: string[],
+  options: { opacity?: number; minZoom?: number; maxZoom?: number } = {},
+) => new TileLayer({
+  id,
+  data: urlTemplates,
+  minZoom: options.minZoom ?? MIN_ZOOM,
+  maxZoom: options.maxZoom ?? MAX_ZOOM,
+  tileSize: 256,
+  opacity: options.opacity ?? 1,
+  renderSubLayers: (props) => {
+    const {
+      tile,
+      data,
+      visible,
+      opacity,
+    } = props;
+    if (!data) {
+      return null;
+    }
+    const {
+      west,
+      south,
+      east,
+      north,
+    } = tile.bbox;
+    return new BitmapLayer(props, {
+      id: `${props.id}-bitmap`,
+      data: null,
+      image: data,
+      bounds: [west, south, east, north],
+      visible,
+      opacity,
+    });
+  },
+});
 
 const COLOR_PALETTE: [number, number, number][] = [
   [59, 130, 246],
@@ -265,45 +352,37 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
     return COLOR_PALETTE[index];
   }, [categoryColorMap]);
 
+  useEffect(() => {
+    if (!mapSettings.basemapOverlays) {
+      onUpdateSettings({ basemapOverlays: { ...DEFAULT_BASEMAP_OVERLAYS } });
+    }
+  }, [mapSettings.basemapOverlays, onUpdateSettings]);
+
+  const overlaySettings: MapBasemapOverlayState = mapSettings.basemapOverlays ?? DEFAULT_BASEMAP_OVERLAYS;
+
   const selectedBasemap = BASEMAPS[mapSettings.basemap] ?? BASEMAPS['osm-standard'];
   const allowTilt = selectedBasemap.allowTilt ?? false;
   const defaultPitch = selectedBasemap.defaultPitch ?? 0;
   const defaultBearing = selectedBasemap.defaultBearing ?? 0;
 
   const tileLayer = useMemo(() => {
-    return new TileLayer({
-      id: `osm-tile-layer-${mapSettings.basemap}`,
-      data: selectedBasemap.urlTemplates,
-      minZoom: MIN_ZOOM,
-      maxZoom: MAX_ZOOM,
-      tileSize: 256,
-      renderSubLayers: (props) => {
-        const {
-          tile,
-          data,
-          visible,
-          opacity,
-        } = props;
-        if (!data) {
-          return null;
-        }
-        const {
-          west,
-          south,
-          east,
-          north,
-        } = tile.bbox;
-        return new BitmapLayer(props, {
-          id: `${props.id}-bitmap`,
-          data: null,
-          image: data,
-          bounds: [west, south, east, north],
-          visible,
-          opacity,
-        });
-      },
-    });
+    return createBitmapTileLayer(`osm-tile-layer-${mapSettings.basemap}`, selectedBasemap.urlTemplates);
   }, [mapSettings.basemap, selectedBasemap]);
+
+  const overlayLayers = useMemo(() => {
+    const entries = Object.entries(BASEMAP_OVERLAYS) as [MapBasemapOverlay, (typeof BASEMAP_OVERLAYS)[MapBasemapOverlay]][];
+    return entries
+      .filter(([key]) => overlaySettings[key])
+      .map(([key, overlay]) => createBitmapTileLayer(
+        `osm-overlay-${key}`,
+        overlay.urlTemplates,
+        {
+          opacity: overlay.opacity,
+          minZoom: overlay.minZoom,
+          maxZoom: overlay.maxZoom,
+        },
+      ));
+  }, [overlaySettings.roads, overlaySettings.railways, overlaySettings.terrain]);
 
   const scatterLayer = useMemo(() => {
     if (!geoData || !geoData.points.length) return null;
@@ -390,13 +469,13 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
   }, [geoData, getColorForValue, mapSettings.elevationScale, validHeightColumn]);
 
   const layers = useMemo(() => {
-    const list = [tileLayer];
+    const list = [tileLayer, ...overlayLayers];
     if (columnLayer) list.push(columnLayer);
     if (scatterLayer) list.push(scatterLayer);
     if (pathLayer) list.push(pathLayer);
     if (geoJsonLayer) list.push(geoJsonLayer);
     return list;
-  }, [tileLayer, columnLayer, scatterLayer, pathLayer, geoJsonLayer]);
+  }, [tileLayer, overlayLayers, columnLayer, scatterLayer, pathLayer, geoJsonLayer]);
 
   const computedViewState = useMemo(() => {
     const baseState = {
@@ -819,6 +898,40 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
               ))}
             </select>
           </label>
+
+          <div className="col-span-3 rounded border border-gray-200 bg-white p-3 text-xs text-gray-700 shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
+            <div className="font-medium">OpenStreetMap オーバーレイ</div>
+            <div className="mt-1 text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+              道路・鉄道・起伏のタイルレイヤーを個別にON/OFFできます。見たい情報に合わせて切り替えてください。
+            </div>
+            <div className="mt-3 flex flex-wrap gap-3">
+              {(Object.entries(BASEMAP_OVERLAYS) as [MapBasemapOverlay, typeof BASEMAP_OVERLAYS[MapBasemapOverlay]][]).map(([key, overlay]) => (
+                <label key={key} className="flex items-center gap-2 rounded border border-gray-200 px-2 py-1 font-medium text-gray-700 dark:border-gray-700 dark:text-gray-200">
+                  <input
+                    type="checkbox"
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600"
+                    checked={Boolean(overlaySettings[key])}
+                    onChange={(event) => {
+                      const nextValue = event.target.checked;
+                      onUpdateSettings({
+                        basemapOverlays: {
+                          ...overlaySettings,
+                          [key]: nextValue,
+                        },
+                      });
+                    }}
+                  />
+                  <span className="flex flex-col">
+                    <span>{overlay.label}</span>
+                    <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">{overlay.description}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            <div className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
+              提供元: {Object.values(BASEMAP_OVERLAYS).map((overlay) => overlay.attribution).join(' / ')}
+            </div>
+          </div>
         </div>
       </div>
 

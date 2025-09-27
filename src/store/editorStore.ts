@@ -2,7 +2,13 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { TabData, FileTreeItem, EditorSettings, PaneState, ContextMenuTarget, SearchSettings, AnalysisData, SqlResult, ChartSettings, SearchResult, SqlNotebookCell, SqlNotebookSnapshotMeta, MapSettings } from '@/types';
+import { TabData, FileTreeItem, EditorSettings, PaneState, ContextMenuTarget, SearchSettings, AnalysisData, SqlResult, ChartSettings, SearchResult, SqlNotebookCell, SqlNotebookSnapshotMeta, MapSettings, MapBasemapOverlayState } from '@/types';
+
+const DEFAULT_MAP_BASEMAP_OVERLAYS: MapBasemapOverlayState = {
+  roads: true,
+  railways: false,
+  terrain: false,
+};
 
 interface EditorStore {
   // タブ管理
@@ -273,6 +279,7 @@ export const useEditorStore = create<EditorStore>()(
         columnRadius: 200,
         elevationScale: 20,
         basemap: 'osm-standard',
+        basemapOverlays: { ...DEFAULT_MAP_BASEMAP_OVERLAYS },
       },
       updateMapSettings: (settings) => set((state) => ({
         mapSettings: { ...state.mapSettings, ...settings }
@@ -432,9 +439,14 @@ export const useEditorStore = create<EditorStore>()(
               columnRadius: 200,
               elevationScale: 20,
               basemap: 'osm-standard',
+              basemapOverlays: { ...DEFAULT_MAP_BASEMAP_OVERLAYS },
             };
           } else if (!state.mapSettings.basemap) {
             state.mapSettings.basemap = 'osm-standard';
+          }
+
+          if (!state.mapSettings.basemapOverlays) {
+            state.mapSettings.basemapOverlays = { ...DEFAULT_MAP_BASEMAP_OVERLAYS };
           }
         }
       }
