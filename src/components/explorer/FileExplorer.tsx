@@ -212,6 +212,8 @@ const FileExplorer = () => {
 
         if (fileType === 'excel') {
           content = '';
+        } else if (fileType === 'shapefile') {
+          content = '# Shapefile binary data. プレビュータブで内容を確認してください。';
         } else if (fileType === 'pdf') {
           const file = await item.fileHandle.getFile();
           content = URL.createObjectURL(file);

@@ -39,6 +39,10 @@ const SUPPORTED_CLIPBOARD_FILE_TYPES = new Set<TabData['type']>([
   'excel',
   'ipynb',
   'pdf',
+  'geojson',
+  'topojson',
+  'wkt',
+  'shapefile',
 ]);
 
 const MIME_FALLBACK_EXTENSION: Record<string, string> = {

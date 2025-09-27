@@ -23,7 +23,15 @@
 import React, { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useEditorStore } from '@/store/editorStore';
-import { parseCSV, parseJSON, parseYAML, parseParquet, flattenNestedObjects, parseMermaid } from '@/lib/dataPreviewUtils';
+import {
+  parseCSV,
+  parseJSON,
+  parseYAML,
+  parseParquet,
+  flattenNestedObjects,
+  parseMermaid,
+  parseGeospatialData,
+} from '@/lib/dataPreviewUtils';
 import { formatData } from '@/lib/dataFormatUtils';
 import DataTable from './DataTable';
 import EditableDataTable from './EditableDataTable';
@@ -108,8 +116,27 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     }
   };
   const { tabs, updateTab, getViewMode, setViewMode, paneState, updatePaneState, editorSettings, updateEditorSettings } = useEditorStore();
-  const [content, setContent] = useState('');
-  const [type, setType] = useState<'text' | 'markdown' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' | 'ipynb' | 'pdf' | 'excel' | null>(null);
+  const [content, setContent] = useState<string | ArrayBuffer>('');
+  const [type, setType] = useState<
+    | 'text'
+    | 'markdown'
+    | 'html'
+    | 'json'
+    | 'yaml'
+    | 'sql'
+    | 'csv'
+    | 'tsv'
+    | 'parquet'
+    | 'mermaid'
+    | 'ipynb'
+    | 'pdf'
+    | 'excel'
+    | 'geojson'
+    | 'topojson'
+    | 'wkt'
+    | 'shapefile'
+    | null
+  >(null);
   const [parsedData, setParsedData] = useState<any>(null);
   const [originalData, setOriginalData] = useState<any>(null); // 元のネスト構造データ
   const [columns, setColumns] = useState<string[]>([]);
@@ -247,26 +274,36 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     }
   }, [dataDisplayMode, originalData, type]);
   
-  const parseContent = async (content: string, type: string) => {
+  const parseContent = async (content: string | ArrayBuffer, type: string) => {
     setLoading(true);
     setError(null);
     setParsedData(null);
     setOriginalData(null);
     setColumns([]);
-    
+
     const tab = tabs.get(tabId);
-    
+
     // コンテンツが空の場合（Excelファイルは除く）
-    if ((!content || content.trim() === '') && type !== 'excel') {
+    const isStringContent = typeof content === 'string';
+    if (type !== 'excel' && type !== 'shapefile') {
+      if (!content || (isStringContent && content.trim() === '')) {
+        setLoading(false);
+        setParsedData(null);
+        return;
+      }
+    }
+
+    const stringContent = isStringContent ? content : '';
+    if (!stringContent && isStringContent && type !== 'excel' && type !== 'shapefile') {
       setLoading(false);
       setParsedData(null);
       return;
     }
-    
+
     try {
       switch (type) {
         case 'csv':
-          const csvResult = parseCSV(content);
+          const csvResult = parseCSV((content as string) ?? '');
           if (csvResult.error) {
             setError(csvResult.error);
           } else {
@@ -277,7 +314,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
           break;
           
         case 'tsv':
-          const tsvResult = parseCSV(content, '\t');
+          const tsvResult = parseCSV((content as string) ?? '', '\t');
           if (tsvResult.error) {
             setError(tsvResult.error);
           } else {
@@ -288,7 +325,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
           break;
           
         case 'json':
-          const jsonResult = parseJSON(content);
+          const jsonResult = parseJSON((content as string) ?? '');
           if (jsonResult.error) {
             setError(jsonResult.error);
           } else {
@@ -358,7 +395,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
           break;
           
         case 'yaml':
-          const yamlResult = parseYAML(content);
+          const yamlResult = parseYAML((content as string) ?? '');
           if (yamlResult.error) {
             setError(yamlResult.error);
           } else {
@@ -440,7 +477,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
           
         case 'parquet':
           // Parquetのパース処理（簡易版）
-          const parquetResult = await parseParquet(content);
+          const parquetResult = await parseParquet((content as string) ?? '');
           if (parquetResult.error) {
             setError(parquetResult.error);
           } else if (parquetResult.headers && parquetResult.rows) {
@@ -460,12 +497,16 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
         case 'excel':
           // Excelファイルの処理
           try {
-            console.log('Excel処理開始:', { 
-              hasTab: !!tab, 
+            console.log('Excel処理開始:', {
+              hasTab: !!tab,
               tabName: tab?.name, 
               hasFile: !!tab?.file, 
               fileType: typeof tab?.file,
-              contentLength: content?.length 
+              contentLength: typeof content === 'string'
+                ? content.length
+                : content instanceof ArrayBuffer
+                  ? content.byteLength
+                  : 0
             });
             
             if (!tab?.file) {
@@ -489,16 +530,53 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
               throw new Error('対応していないファイル形式です');
             }
             
-            setContent(buffer as any); // ArrayBufferをcontentに設定（ExcelPreviewで使用）
+            setContent(buffer); // ArrayBufferをcontentに設定（ExcelPreviewで使用）
           } catch (err) {
             console.error('Excel処理エラー:', err);
             setError(`Excelファイルの読み込みに失敗しました: ${err instanceof Error ? err.message : 'Unknown error'}`);
           }
           break;
-          
+
+        case 'geojson':
+        case 'topojson':
+        case 'wkt':
+        case 'shapefile': {
+          try {
+            const tab = tabs.get(tabId);
+            let geospatialInput: string | ArrayBuffer | Blob = content;
+
+            if (type === 'shapefile') {
+              if (tab?.file && 'getFile' in (tab.file as FileSystemFileHandle)) {
+                const file = await (tab.file as FileSystemFileHandle).getFile();
+                geospatialInput = await file.arrayBuffer();
+              } else if (tab?.file instanceof File) {
+                geospatialInput = await tab.file.arrayBuffer();
+              } else if (typeof content === 'string') {
+                geospatialInput = new TextEncoder().encode(content).buffer;
+              }
+            }
+
+            const geoResult = await parseGeospatialData(geospatialInput, {
+              fileName: tab?.name,
+              formatHint: type as 'geojson' | 'topojson' | 'wkt' | 'shapefile',
+            });
+
+            if (geoResult.error) {
+              setError(geoResult.error);
+            } else {
+              setParsedData(geoResult.data);
+              setOriginalData(geoResult.geoJson);
+              setColumns(geoResult.columns);
+            }
+          } catch (err) {
+            setError(err instanceof Error ? err.message : '地理空間データの解析に失敗しました');
+          }
+          break;
+        }
+
         case 'mermaid':
           // Mermaidファイルのパース処理
-          const mermaidResult = parseMermaid(content);
+          const mermaidResult = parseMermaid((content as string) ?? '');
           if (!mermaidResult.valid) {
             setError(mermaidResult.error || 'Mermaid図式の解析に失敗しました');
           } else {

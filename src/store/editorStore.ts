@@ -239,7 +239,7 @@ export const useEditorStore = create<EditorStore>()(
       // 分析機能
       analysisEnabled: false,
       setAnalysisEnabled: (enabled) => set({ analysisEnabled: enabled }),
-      analysisData: { columns: [], rows: [] },
+      analysisData: { columns: [], rows: [], geoJson: null },
       setAnalysisData: (data) => set({ analysisData: data }),
       sqlResult: null,
       setSqlResult: (result) => set({ sqlResult: result }),
