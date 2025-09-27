@@ -792,23 +792,6 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
               data = geoResult.data;
               break;
             }
-            case 'shp':
-            case 'shpz':
-            case 'shz':
-            case 'zip': {
-              if (extension === 'zip' && !fileName.toLowerCase().includes('.shp')) {
-                console.warn(`Zipファイル ${fileName} はShapefileとして処理できませんでした。`);
-                break;
-              }
-              const geospatialInput = binaryContent ?? textContent ?? '';
-              const geoResult = await parseGeospatialData(geospatialInput, {
-                fileName,
-                formatHint: 'shapefile',
-              });
-              if (geoResult.error) throw new Error(geoResult.error);
-              data = geoResult.data;
-              break;
-            }
             case 'xlsx':
             case 'xls':
               // Excelファイルの処理

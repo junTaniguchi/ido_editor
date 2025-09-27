@@ -11,7 +11,7 @@ const nextConfig: NextConfig = {
       path: false,
       stream: false,
     };
-    
+
     // Mermaidの最適化設定
     if (!isServer) {
       config.optimization = {
@@ -30,7 +30,7 @@ const nextConfig: NextConfig = {
         },
       };
     }
-    
+
     return config;
   },
   // TypeScriptの設定
