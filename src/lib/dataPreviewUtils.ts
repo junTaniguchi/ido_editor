@@ -7,21 +7,6 @@ import { feature as topojsonFeature } from 'topojson-client';
 
 type WellknownModule = typeof import('wellknown');
 
-const SHAPEFILE_EXTENSION_PATTERN = /\.(?:shp|shpz|shz|dbf)$/;
-
-const isLikelyShapefile = (fileName?: string): boolean => {
-  if (!fileName) {
-    return false;
-  }
-
-  const normalized = fileName.toLowerCase();
-  if (/\.zip$/.test(normalized)) {
-    return normalized.includes('.shp');
-  }
-
-  return SHAPEFILE_EXTENSION_PATTERN.test(normalized);
-};
-
 const normalizeWktEntry = (value: string): string => value.replace(/^SRID=\d+;/i, '').trim();
 
 const toFeaturesFromParsedWkt = (parsed: unknown): Feature[] => {
@@ -58,21 +43,6 @@ const toFeaturesFromParsedWkt = (parsed: unknown): Feature[] => {
   }
 
   return [];
-};
-
-const SHAPEFILE_EXTENSION_PATTERN = /\.(?:shp|shpz|shz|dbf)$/;
-
-const isLikelyShapefile = (fileName?: string): boolean => {
-  if (!fileName) {
-    return false;
-  }
-
-  const normalized = fileName.toLowerCase();
-  if (/\.zip$/.test(normalized)) {
-    return normalized.includes('.shp');
-  }
-
-  return SHAPEFILE_EXTENSION_PATTERN.test(normalized);
 };
 
 /**
@@ -432,7 +402,6 @@ export const parseGeospatialData = async (
   options: ParseGeospatialOptions = {},
 ): Promise<ParseGeospatialResult> => {
   try {
-    const fileName = options.fileName;
     const isBinaryInput =
       input instanceof ArrayBuffer ||
       (input instanceof Blob &&
@@ -440,12 +409,12 @@ export const parseGeospatialData = async (
         !/^text\//.test(input.type) &&
         !/json$/i.test(input.type));
 
-    if (isLikelyShapefile(fileName) || isBinaryInput) {
+    if (isBinaryInput) {
       return {
         columns: [],
         data: [],
         geoJson: null,
-        error: 'Shapefile形式の地理空間データは現在サポートしていません。',
+        error: 'バイナリ形式の地理空間データは現在サポートしていません。',
       };
     }
 
