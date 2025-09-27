@@ -6,7 +6,7 @@ import DeckGL from '@deck.gl/react';
 import { TileLayer } from '@deck.gl/geo-layers';
 import { BitmapLayer, ColumnLayer, ScatterplotLayer, PathLayer, GeoJsonLayer } from '@deck.gl/layers';
 import { inferCoordinateColumns, buildGeoJsonFromRows } from '@/lib/dataAnalysisUtils';
-import type { MapSettings, MapBasemap, MapBasemapOverlay, MapBasemapOverlayState } from '@/types';
+import type { MapSettings, MapBasemap, MapBasemapOverlay, MapBasemapOverlayState, MapLayerSettings } from '@/types';
 import { IoInformationCircleOutline, IoOptionsOutline, IoCloseOutline } from 'react-icons/io5';
 
 interface MapDataSource {
@@ -149,6 +149,11 @@ const DEFAULT_VIEW_STATE = {
   bearing: 0,
 };
 
+const buildTileUrl = (template: string, x: number, y: number, z: number) => template
+  .replace('{x}', String(x))
+  .replace('{y}', String(y))
+  .replace('{z}', String(z));
+
 const createBitmapTileLayer = (
   id: string,
   urlTemplates: string[],
@@ -160,6 +165,79 @@ const createBitmapTileLayer = (
   maxZoom: options.maxZoom ?? MAX_ZOOM,
   tileSize: 256,
   opacity: options.opacity ?? 1,
+  getTileData: async ({ x, y, z, signal }: { x: number; y: number; z: number; signal?: AbortSignal }) => {
+    if (!urlTemplates.length) {
+      return null;
+    }
+
+    const templateIndex = ((Math.abs(x) + y + z) % urlTemplates.length + urlTemplates.length) % urlTemplates.length;
+    const url = buildTileUrl(urlTemplates[templateIndex], x, y, z);
+
+    try {
+      const response = await fetch(url, { signal, mode: 'cors' });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch tile: ${response.status} ${response.statusText}`);
+      }
+      const blob = await response.blob();
+
+      if (typeof window !== 'undefined' && 'createImageBitmap' in window && window.createImageBitmap) {
+        try {
+          return await window.createImageBitmap(blob);
+        } catch (error) {
+          // フォールバックとして HTMLImageElement を生成
+        }
+      }
+
+      return await new Promise<HTMLImageElement>((resolve, reject) => {
+        const objectUrl = URL.createObjectURL(blob);
+        const image = new Image();
+        image.crossOrigin = 'anonymous';
+
+        const cleanup = () => {
+          URL.revokeObjectURL(objectUrl);
+          image.removeEventListener('load', handleLoad);
+          image.removeEventListener('error', handleError);
+          signal?.removeEventListener('abort', handleAbort);
+        };
+
+        const handleLoad = () => {
+          cleanup();
+          resolve(image);
+        };
+
+        const handleError = () => {
+          cleanup();
+          reject(new Error(`Failed to load tile image: ${url}`));
+        };
+
+        const handleAbort = () => {
+          cleanup();
+          const abortReason = signal && 'reason' in signal ? (signal as any).reason : undefined;
+          reject(abortReason instanceof Error ? abortReason : new Error('Tile fetch aborted'));
+        };
+
+        if (signal?.aborted) {
+          handleAbort();
+          return;
+        }
+
+        image.addEventListener('load', handleLoad);
+        image.addEventListener('error', handleError);
+        if (signal) {
+          signal.addEventListener('abort', handleAbort);
+        }
+
+        image.decoding = 'async';
+        image.src = objectUrl;
+      });
+    } catch (error) {
+      const err = error as Error;
+      if (err?.name === 'AbortError') {
+        return null;
+      }
+      throw error;
+    }
+  },
   renderSubLayers: (props) => {
     const {
       tile,
@@ -222,161 +300,368 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
 }) => {
   const [viewState, setViewState] = useState(DEFAULT_VIEW_STATE);
   const [isOptionalSidebarOpen, setIsOptionalSidebarOpen] = useState(true);
+  const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
+
+  const overlaySettings: MapBasemapOverlayState = mapSettings.basemapOverlays ?? DEFAULT_BASEMAP_OVERLAYS;
+  const availableSourceMap = useMemo(() => new Map(dataSources.map((source) => [source.id, source])), [dataSources]);
 
   useEffect(() => {
     if (!dataSources.length) {
+      if ((mapSettings.activeDataSourceIds ?? []).length > 0) {
+        onUpdateSettings({ activeDataSourceIds: [] });
+      }
       return;
     }
-    if (!dataSources.some((source) => source.id === mapSettings.dataSource)) {
-      onUpdateSettings({ dataSource: dataSources[0].id });
+
+    const availableIds = dataSources.map((source) => source.id);
+    const existing = mapSettings.activeDataSourceIds ?? [];
+    const deduped = existing.filter((id, index) => existing.indexOf(id) === index);
+    const filtered = deduped.filter((id) => availableIds.includes(id));
+    let nextIds = filtered;
+
+    if (!nextIds.length) {
+      if (mapSettings.dataSource && availableIds.includes(mapSettings.dataSource)) {
+        nextIds = [mapSettings.dataSource];
+      } else {
+        nextIds = [availableIds[0]];
+      }
     }
-  }, [dataSources, mapSettings.dataSource, onUpdateSettings]);
 
-  const activeSource = useMemo(() => {
-    if (!dataSources.length) return undefined;
-    const matched = dataSources.find((source) => source.id === mapSettings.dataSource);
-    return matched ?? dataSources[0];
-  }, [dataSources, mapSettings.dataSource]);
+    const previous = mapSettings.activeDataSourceIds ?? [];
+    const isSameLength = nextIds.length === previous.length;
+    const isSameOrder = isSameLength && nextIds.every((id, index) => id === previous[index]);
 
-  const coordinateInference = useMemo(() => {
-    if (!activeSource) return null;
-    return inferCoordinateColumns(activeSource.columns);
-  }, [activeSource]);
+    if (!isSameOrder) {
+      onUpdateSettings({ activeDataSourceIds: nextIds });
+    }
+  }, [dataSources, mapSettings.activeDataSourceIds, mapSettings.dataSource, onUpdateSettings]);
+
+  const activeLayerIds = useMemo(() => {
+    const ids = mapSettings.activeDataSourceIds ?? [];
+    return ids.filter((id, index) => ids.indexOf(id) === index && availableSourceMap.has(id));
+  }, [mapSettings.activeDataSourceIds, availableSourceMap]);
 
   useEffect(() => {
-    if (!activeSource || !coordinateInference) return;
-    const updates: Partial<MapSettings> = {};
+    const currentLayerSettings = mapSettings.layerSettings ?? {};
+    const nextLayerSettings: Record<string, MapLayerSettings> = { ...currentLayerSettings };
+    let changed = false;
 
-    const ensureColumn = (
-      key: 'latitudeColumn' | 'longitudeColumn' | 'geoJsonColumn' | 'wktColumn' | 'pathColumn' | 'polygonColumn',
-      candidate?: string,
-      candidatesList: string[] = [],
-    ) => {
-      const current = mapSettings[key];
-      if (current && activeSource.columns.includes(current)) {
-        return;
-      }
-      if (candidate && activeSource.columns.includes(candidate)) {
-        updates[key] = candidate as any;
-        return;
-      }
-      const fallback = candidatesList.find((column) => activeSource.columns.includes(column));
-      if (fallback) {
-        updates[key] = fallback as any;
-        return;
-      }
-      if (current && !activeSource.columns.includes(current)) {
-        updates[key] = undefined as any;
-      }
-    };
-
-    ensureColumn('latitudeColumn', coordinateInference.suggestedLatitude, coordinateInference.latitudeCandidates);
-    ensureColumn('longitudeColumn', coordinateInference.suggestedLongitude, coordinateInference.longitudeCandidates);
-    ensureColumn('geoJsonColumn', coordinateInference.geoJsonColumns[0], coordinateInference.geoJsonColumns);
-    ensureColumn('wktColumn', coordinateInference.wktColumns[0], coordinateInference.wktColumns);
-    ensureColumn('pathColumn', coordinateInference.pathColumns[0], coordinateInference.pathColumns);
-    ensureColumn('polygonColumn', coordinateInference.polygonColumns[0], coordinateInference.polygonColumns);
-
-    const optionalUpdates: Partial<MapSettings> = {};
-    (['categoryColumn', 'colorColumn', 'heightColumn'] as const).forEach((key) => {
-      const value = mapSettings[key];
-      if (value && !activeSource.columns.includes(value)) {
-        optionalUpdates[key] = undefined;
+    Object.keys(nextLayerSettings).forEach((layerId) => {
+      if (!availableSourceMap.has(layerId)) {
+        delete nextLayerSettings[layerId];
+        changed = true;
       }
     });
 
-    const merged = { ...updates, ...optionalUpdates };
-    if (Object.keys(merged).length > 0) {
-      onUpdateSettings(merged);
-    }
-  }, [activeSource, coordinateInference, mapSettings, onUpdateSettings]);
-
-  const validLatitudeColumn = activeSource && mapSettings.latitudeColumn && activeSource.columns.includes(mapSettings.latitudeColumn)
-    ? mapSettings.latitudeColumn
-    : undefined;
-  const validLongitudeColumn = activeSource && mapSettings.longitudeColumn && activeSource.columns.includes(mapSettings.longitudeColumn)
-    ? mapSettings.longitudeColumn
-    : undefined;
-  const validGeoJsonColumn = activeSource && mapSettings.geoJsonColumn && activeSource.columns.includes(mapSettings.geoJsonColumn)
-    ? mapSettings.geoJsonColumn
-    : undefined;
-  const validWktColumn = activeSource && mapSettings.wktColumn && activeSource.columns.includes(mapSettings.wktColumn)
-    ? mapSettings.wktColumn
-    : undefined;
-  const validPathColumn = activeSource && mapSettings.pathColumn && activeSource.columns.includes(mapSettings.pathColumn)
-    ? mapSettings.pathColumn
-    : undefined;
-  const validPolygonColumn = activeSource && mapSettings.polygonColumn && activeSource.columns.includes(mapSettings.polygonColumn)
-    ? mapSettings.polygonColumn
-    : undefined;
-  const validCategoryColumn = activeSource && mapSettings.categoryColumn && activeSource.columns.includes(mapSettings.categoryColumn)
-    ? mapSettings.categoryColumn
-    : undefined;
-  const validColorColumn = activeSource && mapSettings.colorColumn && activeSource.columns.includes(mapSettings.colorColumn)
-    ? mapSettings.colorColumn
-    : undefined;
-  const validHeightColumn = activeSource && mapSettings.heightColumn && activeSource.columns.includes(mapSettings.heightColumn)
-    ? mapSettings.heightColumn
-    : undefined;
-
-  const geoData = useMemo(() => {
-    if (!activeSource) return null;
-    return buildGeoJsonFromRows(activeSource.rows, {
-      latitudeColumn: validLatitudeColumn,
-      longitudeColumn: validLongitudeColumn,
-      geoJsonColumn: validGeoJsonColumn,
-      wktColumn: validWktColumn,
-      pathColumn: validPathColumn,
-      polygonColumn: validPolygonColumn,
-      categoryColumn: validCategoryColumn,
-      colorColumn: validColorColumn,
-      heightColumn: validHeightColumn,
-      aggregation: mapSettings.aggregation,
+    activeLayerIds.forEach((layerId) => {
+      if (!nextLayerSettings[layerId]) {
+        nextLayerSettings[layerId] = {};
+        changed = true;
+      }
     });
-  }, [activeSource, mapSettings.aggregation, validCategoryColumn, validColorColumn, validGeoJsonColumn, validHeightColumn, validLatitudeColumn, validLongitudeColumn, validPathColumn, validPolygonColumn, validWktColumn]);
 
-  const categoryColorMap = useMemo(() => {
-    const map = new Map<string, [number, number, number]>();
-    if (!geoData) return map;
-    (geoData.categories || []).forEach((category, index) => {
-      const paletteIndex = index % COLOR_PALETTE.length;
-      map.set(category, COLOR_PALETTE[paletteIndex]);
-    });
-    return map;
-  }, [geoData]);
+    if (changed) {
+      onUpdateSettings({ layerSettings: nextLayerSettings });
+    }
+  }, [activeLayerIds, availableSourceMap, mapSettings.layerSettings, onUpdateSettings]);
 
-  const getColorForValue = useCallback((value: any) => {
-    if (value === null || value === undefined) {
-      return COLOR_PALETTE[0];
-    }
-    const key = String(value);
-    if (categoryColorMap.has(key)) {
-      return categoryColorMap.get(key)!;
-    }
-    const index = Math.abs(hashString(key)) % COLOR_PALETTE.length;
-    return COLOR_PALETTE[index];
-  }, [categoryColorMap]);
+  const activeLayers = useMemo(
+    () => activeLayerIds
+      .map((id) => {
+        const source = availableSourceMap.get(id);
+        if (!source) return null;
+        return { id, source };
+      })
+      .filter((value): value is { id: string; source: MapDataSource } => Boolean(value)),
+    [activeLayerIds, availableSourceMap],
+  );
 
   useEffect(() => {
-    if (!mapSettings.basemapOverlays) {
-      onUpdateSettings({ basemapOverlays: { ...DEFAULT_BASEMAP_OVERLAYS } });
-    }
-  }, [mapSettings.basemapOverlays, onUpdateSettings]);
+    if (!activeLayers.length) return;
 
-  const overlaySettings: MapBasemapOverlayState = mapSettings.basemapOverlays ?? DEFAULT_BASEMAP_OVERLAYS;
+    const currentLayerSettings = mapSettings.layerSettings ?? {};
+    const nextLayerSettings: Record<string, MapLayerSettings> = { ...currentLayerSettings };
+    let changed = false;
+
+    activeLayers.forEach(({ id, source }) => {
+      const inference = inferCoordinateColumns(source.columns);
+      const previous = nextLayerSettings[id] ?? {};
+      const updated: MapLayerSettings = { ...previous };
+      let layerChanged = false;
+
+      const ensureColumn = (
+        key: keyof MapLayerSettings,
+        candidate?: string,
+        candidatesList: string[] = [],
+      ) => {
+        const current = updated[key];
+        if (current && source.columns.includes(current)) {
+          return;
+        }
+        if (candidate && source.columns.includes(candidate)) {
+          if (current !== candidate) {
+            updated[key] = candidate;
+            layerChanged = true;
+          }
+          return;
+        }
+        const fallback = candidatesList.find((column) => source.columns.includes(column));
+        if (fallback) {
+          if (current !== fallback) {
+            updated[key] = fallback;
+            layerChanged = true;
+          }
+          return;
+        }
+        if (current) {
+          updated[key] = undefined;
+          layerChanged = true;
+        }
+      };
+
+      ensureColumn('latitudeColumn', inference.suggestedLatitude, inference.latitudeCandidates);
+      ensureColumn('longitudeColumn', inference.suggestedLongitude, inference.longitudeCandidates);
+      ensureColumn('geoJsonColumn', inference.geoJsonColumns[0], inference.geoJsonColumns);
+      ensureColumn('wktColumn', inference.wktColumns[0], inference.wktColumns);
+      ensureColumn('pathColumn', inference.pathColumns[0], inference.pathColumns);
+      ensureColumn('polygonColumn', inference.polygonColumns[0], inference.polygonColumns);
+
+      (['categoryColumn', 'colorColumn', 'heightColumn'] as const).forEach((key) => {
+        const value = updated[key];
+        if (value && !source.columns.includes(value)) {
+          updated[key] = undefined;
+          layerChanged = true;
+        }
+      });
+
+      if (layerChanged) {
+        nextLayerSettings[id] = updated;
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      onUpdateSettings({ layerSettings: nextLayerSettings });
+    }
+  }, [activeLayers, mapSettings.layerSettings, onUpdateSettings]);
+
+  useEffect(() => {
+    if (selectedLayerId && activeLayerIds.includes(selectedLayerId)) {
+      return;
+    }
+    setSelectedLayerId(activeLayerIds[0] ?? null);
+  }, [activeLayerIds, selectedLayerId]);
+
+  const updateLayerSettings = useCallback((layerId: string, updates: Partial<MapLayerSettings>) => {
+    const currentLayerSettings = mapSettings.layerSettings ?? {};
+    const previous = currentLayerSettings[layerId] ?? {};
+    onUpdateSettings({
+      layerSettings: {
+        ...currentLayerSettings,
+        [layerId]: {
+          ...previous,
+          ...updates,
+        },
+      },
+    });
+  }, [mapSettings.layerSettings, onUpdateSettings]);
+
+  interface LayerConfig {
+    id: string;
+    source: MapDataSource;
+    validColumns: MapLayerSettings;
+    geoData: ReturnType<typeof buildGeoJsonFromRows> | null;
+    categoryColorMap: Map<string, [number, number, number]>;
+    getColorForValue: (value: any) => [number, number, number];
+    usingFallbackCategory: boolean;
+  }
+
+  const layerConfigs = useMemo<LayerConfig[]>(() => {
+    const configs: LayerConfig[] = [];
+    const currentLayerSettings = mapSettings.layerSettings ?? {};
+
+    activeLayers.forEach(({ id, source }) => {
+      const settings = currentLayerSettings[id] ?? {};
+      const validColumns: MapLayerSettings = {
+        latitudeColumn: settings.latitudeColumn && source.columns.includes(settings.latitudeColumn)
+          ? settings.latitudeColumn
+          : undefined,
+        longitudeColumn: settings.longitudeColumn && source.columns.includes(settings.longitudeColumn)
+          ? settings.longitudeColumn
+          : undefined,
+        geoJsonColumn: settings.geoJsonColumn && source.columns.includes(settings.geoJsonColumn)
+          ? settings.geoJsonColumn
+          : undefined,
+        wktColumn: settings.wktColumn && source.columns.includes(settings.wktColumn)
+          ? settings.wktColumn
+          : undefined,
+        pathColumn: settings.pathColumn && source.columns.includes(settings.pathColumn)
+          ? settings.pathColumn
+          : undefined,
+        polygonColumn: settings.polygonColumn && source.columns.includes(settings.polygonColumn)
+          ? settings.polygonColumn
+          : undefined,
+        categoryColumn: settings.categoryColumn && source.columns.includes(settings.categoryColumn)
+          ? settings.categoryColumn
+          : undefined,
+        colorColumn: settings.colorColumn && source.columns.includes(settings.colorColumn)
+          ? settings.colorColumn
+          : undefined,
+        heightColumn: settings.heightColumn && source.columns.includes(settings.heightColumn)
+          ? settings.heightColumn
+          : undefined,
+      };
+
+      const rowsWithMetadata = source.rows.map((row) => ({
+        ...row,
+        __layerId: id,
+        __layerLabel: source.label,
+      }));
+      const usingFallbackCategory = !validColumns.categoryColumn;
+      const geoData = buildGeoJsonFromRows(rowsWithMetadata, {
+        latitudeColumn: validColumns.latitudeColumn,
+        longitudeColumn: validColumns.longitudeColumn,
+        geoJsonColumn: validColumns.geoJsonColumn,
+        wktColumn: validColumns.wktColumn,
+        pathColumn: validColumns.pathColumn,
+        polygonColumn: validColumns.polygonColumn,
+        categoryColumn: validColumns.categoryColumn ?? '__layerLabel',
+        colorColumn: validColumns.colorColumn,
+        heightColumn: validColumns.heightColumn,
+        aggregation: mapSettings.aggregation,
+      });
+
+      const categoryColorMap = new Map<string, [number, number, number]>();
+      (geoData?.categories ?? []).forEach((category, index) => {
+        const key = String(category);
+        const paletteIndex = index % COLOR_PALETTE.length;
+        categoryColorMap.set(key, COLOR_PALETTE[paletteIndex]);
+      });
+
+      const getColorForValue = (value: any) => {
+        if (value === null || value === undefined) {
+          return COLOR_PALETTE[0];
+        }
+        const key = String(value);
+        if (categoryColorMap.has(key)) {
+          return categoryColorMap.get(key)!;
+        }
+        const index = Math.abs(hashString(`${id}:${key}`)) % COLOR_PALETTE.length;
+        return COLOR_PALETTE[index];
+      };
+
+      configs.push({
+        id,
+        source,
+        validColumns,
+        geoData,
+        categoryColorMap,
+        getColorForValue,
+        usingFallbackCategory,
+      });
+    });
+
+    return configs;
+  }, [activeLayers, mapSettings.aggregation, mapSettings.layerSettings]);
+  const selectedLayerConfig = selectedLayerId
+    ? layerConfigs.find((config) => config.id === selectedLayerId) ?? null
+    : (layerConfigs[0] ?? null);
+  const selectedLayerColumns = selectedLayerConfig?.source.columns ?? [];
+  const selectedLayerHasGeometrySelection = Boolean(
+    selectedLayerConfig
+      && (
+        (selectedLayerConfig.validColumns.latitudeColumn && selectedLayerConfig.validColumns.longitudeColumn)
+        || selectedLayerConfig.validColumns.geoJsonColumn
+        || selectedLayerConfig.validColumns.wktColumn
+        || selectedLayerConfig.validColumns.pathColumn
+        || selectedLayerConfig.validColumns.polygonColumn
+      ),
+  );
+
+  const aggregatedBounds = useMemo(() => {
+    let bounds: [[number, number], [number, number]] | null = null;
+    layerConfigs.forEach((config) => {
+      const geoBounds = config.geoData?.bounds;
+      if (!geoBounds) return;
+      if (!bounds) {
+        bounds = [
+          [geoBounds[0][0], geoBounds[0][1]],
+          [geoBounds[1][0], geoBounds[1][1]],
+        ];
+      } else {
+        bounds = [
+          [Math.min(bounds[0][0], geoBounds[0][0]), Math.min(bounds[0][1], geoBounds[0][1])],
+          [Math.max(bounds[1][0], geoBounds[1][0]), Math.max(bounds[1][1], geoBounds[1][1])],
+        ];
+      }
+    });
+    return bounds;
+  }, [layerConfigs]);
+
+  const hasGeometrySelection = useMemo(() => layerConfigs.some((config) => (
+    (config.validColumns.latitudeColumn && config.validColumns.longitudeColumn)
+    || config.validColumns.geoJsonColumn
+    || config.validColumns.wktColumn
+    || config.validColumns.pathColumn
+    || config.validColumns.polygonColumn
+  )), [layerConfigs]);
+
+  const hasRenderableData = useMemo(() => layerConfigs.some((config) => {
+    const geoData = config.geoData;
+    if (!geoData) return false;
+    return Boolean(
+      geoData.points.length
+      || geoData.columns.length
+      || geoData.paths.length
+      || geoData.polygons.length
+      || geoData.geoJsonFeatures.length,
+    );
+  }), [layerConfigs]);
+
+  const legendEntries = useMemo(() => {
+    const entries: { id: string; label: string; color: [number, number, number] }[] = [];
+    layerConfigs.forEach((config) => {
+      if (!config.geoData) {
+        return;
+      }
+      if (config.usingFallbackCategory) {
+        if (
+          config.geoData.points.length
+          || config.geoData.columns.length
+          || config.geoData.paths.length
+          || config.geoData.polygons.length
+          || config.geoData.geoJsonFeatures.length
+        ) {
+          entries.push({
+            id: `${config.id}:layer`,
+            label: config.source.label,
+            color: config.getColorForValue(config.source.label),
+          });
+        }
+      } else {
+        (config.geoData.categories ?? []).forEach((category) => {
+          entries.push({
+            id: `${config.id}:${category}`,
+            label: `${config.source.label}: ${category}`,
+            color: config.getColorForValue(category),
+          });
+        });
+      }
+    });
+    return entries;
+  }, [layerConfigs]);
 
   const selectedBasemap = BASEMAPS[mapSettings.basemap] ?? BASEMAPS['osm-standard'];
   const allowTilt = selectedBasemap.allowTilt ?? false;
   const defaultPitch = selectedBasemap.defaultPitch ?? 0;
   const defaultBearing = selectedBasemap.defaultBearing ?? 0;
 
-  const tileLayer = useMemo(() => {
-    return createBitmapTileLayer(`osm-tile-layer-${mapSettings.basemap}`, selectedBasemap.urlTemplates);
-  }, [mapSettings.basemap, selectedBasemap]);
+  const tileLayer = useMemo(() => (
+    createBitmapTileLayer(`osm-tile-layer-${mapSettings.basemap}`, selectedBasemap.urlTemplates)
+  ), [mapSettings.basemap, selectedBasemap]);
 
-  const overlayLayers = useMemo(() => {
-    const entries = Object.entries(BASEMAP_OVERLAYS) as [MapBasemapOverlay, (typeof BASEMAP_OVERLAYS)[MapBasemapOverlay]][];
-    return entries
+  const overlayLayers = useMemo(() => (
+    (Object.entries(BASEMAP_OVERLAYS) as [MapBasemapOverlay, (typeof BASEMAP_OVERLAYS)[MapBasemapOverlay]][])
       .filter(([key]) => overlaySettings[key])
       .map(([key, overlay]) => createBitmapTileLayer(
         `osm-overlay-${key}`,
@@ -386,101 +671,97 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
           minZoom: overlay.minZoom,
           maxZoom: overlay.maxZoom,
         },
-      ));
-  }, [overlaySettings.roads, overlaySettings.railways, overlaySettings.terrain]);
+      ))
+  ), [overlaySettings]);
 
-  const scatterLayer = useMemo(() => {
-    if (!geoData || !geoData.points.length) return null;
-    return new ScatterplotLayer({
-      id: 'geo-points',
-      data: geoData.points,
-      pickable: true,
-      radiusUnits: 'pixels',
-      radiusMinPixels: Math.max(2, mapSettings.pointRadius - 2),
-      radiusMaxPixels: mapSettings.pointRadius + 6,
-      getRadius: () => mapSettings.pointRadius,
-      getPosition: (d: any) => d.position,
-      getFillColor: (d: any) => {
-        const color = getColorForValue(d.colorValue ?? d.category);
-        return [...color, 200];
-      },
-      getLineColor: [255, 255, 255, 200],
-      lineWidthMinPixels: 1,
+  const dataLayers = useMemo(() => {
+    const baseLayers = [tileLayer, ...overlayLayers];
+
+    layerConfigs.forEach((config) => {
+      const { id, geoData, getColorForValue, validColumns } = config;
+      if (!geoData) {
+        return;
+      }
+      if (geoData.columns.length) {
+        baseLayers.push(new ColumnLayer({
+          id: `geo-columns-${id}`,
+          data: geoData.columns,
+          pickable: true,
+          diskResolution: 12,
+          radius: mapSettings.columnRadius,
+          extruded: true,
+          elevationScale: mapSettings.elevationScale,
+          getPosition: (d: any) => d.position,
+          getElevation: (d: any) => d.elevation,
+          getFillColor: (d: any) => {
+            const color = getColorForValue(d.colorValue ?? d.category);
+            return [...color, 220];
+          },
+          getLineColor: [255, 255, 255, 180],
+        }));
+      }
+      if (geoData.points.length) {
+        baseLayers.push(new ScatterplotLayer({
+          id: `geo-points-${id}`,
+          data: geoData.points,
+          pickable: true,
+          radiusUnits: 'pixels',
+          radiusMinPixels: Math.max(2, mapSettings.pointRadius - 2),
+          radiusMaxPixels: mapSettings.pointRadius + 6,
+          getRadius: () => mapSettings.pointRadius,
+          getPosition: (d: any) => d.position,
+          getFillColor: (d: any) => {
+            const color = getColorForValue(d.colorValue ?? d.category);
+            return [...color, 200];
+          },
+          getLineColor: [255, 255, 255, 200],
+          lineWidthMinPixels: 1,
+        }));
+      }
+      if (geoData.paths.length) {
+        baseLayers.push(new PathLayer({
+          id: `geo-paths-${id}`,
+          data: geoData.paths,
+          pickable: true,
+          widthScale: 2,
+          widthMinPixels: 2,
+          getPath: (d: any) => d.path,
+          getColor: (d: any) => {
+            const color = getColorForValue(d.properties?.colorValue ?? d.properties?.categoryValue);
+            return [...color, 200];
+          },
+        }));
+      }
+      if (geoData.geoJsonFeatures.length) {
+        baseLayers.push(new GeoJsonLayer({
+          id: `geojson-layer-${id}`,
+          data: {
+            type: 'FeatureCollection',
+            features: geoData.geoJsonFeatures,
+          },
+          pickable: true,
+          stroked: true,
+          filled: true,
+          extruded: Boolean(validColumns.heightColumn),
+          getElevation: (feature: any) => {
+            const metric = feature.properties?.metricValue;
+            return typeof metric === 'number' ? metric : 0;
+          },
+          elevationScale: mapSettings.elevationScale,
+          getLineColor: (feature: any) => {
+            const color = getColorForValue(feature.properties?.colorValue ?? feature.properties?.categoryValue);
+            return [...color, 220];
+          },
+          getFillColor: (feature: any) => {
+            const color = getColorForValue(feature.properties?.colorValue ?? feature.properties?.categoryValue);
+            return [...color, 100];
+          },
+        }));
+      }
     });
-  }, [geoData, getColorForValue, mapSettings.pointRadius]);
 
-  const columnLayer = useMemo(() => {
-    if (!geoData || !geoData.columns.length) return null;
-    return new ColumnLayer({
-      id: 'geo-columns',
-      data: geoData.columns,
-      pickable: true,
-      diskResolution: 12,
-      radius: mapSettings.columnRadius,
-      extruded: true,
-      elevationScale: mapSettings.elevationScale,
-      getPosition: (d: any) => d.position,
-      getElevation: (d: any) => d.elevation,
-      getFillColor: (d: any) => {
-        const color = getColorForValue(d.colorValue ?? d.category);
-        return [...color, 220];
-      },
-      getLineColor: [255, 255, 255, 180],
-    });
-  }, [geoData, getColorForValue, mapSettings.columnRadius, mapSettings.elevationScale]);
-
-  const pathLayer = useMemo(() => {
-    if (!geoData || !geoData.paths.length) return null;
-    return new PathLayer({
-      id: 'geo-paths',
-      data: geoData.paths,
-      pickable: true,
-      widthScale: 2,
-      widthMinPixels: 2,
-      getPath: (d: any) => d.path,
-      getColor: (d: any) => {
-        const color = getColorForValue(d.properties?.colorValue ?? d.properties?.categoryValue);
-        return [...color, 200];
-      },
-    });
-  }, [geoData, getColorForValue]);
-
-  const geoJsonLayer = useMemo(() => {
-    if (!geoData || !geoData.geoJsonFeatures.length) return null;
-    return new GeoJsonLayer({
-      id: 'geojson-layer',
-      data: {
-        type: 'FeatureCollection',
-        features: geoData.geoJsonFeatures,
-      },
-      pickable: true,
-      stroked: true,
-      filled: true,
-      extruded: Boolean(validHeightColumn),
-      getElevation: (feature: any) => {
-        const metric = feature.properties?.metricValue;
-        return typeof metric === 'number' ? metric : 0;
-      },
-      elevationScale: mapSettings.elevationScale,
-      getLineColor: (feature: any) => {
-        const color = getColorForValue(feature.properties?.colorValue ?? feature.properties?.categoryValue);
-        return [...color, 220];
-      },
-      getFillColor: (feature: any) => {
-        const color = getColorForValue(feature.properties?.colorValue ?? feature.properties?.categoryValue);
-        return [...color, 100];
-      },
-    });
-  }, [geoData, getColorForValue, mapSettings.elevationScale, validHeightColumn]);
-
-  const layers = useMemo(() => {
-    const list = [tileLayer, ...overlayLayers];
-    if (columnLayer) list.push(columnLayer);
-    if (scatterLayer) list.push(scatterLayer);
-    if (pathLayer) list.push(pathLayer);
-    if (geoJsonLayer) list.push(geoJsonLayer);
-    return list;
-  }, [tileLayer, overlayLayers, columnLayer, scatterLayer, pathLayer, geoJsonLayer]);
+    return baseLayers;
+  }, [layerConfigs, mapSettings.columnRadius, mapSettings.elevationScale, mapSettings.pointRadius, overlayLayers, tileLayer]);
 
   const computedViewState = useMemo(() => {
     const baseState = {
@@ -488,8 +769,8 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
       pitch: defaultPitch,
       bearing: defaultBearing,
     };
-    if (geoData?.bounds) {
-      const [[minLon, minLat], [maxLon, maxLat]] = geoData.bounds;
+    if (aggregatedBounds) {
+      const [[minLon, minLat], [maxLon, maxLat]] = aggregatedBounds;
       const latitude = (minLat + maxLat) / 2;
       const longitude = (minLon + maxLon) / 2;
       const latDiff = Math.max(Math.abs(maxLat - minLat), 0.0001);
@@ -504,7 +785,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
       };
     }
     return baseState;
-  }, [defaultBearing, defaultPitch, geoData?.bounds]);
+  }, [aggregatedBounds, defaultBearing, defaultPitch]);
 
   useEffect(() => {
     setViewState((prev) => {
@@ -521,25 +802,6 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
       };
     });
   }, [allowTilt, computedViewState, defaultBearing, defaultPitch]);
-
-  const hasGeometrySelection = Boolean(
-    (validLatitudeColumn && validLongitudeColumn)
-    || validGeoJsonColumn
-    || validWktColumn
-    || validPathColumn
-    || validPolygonColumn,
-  );
-
-  const hasRenderableData = Boolean(
-    geoData && (
-      geoData.points.length
-      || geoData.columns.length
-      || geoData.paths.length
-      || geoData.polygons.length
-      || geoData.geoJsonFeatures.length
-    ),
-  );
-
   const tooltipFormatter = useCallback(({ object }: { object: any }) => {
     if (!object) return null;
     const properties = object.properties ?? object;
@@ -547,6 +809,9 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
     const metric = properties?.metricValue ?? properties?.elevation;
     const position = object.position || properties?.position;
     const lines: string[] = [];
+    if (properties?.__layerLabel) {
+      lines.push(`レイヤー: ${String(properties.__layerLabel)}`);
+    }
     if (category !== undefined) {
       lines.push(`カテゴリ: ${String(category)}`);
     }
@@ -561,8 +826,6 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
     }
     return { text: lines.length ? lines.join('\n') : '地物' };
   }, []);
-
-  const activeColumns = activeSource?.columns ?? [];
 
   const handleZoom = useCallback((delta: number) => {
     setViewState((prev) => {
@@ -610,148 +873,213 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
     });
   }, [allowTilt, defaultBearing, defaultPitch]);
 
+  const handleLayerToggle = useCallback((layerId: string, enabled: boolean) => {
+    const currentIds = mapSettings.activeDataSourceIds ?? [];
+    const filtered = currentIds.filter((id) => id !== layerId);
+    let nextIds = enabled ? [...filtered, layerId] : filtered;
+    const orderMap = new Map(dataSources.map((source, index) => [source.id, index]));
+    nextIds = nextIds
+      .filter((id, index) => nextIds.indexOf(id) === index && orderMap.has(id))
+      .sort((a, b) => (orderMap.get(a) ?? 0) - (orderMap.get(b) ?? 0));
+    onUpdateSettings({ activeDataSourceIds: nextIds });
+  }, [dataSources, mapSettings.activeDataSourceIds, onUpdateSettings]);
+
   const settingsContent = (
     <div className="space-y-6">
       <div className="space-y-3">
         <div>
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">必須設定</h3>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">レイヤー管理</h3>
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            緯度と経度の組み合わせ、または GeoJSON / WKT / ライン / ポリゴン列のいずれかを指定してください。
+            地図に表示するデータセットをレイヤーとして選択し、それぞれの列設定をカスタマイズできます。
           </p>
         </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-            <span>緯度列</span>
-            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-              北緯（lat）の値を含む列を指定します。散布図や柱状グラフのY座標として利用されます。
-            </span>
-            <select
-              value={validLatitudeColumn ?? ''}
-              onChange={(event) => onUpdateSettings({ latitudeColumn: event.target.value || undefined })}
-              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-              disabled={!activeSource}
-            >
-              <option value="">未選択</option>
-              {activeColumns.map((column) => (
-                <option key={column} value={column}>
-                  {column}
+        <div className="space-y-2">
+          {dataSources.map((source) => {
+            const isActive = activeLayerIds.includes(source.id);
+            return (
+              <label
+                key={source.id}
+                className="flex items-center justify-between rounded border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+              >
+                <span className="truncate pr-2">{source.label}</span>
+                <input
+                  type="checkbox"
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600"
+                  checked={isActive}
+                  onChange={(event) => handleLayerToggle(source.id, event.target.checked)}
+                />
+              </label>
+            );
+          })}
+          {dataSources.length === 0 && (
+            <div className="rounded border border-dashed border-gray-300 bg-gray-50 p-3 text-xs text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+              レイヤーとして表示できるデータセットがありません。
+            </div>
+          )}
+        </div>
+        <div className="space-y-1">
+          <span className="text-xs font-medium text-gray-700 dark:text-gray-300">設定対象レイヤー</span>
+          <select
+            value={selectedLayerConfig ? selectedLayerConfig.id : ''}
+            onChange={(event) => setSelectedLayerId(event.target.value || null)}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+            disabled={!activeLayerIds.length}
+          >
+            {activeLayerIds.length === 0 && <option value="">レイヤー未選択</option>}
+            {activeLayerIds.map((layerId) => {
+              const source = availableSourceMap.get(layerId);
+              if (!source) return null;
+              return (
+                <option key={layerId} value={layerId}>
+                  {source.label}
                 </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-            <span>経度列</span>
-            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-              東経（lon）の値を含む列を指定します。散布図や柱状グラフのX座標として利用されます。
-            </span>
-            <select
-              value={validLongitudeColumn ?? ''}
-              onChange={(event) => onUpdateSettings({ longitudeColumn: event.target.value || undefined })}
-              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-              disabled={!activeSource}
-            >
-              <option value="">未選択</option>
-              {activeColumns.map((column) => (
-                <option key={column} value={column}>
-                  {column}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-            <span>GeoJSON列</span>
-            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-              GeoJSONのFeature / FeatureCollection / Geometryオブジェクトを含む列を指定すると、そのままラインやポリゴンを描画できます。
-            </span>
-            <select
-              value={validGeoJsonColumn ?? ''}
-              onChange={(event) => onUpdateSettings({ geoJsonColumn: event.target.value || undefined })}
-              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-              disabled={!activeSource}
-            >
-              <option value="">未選択</option>
-              {activeColumns.map((column) => (
-                <option key={column} value={column}>
-                  {column}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-            <span>WKT列</span>
-            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-              POINT / LINESTRING / POLYGON などのWell-Known Text形式を含む列を選ぶと、文字列から地物を生成して表示します。
-            </span>
-            <select
-              value={validWktColumn ?? ''}
-              onChange={(event) => onUpdateSettings({ wktColumn: event.target.value || undefined })}
-              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-              disabled={!activeSource}
-            >
-              <option value="">未選択</option>
-              {activeColumns.map((column) => (
-                <option key={column} value={column}>
-                  {column}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-            <span>ライン列</span>
-            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-              経度・緯度のペア配列（例: [[lon, lat], ...] や "lon lat; ..."）を持つ列を指定すると、PathLayerでルートを描画します。
-            </span>
-            <select
-              value={validPathColumn ?? ''}
-              onChange={(event) => onUpdateSettings({ pathColumn: event.target.value || undefined })}
-              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-              disabled={!activeSource}
-            >
-              <option value="">未選択</option>
-              {activeColumns.map((column) => (
-                <option key={column} value={column}>
-                  {column}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
-            <span>ポリゴン列</span>
-            <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-              経度・緯度のリング配列（例: [[[lon, lat], ...]]]）を含む列を指定すると、面データを塗りつぶして表示します。
-            </span>
-            <select
-              value={validPolygonColumn ?? ''}
-              onChange={(event) => onUpdateSettings({ polygonColumn: event.target.value || undefined })}
-              className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-              disabled={!activeSource}
-            >
-              <option value="">未選択</option>
-              {activeColumns.map((column) => (
-                <option key={column} value={column}>
-                  {column}
-                </option>
-              ))}
-            </select>
-          </label>
+              );
+            })}
+          </select>
         </div>
       </div>
-      {!hasGeometrySelection && (
-        <div className="flex items-center gap-2 rounded border border-dashed border-yellow-400 bg-yellow-50 p-3 text-xs text-yellow-700 dark:border-yellow-500 dark:bg-yellow-900/30 dark:text-yellow-200">
-          <IoInformationCircleOutline size={16} />
-          <span>
-            {noCoordinateMessage ?? '設定パネルで緯度・経度またはGeoJSON / WKT 列を選択するとマップが描画されます。'}
-          </span>
+
+      {selectedLayerConfig ? (
+        <>
+          <div className="space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">必須設定</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                緯度と経度の組み合わせ、または GeoJSON / WKT / ライン / ポリゴン列のいずれかを指定してください。
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+              <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+                <span>緯度列</span>
+                <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+                  北緯（lat）の値を含む列を指定します。散布や柱状グラフのY座標として利用されます。
+                </span>
+                <select
+                  value={selectedLayerConfig.validColumns.latitudeColumn ?? ''}
+                  onChange={(event) => updateLayerSettings(selectedLayerConfig.id, { latitudeColumn: event.target.value || undefined })}
+                  className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                >
+                  <option value="">未選択</option>
+                  {selectedLayerColumns.map((column) => (
+                    <option key={column} value={column}>
+                      {column}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+                <span>経度列</span>
+                <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+                  東経（lon）の値を含む列を指定します。散布図や柱状グラフのX座標として利用されます。
+                </span>
+                <select
+                  value={selectedLayerConfig.validColumns.longitudeColumn ?? ''}
+                  onChange={(event) => updateLayerSettings(selectedLayerConfig.id, { longitudeColumn: event.target.value || undefined })}
+                  className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                >
+                  <option value="">未選択</option>
+                  {selectedLayerColumns.map((column) => (
+                    <option key={column} value={column}>
+                      {column}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+                <span>GeoJSON列</span>
+                <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+                  GeoJSONのFeature / FeatureCollection / Geometryオブジェクトを含む列を指定すると、そのままラインやポリゴンを描画できます。
+                </span>
+                <select
+                  value={selectedLayerConfig.validColumns.geoJsonColumn ?? ''}
+                  onChange={(event) => updateLayerSettings(selectedLayerConfig.id, { geoJsonColumn: event.target.value || undefined })}
+                  className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                >
+                  <option value="">未選択</option>
+                  {selectedLayerColumns.map((column) => (
+                    <option key={column} value={column}>
+                      {column}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+                <span>WKT列</span>
+                <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+                  POINT / LINESTRING / POLYGON などのWell-Known Text形式を含む列を選ぶと、文字列から地物を生成して表示します。
+                </span>
+                <select
+                  value={selectedLayerConfig.validColumns.wktColumn ?? ''}
+                  onChange={(event) => updateLayerSettings(selectedLayerConfig.id, { wktColumn: event.target.value || undefined })}
+                  className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                >
+                  <option value="">未選択</option>
+                  {selectedLayerColumns.map((column) => (
+                    <option key={column} value={column}>
+                      {column}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+                <span>ライン列</span>
+                <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+                  経度・緯度のペア配列を持つ列を指定すると、PathLayerでルートを描画します。
+                </span>
+                <select
+                  value={selectedLayerConfig.validColumns.pathColumn ?? ''}
+                  onChange={(event) => updateLayerSettings(selectedLayerConfig.id, { pathColumn: event.target.value || undefined })}
+                  className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                >
+                  <option value="">未選択</option>
+                  {selectedLayerColumns.map((column) => (
+                    <option key={column} value={column}>
+                      {column}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+                <span>ポリゴン列</span>
+                <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
+                  経度・緯度のリング配列を含む列を指定すると、面データを塗りつぶして表示します。
+                </span>
+                <select
+                  value={selectedLayerConfig.validColumns.polygonColumn ?? ''}
+                  onChange={(event) => updateLayerSettings(selectedLayerConfig.id, { polygonColumn: event.target.value || undefined })}
+                  className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                >
+                  <option value="">未選択</option>
+                  {selectedLayerColumns.map((column) => (
+                    <option key={column} value={column}>
+                      {column}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+          {!selectedLayerHasGeometrySelection && (
+            <div className="flex items-center gap-2 rounded border border-dashed border-yellow-400 bg-yellow-50 p-3 text-xs text-yellow-700 dark:border-yellow-500 dark:bg-yellow-900/30 dark:text-yellow-200">
+              <IoInformationCircleOutline size={16} />
+              <span>
+                {noCoordinateMessage ?? '設定パネルで緯度・経度またはGeoJSON / WKT 列を選択するとマップが描画されます。'}
+              </span>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="rounded border border-dashed border-yellow-400 bg-yellow-50 p-3 text-xs text-yellow-700 dark:border-yellow-500 dark:bg-yellow-900/30 dark:text-yellow-200">
+          レイヤーを有効化すると設定項目が表示されます。
         </div>
       )}
     </div>
   );
-
   const optionalSettingsContent = (
     <div className="space-y-3">
       <div>
@@ -767,13 +1095,13 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
             選択するとカテゴリごとに凡例が作成され、点やカラムをグループ別に色分けできます。
           </span>
           <select
-            value={validCategoryColumn ?? ''}
-            onChange={(event) => onUpdateSettings({ categoryColumn: event.target.value || undefined })}
+            value={selectedLayerConfig?.validColumns.categoryColumn ?? ''}
+            onChange={(event) => selectedLayerConfig && updateLayerSettings(selectedLayerConfig.id, { categoryColumn: event.target.value || undefined })}
             className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            disabled={!activeSource}
+            disabled={!selectedLayerConfig}
           >
             <option value="">未選択</option>
-            {activeColumns.map((column) => (
+            {selectedLayerColumns.map((column) => (
               <option key={column} value={column}>
                 {column}
               </option>
@@ -787,13 +1115,13 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
             数値やカテゴリ値を基に自動配色します。カテゴリ列と別の値で色分けしたいときに指定してください。
           </span>
           <select
-            value={validColorColumn ?? ''}
-            onChange={(event) => onUpdateSettings({ colorColumn: event.target.value || undefined })}
+            value={selectedLayerConfig?.validColumns.colorColumn ?? ''}
+            onChange={(event) => selectedLayerConfig && updateLayerSettings(selectedLayerConfig.id, { colorColumn: event.target.value || undefined })}
             className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            disabled={!activeSource}
+            disabled={!selectedLayerConfig}
           >
             <option value="">未選択</option>
-            {activeColumns.map((column) => (
+            {selectedLayerColumns.map((column) => (
               <option key={column} value={column}>
                 {column}
               </option>
@@ -804,16 +1132,16 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
         <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
           <span>高さ列</span>
           <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-            ColumnLayerで棒グラフを表示するときの高さに使う指標列を指定します。集計方法と組み合わせて集計値を立体化できます。
+            ColumnLayerで棒グラフを表示するときの高さに使う指標列を指定します。
           </span>
           <select
-            value={validHeightColumn ?? ''}
-            onChange={(event) => onUpdateSettings({ heightColumn: event.target.value || undefined })}
+            value={selectedLayerConfig?.validColumns.heightColumn ?? ''}
+            onChange={(event) => selectedLayerConfig && updateLayerSettings(selectedLayerConfig.id, { heightColumn: event.target.value || undefined })}
             className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            disabled={!activeSource}
+            disabled={!selectedLayerConfig}
           >
             <option value="">未選択</option>
-            {activeColumns.map((column) => (
+            {selectedLayerColumns.map((column) => (
               <option key={column} value={column}>
                 {column}
               </option>
@@ -824,7 +1152,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
         <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
           <span>集計方法</span>
           <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-            同一座標に複数行がある場合に高さ列の値をどのように集約するかを指定します。ツールチップや棒グラフの高さに反映されます。
+            同一座標に複数行がある場合に高さ列の値をどのように集約するかを指定します。
           </span>
           <select
             value={mapSettings.aggregation}
@@ -843,7 +1171,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
         <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
           <span>点サイズ (px)</span>
           <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-            ScatterplotLayerの点の大きさをピクセル単位で調整します。視認性に応じてサイズを変更してください。
+            ScatterplotLayerの点の大きさをピクセル単位で調整します。
           </span>
           <input
             type="number"
@@ -862,7 +1190,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
         <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
           <span>カラム半径 (m)</span>
           <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-            ColumnLayerで描画する円柱の半径をメートル単位で指定します。値を大きくすると棒グラフの太さが増します。
+            ColumnLayerで描画する円柱の半径をメートル単位で指定します。
           </span>
           <input
             type="number"
@@ -881,7 +1209,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
         <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
           <span>高さスケール</span>
           <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-            棒グラフの高さを掛け算で拡大・縮小します。値が大きいほど柱が高く表示されます。
+            棒グラフの高さを掛け算で拡大・縮小します。
           </span>
           <input
             type="number"
@@ -918,10 +1246,10 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
         <div className="rounded border border-gray-200 bg-white p-3 text-xs text-gray-700 shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
           <div className="font-medium">OpenStreetMap オーバーレイ</div>
           <div className="mt-1 text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
-            道路・鉄道・起伏のタイルレイヤーを個別にON/OFFできます。見たい情報に合わせて切り替えてください。
+            道路・鉄道・起伏のタイルレイヤーを個別にON/OFFできます。
           </div>
           <div className="mt-3 flex flex-col gap-2">
-            {(Object.entries(BASEMAP_OVERLAYS) as [MapBasemapOverlay, typeof BASEMAP_OVERLAYS[MapBasemapOverlay]][]).map(([key, overlay]) => (
+            {(Object.entries(BASEMAP_OVERLAYS) as [MapBasemapOverlay, (typeof BASEMAP_OVERLAYS)[MapBasemapOverlay]][]).map(([key, overlay]) => (
               <label key={key} className="flex items-start gap-2 rounded border border-gray-200 px-2 py-2 font-medium text-gray-700 dark:border-gray-700 dark:text-gray-200">
                 <input
                   type="checkbox"
@@ -974,7 +1302,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
       <div className="relative flex-1 bg-gray-200 dark:bg-gray-900">
         <DeckGL
           controller={controllerSettings}
-          layers={layers}
+          layers={dataLayers}
           initialViewState={computedViewState}
           viewState={viewState}
           onViewStateChange={handleViewStateChange}
@@ -1043,35 +1371,33 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
             {selectedBasemap.attribution}
           </span>
         </div>
-        {geoData && geoData.categories.length > 0 && (
+        {legendEntries.length > 0 && (
           <div
             className="pointer-events-none absolute bottom-3 flex max-w-[50vw] flex-wrap gap-2 text-xs text-gray-600 dark:text-gray-300"
             style={{ right: `${isOptionalSidebarOpen ? OPTIONAL_SIDEBAR_WIDTH_PX + 24 : 12}px` }}
           >
-            {geoData.categories.map((category) => {
-              const color = getColorForValue(category);
-              return (
-                <span
-                  key={category}
-                  className="pointer-events-auto flex items-center gap-2 rounded bg-white/80 px-2 py-1 shadow dark:bg-gray-900/70"
-                >
-                  <span className="h-3 w-3 rounded" style={{ backgroundColor: toCssColor(color) }} />
-                  {category}
-                </span>
-              );
-            })}
+            {legendEntries.map((entry) => (
+              <span
+                key={entry.id}
+                className="pointer-events-auto flex items-center gap-2 rounded bg-white/80 px-2 py-1 shadow dark:bg-gray-900/70"
+              >
+                <span className="h-3 w-3 rounded" style={{ backgroundColor: toCssColor(entry.color) }} />
+                {entry.label}
+              </span>
+            ))}
           </div>
         )}
         {!hasRenderableData && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-gray-600 dark:text-gray-300">
-            {hasGeometrySelection
-              ? '選択された列に基づくジオメトリが見つかりませんでした。データ値を確認してください。'
-              : (noCoordinateMessage ?? '設定パネルで緯度・経度またはGeoJSON / WKT 列を選択するとマップが描画されます。')}
+            {activeLayerIds.length === 0
+              ? '表示するレイヤーを選択してください。'
+              : (hasGeometrySelection
+                ? '選択された列に基づくジオメトリが見つかりませんでした。データ値を確認してください。'
+                : (noCoordinateMessage ?? '設定パネルで緯度・経度またはGeoJSON / WKT 列を選択するとマップが描画されます。'))}
           </div>
         )}
       </div>
     </div>
   );
 };
-
 export default GeoAnalysisMapPanel;
