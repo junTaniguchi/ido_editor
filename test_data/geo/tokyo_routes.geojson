@@ -1,0 +1,64 @@
+{
+  "type": "FeatureCollection",
+  "name": "tokyo_routes",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Yamanote Loop",
+        "category": "rail",
+        "metric": 27
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [139.700258, 35.690921],
+          [139.707, 35.693],
+          [139.715, 35.689],
+          [139.728, 35.686],
+          [139.741, 35.683],
+          [139.755, 35.681],
+          [139.767125, 35.681236]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Sumida Riverside",
+        "category": "walk",
+        "metric": 12
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [139.8107, 35.710063],
+          [139.807, 35.706],
+          [139.802, 35.702],
+          [139.796, 35.698],
+          [139.79, 35.692]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Odaiba Leisure Area",
+        "category": "polygon",
+        "metric": 18
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [139.77, 35.622],
+            [139.782, 35.622],
+            [139.782, 35.629],
+            [139.77, 35.629],
+            [139.77, 35.622]
+          ]
+        ]
+      }
+    }
+  ]
+}
