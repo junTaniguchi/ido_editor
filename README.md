@@ -65,7 +65,7 @@ npm run dev
 - 統計ビューではカラム型推定、欠損値、最大・最小・平均などを自動集計します。
 - チャートビューは棒・折れ線・円・散布図・積み上げ棒・回帰分析・ヒストグラム・ガントチャートを用意。X/Y 軸、集計種別、データソース（元データ or クエリ結果）を切り替えられます。
 - 関係グラフタブでは JSON ライクなデータを自動でノード/エッジに展開し、Force Graph で可視化します。
-- マップタブでは Deck.gl と OpenStreetMap タイル（`https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png`）を利用し、緯度経度・GeoJSON・WKT 列から点／ライン／ポリゴン／3D カラムを描画します。Stamen Toner Lines（`https://stamen-tiles.{a-c}.ssl.fastly.net/toner-lines/{z}/{x}/{y}.png`）、OpenRailwayMap（`https://{a-c}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png`）、ヒルシェード（`https://tiles.wmflabs.org/hillshading/{z}/{x}/{y}.png`）の各オーバーレイを個別にON/OFFできます。
+- マップタブでは Deck.gl と OpenStreetMap タイル（`https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png`）を利用し、緯度経度・GeoJSON・WKT 列から点／ライン／ポリゴン／3D カラムを描画します。道路は CyclOSM（`https://{a-c}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png`）、鉄道は OpenRailwayMap（`https://{a-c}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png`）、起伏は OpenTopoMap（`https://{a-c}.tile.opentopomap.org/{z}/{x}/{y}.png`）の各タイルをオーバーレイとして個別にON/OFFできます。
 
 ### SQL ノートブック（単一ファイル）
 - 任意のタブでノートブックモードに切り替えると、複数の SQL セルを作成・順次実行可能。セルごとにテーブル/チャートをトグル表示できます。

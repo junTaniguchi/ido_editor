@@ -102,14 +102,14 @@ const BASEMAP_OVERLAYS: Record<MapBasemapOverlay, {
 }> = {
   roads: {
     label: '道路',
-    description: 'OpenStreetMapの道路を強調表示します。',
+    description: 'CyclOSMスタイルの道路ハイライトを重ねて主要道路を見やすくします。',
     urlTemplates: [
-      'https://stamen-tiles.a.ssl.fastly.net/toner-lines/{z}/{x}/{y}.png',
-      'https://stamen-tiles.b.ssl.fastly.net/toner-lines/{z}/{x}/{y}.png',
-      'https://stamen-tiles.c.ssl.fastly.net/toner-lines/{z}/{x}/{y}.png',
+      'https://a.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png',
+      'https://b.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png',
+      'https://c.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png',
     ],
-    attribution: 'Map tiles by Stamen Design, under CC BY 3.0. Data by © OpenStreetMap contributors.',
-    opacity: 0.65,
+    attribution: '© OpenStreetMap contributors, CyclOSM.',
+    opacity: 0.55,
   },
   railways: {
     label: '鉄道',
@@ -124,13 +124,15 @@ const BASEMAP_OVERLAYS: Record<MapBasemapOverlay, {
   },
   terrain: {
     label: '起伏',
-    description: 'ヒルシェード（陰影起伏）タイルを重ねます。',
+    description: 'OpenTopoMapのヒルシェード（陰影起伏）タイルを重ねます。',
     urlTemplates: [
-      'https://tiles.wmflabs.org/hillshading/{z}/{x}/{y}.png',
+      'https://a.tile.opentopomap.org/{z}/{x}/{y}.png',
+      'https://b.tile.opentopomap.org/{z}/{x}/{y}.png',
+      'https://c.tile.opentopomap.org/{z}/{x}/{y}.png',
     ],
-    attribution: 'Hillshading: © OpenStreetMap contributors, SRTM.',
+    attribution: 'Map tiles by OpenTopoMap (CC-BY-SA). Data by © OpenStreetMap contributors.',
     opacity: 0.6,
-    maxZoom: 18,
+    maxZoom: 17,
   },
 };
 
