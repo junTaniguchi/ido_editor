@@ -1,6 +1,8 @@
 'use client';
 
 import { jStat } from 'jstat';
+import { parseWKT } from '@loaders.gl/gis';
+import type { MapAggregation } from '@/types';
 
 // 複数ファイル対応のSQL風クエリ処理を実装
 const executeMultiFileQuery = (fileDataMap: Map<string, any[]>, combinedData: any[], query: string) => {
@@ -3509,4 +3511,604 @@ export const getRegressionTypeLabel = (regressionType: string): string => {
     case 'logarithmic': return '対数';
     default: return '線形';
   }
+};
+
+const LATITUDE_KEYWORDS = ['latitude', 'lat', 'y_coord', 'ycoord', 'latitud', 'lat_deg'];
+const LONGITUDE_KEYWORDS = ['longitude', 'lon', 'lng', 'long', 'x_coord', 'xcoord', 'lon_deg'];
+const GEOJSON_KEYWORDS = ['geojson', 'geometry', 'geom_json'];
+const WKT_KEYWORDS = ['wkt', 'wellknowntxt', 'well_known_text', 'geom_wkt'];
+const PATH_KEYWORDS = ['path', 'route', 'linestring'];
+const POLYGON_KEYWORDS = ['polygon', 'multipolygon', 'area'];
+
+const normalizeColumn = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+const findCandidates = (columns: string[], keywords: string[]) => {
+  const normalizedKeywords = keywords.map((keyword) => keyword.toLowerCase());
+  return columns.filter((column) => {
+    const normalized = normalizeColumn(column);
+    return normalizedKeywords.some((keyword) => normalized.includes(keyword));
+  });
+};
+
+export interface CoordinateInferenceResult {
+  latitudeCandidates: string[];
+  longitudeCandidates: string[];
+  suggestedLatitude?: string;
+  suggestedLongitude?: string;
+  geoJsonColumns: string[];
+  wktColumns: string[];
+  pathColumns: string[];
+  polygonColumns: string[];
+}
+
+export const inferCoordinateColumns = (columns: string[]): CoordinateInferenceResult => {
+  const latitudeCandidates = findCandidates(columns, LATITUDE_KEYWORDS);
+  const longitudeCandidates = findCandidates(columns, LONGITUDE_KEYWORDS);
+  const geoJsonColumns = findCandidates(columns, GEOJSON_KEYWORDS);
+  const wktColumns = findCandidates(columns, WKT_KEYWORDS);
+  const pathColumns = findCandidates(columns, PATH_KEYWORDS);
+  const polygonColumns = findCandidates(columns, POLYGON_KEYWORDS);
+
+  const suggestedLatitude = latitudeCandidates[0];
+  const suggestedLongitude = longitudeCandidates[0];
+
+  return {
+    latitudeCandidates,
+    longitudeCandidates,
+    suggestedLatitude,
+    suggestedLongitude,
+    geoJsonColumns,
+    wktColumns,
+    pathColumns,
+    polygonColumns,
+  };
+};
+
+export interface GeoPointDatum {
+  position: [number, number];
+  properties: Record<string, any>;
+  category?: string;
+  colorValue?: string | number;
+  metricValue?: number | null;
+}
+
+export interface GeoPathDatum {
+  path: [number, number][];
+  properties: Record<string, any>;
+}
+
+export interface GeoPolygonDatum {
+  polygon: [number, number][][];
+  properties: Record<string, any>;
+}
+
+export interface GeoColumnDatum {
+  position: [number, number];
+  elevation: number;
+  properties: Record<string, any>;
+  category?: string;
+  colorValue?: string | number;
+}
+
+export interface BuildGeoJsonResult {
+  points: GeoPointDatum[];
+  columns: GeoColumnDatum[];
+  paths: GeoPathDatum[];
+  polygons: GeoPolygonDatum[];
+  geoJsonFeatures: Array<{ type: 'Feature'; geometry: any; properties: Record<string, any> }>;
+  bounds: [[number, number], [number, number]] | null;
+  categories: string[];
+}
+
+export interface BuildGeoJsonOptions {
+  latitudeColumn?: string;
+  longitudeColumn?: string;
+  geoJsonColumn?: string;
+  wktColumn?: string;
+  pathColumn?: string;
+  polygonColumn?: string;
+  categoryColumn?: string;
+  colorColumn?: string;
+  heightColumn?: string;
+  aggregation?: MapAggregation;
+}
+
+const toNumeric = (value: any): number | null => {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = Number(trimmed.replace(/,/g, ''));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const normalizeLngLatPair = (first: number | null, second: number | null): [number, number] | null => {
+  if (first === null || second === null) return null;
+  const isLatFirst = Math.abs(first) <= 90 && Math.abs(second) <= 180;
+  const isLonFirst = Math.abs(first) <= 180 && Math.abs(second) <= 90;
+
+  if (isLatFirst && !isLonFirst) {
+    return [second, first];
+  }
+
+  return [first, second];
+};
+
+const parseCoordinateList = (value: any): [number, number][] | null => {
+  if (!value) return null;
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) return null;
+    if (Array.isArray(value[0])) {
+      const coords = value
+        .map((pair) => {
+          if (!Array.isArray(pair) || pair.length < 2) return null;
+          const first = toNumeric(pair[0]);
+          const second = toNumeric(pair[1]);
+          return normalizeLngLatPair(first, second);
+        })
+        .filter((item): item is [number, number] => Array.isArray(item));
+      return coords.length ? coords : null;
+    }
+
+    if (typeof value[0] === 'object' && value[0] !== null) {
+      const coords = value
+        .map((entry) => {
+          const lat = toNumeric(entry.lat ?? entry.latitude ?? entry.latitud ?? entry.y ?? entry.latDeg ?? entry.Latitude);
+          const lon = toNumeric(entry.lon ?? entry.lng ?? entry.longitude ?? entry.x ?? entry.lonDeg ?? entry.Longitude);
+          if (lat === null || lon === null) return null;
+          return [lon, lat] as [number, number];
+        })
+        .filter((item): item is [number, number] => Array.isArray(item));
+      return coords.length ? coords : null;
+    }
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      return parseCoordinateList(parsed);
+    } catch {
+      const segments = trimmed
+        .split(/[;\n]+/)
+        .map((segment) => segment.trim())
+        .filter(Boolean);
+
+      const coords = segments
+        .map((segment) => {
+          const parts = segment.split(/[\s,]+/).filter(Boolean);
+          if (parts.length < 2) return null;
+          const first = toNumeric(parts[0]);
+          const second = toNumeric(parts[1]);
+          return normalizeLngLatPair(first, second);
+        })
+        .filter((item): item is [number, number] => Array.isArray(item));
+
+      return coords.length ? coords : null;
+    }
+  }
+
+  return null;
+};
+
+const parsePolygonCoordinates = (value: any): [number, number][][] | null => {
+  if (!value) return null;
+
+  if (Array.isArray(value)) {
+    if (Array.isArray(value[0]) && Array.isArray(value[0][0])) {
+      const rings = value
+        .map((ring) => parseCoordinateList(ring))
+        .filter((ring): ring is [number, number][] => Array.isArray(ring) && ring.length >= 3);
+      return rings.length ? rings : null;
+    }
+
+    const coords = parseCoordinateList(value);
+    return coords ? [coords] : null;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    try {
+      const parsed = JSON.parse(trimmed);
+      return parsePolygonCoordinates(parsed);
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+};
+
+const computeAggregatedMetric = (rows: any[], column: string | undefined, aggregation: MapAggregation): number => {
+  if (!rows.length) return 0;
+
+  if (!column) {
+    switch (aggregation) {
+      case 'count':
+        return rows.length;
+      case 'none':
+        return 1;
+      case 'sum':
+      case 'avg':
+      case 'min':
+      case 'max':
+      default:
+        return rows.length;
+    }
+  }
+
+  const numericValues = rows
+    .map((row) => toNumeric(row[column as string]))
+    .filter((value): value is number => value !== null);
+
+  if (!numericValues.length) {
+    return aggregation === 'count' ? rows.length : 0;
+  }
+
+  switch (aggregation) {
+    case 'sum':
+      return numericValues.reduce((sum, value) => sum + value, 0);
+    case 'avg':
+      return numericValues.reduce((sum, value) => sum + value, 0) / numericValues.length;
+    case 'min':
+      return Math.min(...numericValues);
+    case 'max':
+      return Math.max(...numericValues);
+    case 'none':
+      return numericValues[0];
+    case 'count':
+    default:
+      return rows.length;
+  }
+};
+
+const mergeProperties = (base: Record<string, any>, extra: Record<string, any>) => ({
+  ...base,
+  ...extra,
+});
+
+const pushGeometry = (
+  geometry: any,
+  result: BuildGeoJsonResult,
+  updateBounds: (lon: number, lat: number) => void,
+  baseProperties: Record<string, any>,
+) => {
+  if (!geometry) return;
+
+  if (geometry.type === 'FeatureCollection' && Array.isArray(geometry.features)) {
+    geometry.features.forEach((feature: any) =>
+      pushGeometry(feature, result, updateBounds, baseProperties)
+    );
+    return;
+  }
+
+  if (geometry.type === 'Feature' && geometry.geometry) {
+    const mergedProps = mergeProperties(baseProperties, geometry.properties || {});
+    pushGeometry(geometry.geometry, result, updateBounds, mergedProps);
+    return;
+  }
+
+  switch (geometry.type) {
+    case 'Point': {
+      const coords = geometry.coordinates;
+      if (Array.isArray(coords) && coords.length >= 2) {
+        const lon = toNumeric(coords[0]);
+        const lat = toNumeric(coords[1]);
+        if (lon !== null && lat !== null) {
+          const position: [number, number] = [lon, lat];
+          updateBounds(lon, lat);
+          result.points.push({
+            position,
+            properties: baseProperties,
+            category: baseProperties.categoryValue,
+            colorValue: baseProperties.colorValue,
+            metricValue: baseProperties.metricValue,
+          });
+          result.geoJsonFeatures.push({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: position },
+            properties: baseProperties,
+          });
+        }
+      }
+      break;
+    }
+    case 'MultiPoint': {
+      const coords = geometry.coordinates;
+      if (Array.isArray(coords)) {
+        coords.forEach((point: any) =>
+          pushGeometry({ type: 'Point', coordinates: point }, result, updateBounds, baseProperties)
+        );
+      }
+      break;
+    }
+    case 'LineString': {
+      if (Array.isArray(geometry.coordinates)) {
+        const path = geometry.coordinates
+          .map((pair: any) => {
+            if (!Array.isArray(pair) || pair.length < 2) return null;
+            const lon = toNumeric(pair[0]);
+            const lat = toNumeric(pair[1]);
+            if (lon === null || lat === null) return null;
+            updateBounds(lon, lat);
+            return [lon, lat] as [number, number];
+          })
+          .filter((point): point is [number, number] => Array.isArray(point));
+
+        if (path.length >= 2) {
+          result.paths.push({ path, properties: baseProperties });
+          result.geoJsonFeatures.push({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: path },
+            properties: baseProperties,
+          });
+        }
+      }
+      break;
+    }
+    case 'MultiLineString': {
+      const lines = geometry.coordinates;
+      if (Array.isArray(lines)) {
+        lines.forEach((line: any) =>
+          pushGeometry({ type: 'LineString', coordinates: line }, result, updateBounds, baseProperties)
+        );
+      }
+      break;
+    }
+    case 'Polygon': {
+      const rings = geometry.coordinates;
+      if (Array.isArray(rings) && rings.length) {
+        const polygon = rings
+          .map((ring: any) => {
+            if (!Array.isArray(ring)) return null;
+            const coords = ring
+              .map((pair: any) => {
+                if (!Array.isArray(pair) || pair.length < 2) return null;
+                const lon = toNumeric(pair[0]);
+                const lat = toNumeric(pair[1]);
+                if (lon === null || lat === null) return null;
+                updateBounds(lon, lat);
+                return [lon, lat] as [number, number];
+              })
+              .filter((point): point is [number, number] => Array.isArray(point));
+            return coords.length >= 3 ? coords : null;
+          })
+          .filter((ring): ring is [number, number][] => Array.isArray(ring));
+
+        if (polygon.length) {
+          result.polygons.push({ polygon, properties: baseProperties });
+          result.geoJsonFeatures.push({
+            type: 'Feature',
+            geometry: { type: 'Polygon', coordinates: polygon },
+            properties: baseProperties,
+          });
+        }
+      }
+      break;
+    }
+    case 'MultiPolygon': {
+      const polygons = geometry.coordinates;
+      if (Array.isArray(polygons)) {
+        polygons.forEach((poly: any) =>
+          pushGeometry({ type: 'Polygon', coordinates: poly }, result, updateBounds, baseProperties)
+        );
+      }
+      break;
+    }
+    default: {
+      // それ以外のジオメトリもFeatureとして保持
+      result.geoJsonFeatures.push({
+        type: 'Feature',
+        geometry,
+        properties: baseProperties,
+      });
+      break;
+    }
+  }
+};
+
+export const buildGeoJsonFromRows = (rows: any[], options: BuildGeoJsonOptions = {}): BuildGeoJsonResult => {
+  const {
+    latitudeColumn,
+    longitudeColumn,
+    geoJsonColumn,
+    wktColumn,
+    pathColumn,
+    polygonColumn,
+    categoryColumn,
+    colorColumn,
+    heightColumn,
+    aggregation = 'sum',
+  } = options;
+
+  const result: BuildGeoJsonResult = {
+    points: [],
+    columns: [],
+    paths: [],
+    polygons: [],
+    geoJsonFeatures: [],
+    bounds: null,
+    categories: [],
+  };
+
+  if (!rows || rows.length === 0) {
+    return result;
+  }
+
+  let minLat = Infinity;
+  let minLon = Infinity;
+  let maxLat = -Infinity;
+  let maxLon = -Infinity;
+
+  const updateBounds = (lon: number, lat: number) => {
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      return;
+    }
+    minLat = Math.min(minLat, lat);
+    minLon = Math.min(minLon, lon);
+    maxLat = Math.max(maxLat, lat);
+    maxLon = Math.max(maxLon, lon);
+  };
+
+  const categories = new Set<string>();
+  const columnGroups = new Map<string, { position: [number, number]; rows: any[] }>();
+
+  rows.forEach((row) => {
+    const categoryValueRaw = categoryColumn ? row[categoryColumn] : undefined;
+    const colorValueRaw = colorColumn ? row[colorColumn] : undefined;
+    const metricValueRaw = heightColumn ? toNumeric(row[heightColumn]) : null;
+    const categoryValue = categoryValueRaw !== undefined && categoryValueRaw !== null ? String(categoryValueRaw) : undefined;
+    const colorValue = colorValueRaw ?? categoryValueRaw;
+
+    if (categoryValue !== undefined) {
+      categories.add(categoryValue);
+    } else if (colorValueRaw !== undefined && colorValueRaw !== null) {
+      categories.add(String(colorValueRaw));
+    }
+
+    const baseProperties = {
+      ...row,
+      categoryValue,
+      colorValue,
+      metricValue: metricValueRaw,
+    } as Record<string, any>;
+
+    if (latitudeColumn && longitudeColumn) {
+      const lat = toNumeric(row[latitudeColumn]);
+      const lon = toNumeric(row[longitudeColumn]);
+      if (lat !== null && lon !== null) {
+        const position: [number, number] = [lon, lat];
+        updateBounds(lon, lat);
+        result.points.push({
+          position,
+          properties: baseProperties,
+          category: categoryValue,
+          colorValue,
+          metricValue: metricValueRaw,
+        });
+
+        const groupKeyParts = [lon.toFixed(6), lat.toFixed(6)];
+        if (categoryValue !== undefined) {
+          groupKeyParts.push(categoryValue);
+        } else if (colorValueRaw !== undefined && colorValueRaw !== null) {
+          groupKeyParts.push(String(colorValueRaw));
+        }
+        const groupKey = groupKeyParts.join('|');
+        const existing = columnGroups.get(groupKey);
+        if (existing) {
+          existing.rows.push(row);
+        } else {
+          columnGroups.set(groupKey, { position, rows: [row] });
+        }
+      }
+    }
+
+    if (pathColumn && row[pathColumn]) {
+      const coordinates = parseCoordinateList(row[pathColumn]);
+      if (coordinates && coordinates.length >= 2) {
+        coordinates.forEach(([lon, lat]) => updateBounds(lon, lat));
+        result.paths.push({ path: coordinates, properties: baseProperties });
+        result.geoJsonFeatures.push({
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: coordinates },
+          properties: baseProperties,
+        });
+      }
+    }
+
+    if (polygonColumn && row[polygonColumn]) {
+      const polygons = parsePolygonCoordinates(row[polygonColumn]);
+      if (polygons && polygons.length) {
+        polygons.forEach((ring) => ring.forEach(([lon, lat]) => updateBounds(lon, lat)));
+        result.polygons.push({ polygon: polygons, properties: baseProperties });
+        result.geoJsonFeatures.push({
+          type: 'Feature',
+          geometry: { type: 'Polygon', coordinates: polygons },
+          properties: baseProperties,
+        });
+      }
+    }
+
+    if (geoJsonColumn && row[geoJsonColumn]) {
+      const raw = row[geoJsonColumn];
+      let geometry: any = null;
+      if (typeof raw === 'string') {
+        try {
+          geometry = JSON.parse(raw);
+        } catch {
+          geometry = null;
+        }
+      } else if (typeof raw === 'object') {
+        geometry = raw;
+      }
+      if (geometry) {
+        pushGeometry(geometry, result, updateBounds, baseProperties);
+      }
+    }
+
+    if (wktColumn && row[wktColumn] && typeof row[wktColumn] === 'string') {
+      try {
+        const geometry = parseWKT(row[wktColumn]);
+        if (geometry) {
+          pushGeometry(geometry, result, updateBounds, baseProperties);
+        }
+      } catch {
+        // 無効なWKTは無視
+      }
+    }
+  });
+
+  columnGroups.forEach(({ position, rows: groupedRows }) => {
+    const elevation = computeAggregatedMetric(groupedRows, heightColumn, aggregation);
+    if (!Number.isFinite(elevation)) {
+      return;
+    }
+
+    const sample = groupedRows[0] || {};
+    const categoryValueRaw = categoryColumn ? sample[categoryColumn] : undefined;
+    const colorValueRaw = colorColumn ? sample[colorColumn] : undefined;
+    const categoryValue = categoryValueRaw !== undefined && categoryValueRaw !== null ? String(categoryValueRaw) : undefined;
+    const colorValue = colorValueRaw ?? categoryValueRaw;
+
+    if (categoryValue !== undefined) {
+      categories.add(categoryValue);
+    } else if (colorValueRaw !== undefined && colorValueRaw !== null) {
+      categories.add(String(colorValueRaw));
+    }
+
+    const properties = {
+      ...sample,
+      metricValue: elevation,
+      categoryValue,
+      colorValue,
+      aggregatedCount: groupedRows.length,
+    } as Record<string, any>;
+
+    result.columns.push({
+      position,
+      elevation,
+      properties,
+      category: categoryValue,
+      colorValue,
+    });
+    updateBounds(position[0], position[1]);
+  });
+
+  if (Number.isFinite(minLat) && Number.isFinite(minLon) && minLat !== Infinity && minLon !== Infinity) {
+    result.bounds = [
+      [minLon, minLat],
+      [maxLon, maxLat],
+    ];
+  }
+
+  result.categories = Array.from(categories);
+
+  return result;
 };
