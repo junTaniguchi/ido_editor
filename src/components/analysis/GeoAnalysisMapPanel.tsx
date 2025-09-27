@@ -980,9 +980,9 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
           onViewStateChange={handleViewStateChange}
           getTooltip={tooltipFormatter}
         />
-        <div className="pointer-events-none absolute inset-y-0 left-0 flex min-h-0 items-start">
+        <div className="pointer-events-none absolute inset-y-0 right-0 flex min-h-0 items-start justify-end">
           {isOptionalSidebarOpen ? (
-            <div className="pointer-events-auto z-10 flex h-full max-h-full min-h-0 w-80 max-w-[90vw] flex-col border-r border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
+            <div className="pointer-events-auto z-10 flex h-full max-h-full min-h-0 w-80 max-w-[90vw] flex-col border-l border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
               <div className="flex items-center justify-between border-b border-gray-200 px-3 py-2 dark:border-gray-700">
                 <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
                   <IoOptionsOutline size={16} />
@@ -1014,7 +1014,10 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
             </div>
           )}
         </div>
-        <div className="pointer-events-none absolute right-4 top-4 flex flex-col gap-3">
+        <div
+          className="pointer-events-none absolute top-4 flex flex-col gap-3"
+          style={{ right: `${isOptionalSidebarOpen ? OPTIONAL_SIDEBAR_WIDTH_PX + 24 : 16}px` }}
+        >
           <div className="pointer-events-auto overflow-hidden rounded-md bg-white text-gray-700 shadow dark:bg-gray-800 dark:text-gray-100">
             <button
               type="button"
@@ -1035,16 +1038,16 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
             </button>
           </div>
         </div>
-        <div
-          className="pointer-events-none absolute bottom-3 text-[10px] text-gray-600 dark:text-gray-300"
-          style={{ left: `${isOptionalSidebarOpen ? OPTIONAL_SIDEBAR_WIDTH_PX + 16 : 12}px` }}
-        >
+        <div className="pointer-events-none absolute bottom-3 left-3 text-[10px] text-gray-600 dark:text-gray-300">
           <span className="rounded bg-white/80 px-2 py-1 shadow dark:bg-gray-900/70">
             {selectedBasemap.attribution}
           </span>
         </div>
         {geoData && geoData.categories.length > 0 && (
-          <div className="pointer-events-none absolute bottom-3 right-3 flex max-w-[50vw] flex-wrap gap-2 text-xs text-gray-600 dark:text-gray-300">
+          <div
+            className="pointer-events-none absolute bottom-3 flex max-w-[50vw] flex-wrap gap-2 text-xs text-gray-600 dark:text-gray-300"
+            style={{ right: `${isOptionalSidebarOpen ? OPTIONAL_SIDEBAR_WIDTH_PX + 24 : 12}px` }}
+          >
             {geoData.categories.map((category) => {
               const color = getColorForValue(category);
               return (
