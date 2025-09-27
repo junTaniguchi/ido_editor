@@ -1,7 +1,7 @@
 'use client';
 
 import { jStat } from 'jstat';
-import { parseWKT } from '@loaders.gl/gis';
+import { parse as parseWKT } from 'wellknown';
 import type { MapAggregation } from '@/types';
 
 // 複数ファイル対応のSQL風クエリ処理を実装

@@ -132,8 +132,7 @@ export type MapBasemapOverlay = 'roads' | 'railways' | 'terrain';
 
 export type MapBasemapOverlayState = Record<MapBasemapOverlay, boolean>;
 
-export interface MapSettings {
-  dataSource: string;
+export interface MapLayerSettings {
   latitudeColumn?: string;
   longitudeColumn?: string;
   geoJsonColumn?: string;
@@ -143,6 +142,15 @@ export interface MapSettings {
   heightColumn?: string;
   categoryColumn?: string;
   colorColumn?: string;
+}
+
+export interface MapSettings {
+  /**
+   * @deprecated 以前の単一データソース選択用のフィールド。activeDataSourceIds を使用してください。
+   */
+  dataSource?: string;
+  activeDataSourceIds: string[];
+  layerSettings: Record<string, MapLayerSettings>;
   aggregation: MapAggregation;
   pointRadius: number;
   columnRadius: number;
