@@ -2,11 +2,63 @@ import Papa from 'papaparse';
 import YAML from 'js-yaml';
 import { tableFromArrays, Table } from 'apache-arrow';
 import * as XLSX from 'xlsx';
-import { load } from '@loaders.gl/core';
-import type { LoaderWithParser } from '@loaders.gl/core';
-import { WKTLoader } from '@loaders.gl/wkt';
-import { feature as topojsonFeature } from 'topojson-client';
 import type { Feature, FeatureCollection, Geometry } from 'geojson';
+import { feature as topojsonFeature } from 'topojson-client';
+
+type WellknownModule = typeof import('wellknown');
+
+const SHAPEFILE_EXTENSION_PATTERN = /\.(?:shp|shpz|shz|dbf)$/;
+
+const isLikelyShapefile = (fileName?: string): boolean => {
+  if (!fileName) {
+    return false;
+  }
+
+  const normalized = fileName.toLowerCase();
+  if (/\.zip$/.test(normalized)) {
+    return normalized.includes('.shp');
+  }
+
+  return SHAPEFILE_EXTENSION_PATTERN.test(normalized);
+};
+
+const normalizeWktEntry = (value: string): string => value.replace(/^SRID=\d+;/i, '').trim();
+
+const toFeaturesFromParsedWkt = (parsed: unknown): Feature[] => {
+  if (!parsed || typeof parsed !== 'object') {
+    return [];
+  }
+
+  if ((parsed as FeatureCollection).type === 'FeatureCollection' && Array.isArray((parsed as FeatureCollection).features)) {
+    return (parsed as FeatureCollection).features as Feature[];
+  }
+
+  if ((parsed as Feature).type === 'Feature' && (parsed as Feature).geometry) {
+    return [parsed as Feature];
+  }
+
+  const maybeGeometryCollection = parsed as { type?: string; geometries?: Geometry[] };
+  if (maybeGeometryCollection.type === 'GeometryCollection' && Array.isArray(maybeGeometryCollection.geometries)) {
+    return maybeGeometryCollection.geometries
+      .filter((geometry): geometry is Geometry => Boolean(geometry && typeof geometry === 'object' && 'type' in geometry))
+      .map((geometry) => ({
+        type: 'Feature',
+        geometry,
+        properties: {},
+      }));
+  }
+
+  const maybeGeometry = parsed as Geometry;
+  if (maybeGeometry && typeof maybeGeometry.type === 'string' && 'coordinates' in maybeGeometry) {
+    return [{
+      type: 'Feature',
+      geometry: maybeGeometry,
+      properties: {},
+    }];
+  }
+
+  return [];
+};
 
 const SHAPEFILE_EXTENSION_PATTERN = /\.(?:shp|shpz|shz|dbf)$/;
 
@@ -447,43 +499,36 @@ export const parseGeospatialData = async (
         const text = typeof input === 'string' ? input : await textFromInput(input);
         const entries = text
           .split(/\r?\n+/)
-          .map((line) => line.trim())
+          .map((line) => normalizeWktEntry(line))
           .filter((line) => line.length > 0);
+
+        let wellknownModule: WellknownModule | null = null;
+        const parseWithWellknown = async (value: string) => {
+          if (!wellknownModule) {
+            wellknownModule = await import('wellknown');
+          }
+          return wellknownModule.parse(value);
+        };
+
         const features: Feature[] = [];
-        if (entries.length === 0) {
-          const loaded = await load(text, WKTLoader);
-          const collection = toFeatureCollection(loaded);
-          if (collection) {
-            featureCollection = collection;
-            break;
+        const targets = entries.length > 0 ? entries : [normalizeWktEntry(text)];
+
+        for (const entry of targets) {
+          if (!entry) {
+            continue;
+          }
+
+          try {
+            const parsed = await parseWithWellknown(entry);
+            const entryFeatures = toFeaturesFromParsedWkt(parsed);
+            if (entryFeatures.length > 0) {
+              features.push(...entryFeatures);
+            }
+          } catch (error) {
+            console.warn('WKTの解析に失敗しました:', error);
           }
         }
-        for (const entry of (entries.length > 0 ? entries : [text])) {
-          try {
-            const loaded = await load(entry, WKTLoader);
-            const collection = toFeatureCollection(loaded);
-            if (collection) {
-              features.push(...collection.features);
-              continue;
-            }
-          } catch {
-            // フォールバックで後続処理
-          }
-          try {
-            // wellknown互換のフォールバック
-            const wellknownModule = await import('wellknown');
-            const geometry = wellknownModule.parse(entry) as Geometry | null;
-            if (geometry) {
-              features.push({
-                type: 'Feature',
-                geometry,
-                properties: {},
-              });
-            }
-          } catch {
-            // 無効な行はスキップ
-          }
-        }
+
         if (features.length > 0) {
           featureCollection = {
             type: 'FeatureCollection',
