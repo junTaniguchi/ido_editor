@@ -143,6 +143,33 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
   const [isNotebookMode, setIsNotebookMode] = useState(false);
   const [runAllInProgress, setRunAllInProgress] = useState(false);
   const [cellViewModes, setCellViewModes] = useState<Record<string, 'table' | 'chart'>>({});
+  const [mapSettingsContainer, setMapSettingsContainer] = useState<HTMLDivElement | null>(null);
+  const mapSettingsContainerRef = useCallback((node: HTMLDivElement | null) => {
+    setMapSettingsContainer(node);
+  }, []);
+
+  const queryColumns = useMemo(() => {
+    if (queryResult && queryResult.length > 0) {
+      return Object.keys(queryResult[0]);
+    }
+    return [] as string[];
+  }, [queryResult]);
+
+  const mapDataSources = useMemo(() => {
+    const sources: Array<{ id: string; label: string; rows: any[]; columns: string[] }> = [];
+    const originalColumns = columns && columns.length > 0
+      ? columns
+      : parsedData && parsedData.length > 0
+        ? Object.keys(parsedData[0])
+        : [];
+    if (parsedData && parsedData.length > 0) {
+      sources.push({ id: 'originalData', label: '元データ', rows: parsedData, columns: originalColumns });
+    }
+    if (queryResult && queryResult.length > 0) {
+      sources.push({ id: 'queryResult', label: 'クエリ結果', rows: queryResult, columns: queryColumns });
+    }
+    return sources;
+  }, [parsedData, queryResult, columns, queryColumns]);
 
   const queryColumns = useMemo(() => {
     if (queryResult && queryResult.length > 0) {
@@ -4283,6 +4310,13 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                 </div>
               </div>
             )}
+
+            {/* マップ設定 */}
+            {activeTab === 'map' && (
+              <div className="space-y-4">
+                <div ref={mapSettingsContainerRef} className="space-y-4" />
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -4331,7 +4365,9 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
               dataSources={mapDataSources}
               mapSettings={mapSettings}
               onUpdateSettings={updateMapSettings}
-              noCoordinateMessage="緯度・経度列やGeoJSON/WKT列が見つからない場合は、上部のセレクタから列を選択してください。"
+              noCoordinateMessage="設定パネルで緯度・経度列やGeoJSON/WKT列を選択してください。"
+              settingsPlacement="external"
+              settingsContainer={mapSettingsContainer}
             />
           </div>
         )}

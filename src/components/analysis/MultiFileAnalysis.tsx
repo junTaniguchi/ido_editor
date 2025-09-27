@@ -207,6 +207,10 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
   const graphContainerRef = useRef<HTMLDivElement | null>(null);
   const [graphSize, setGraphSize] = useState({ width: 800, height: 600 });
   const notebookImportInputRef = useRef<HTMLInputElement | null>(null);
+  const [mapSettingsContainer, setMapSettingsContainer] = useState<HTMLDivElement | null>(null);
+  const mapSettingsContainerRef = useCallback((node: HTMLDivElement | null) => {
+    setMapSettingsContainer(node);
+  }, []);
 
   const generateCellId = useCallback(() => {
     if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -1931,6 +1935,13 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
           </div>
         )}
 
+        {/* マップ設定 */}
+        {activeTab === 'map' && (
+          <div className="space-y-4">
+            <div ref={mapSettingsContainerRef} className="space-y-4" />
+          </div>
+        )}
+
         {/* 関係性設定 */}
         {activeTab === 'relationship' && (
           <div>
@@ -2420,7 +2431,9 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
               dataSources={mapDataSources}
               mapSettings={mapSettings}
               onUpdateSettings={updateMapSettings}
-              noCoordinateMessage="統合データに緯度・経度が見つからない場合は、マップ設定から列を選択してください。"
+              noCoordinateMessage="統合データに緯度・経度が見つからない場合は、設定パネルで列を選択してください。"
+              settingsPlacement="external"
+              settingsContainer={mapSettingsContainer}
             />
           </div>
         )}

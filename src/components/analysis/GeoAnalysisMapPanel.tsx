@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo, useEffect, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import DeckGL from '@deck.gl/react';
 import { TileLayer } from '@deck.gl/geo-layers';
 import { BitmapLayer, ColumnLayer, ScatterplotLayer, PathLayer, GeoJsonLayer } from '@deck.gl/layers';
@@ -22,6 +23,8 @@ interface GeoAnalysisMapPanelProps {
   onUpdateSettings: (settings: Partial<MapSettings>) => void;
   noDataMessage?: string;
   noCoordinateMessage?: string;
+  settingsContainer?: HTMLElement | null;
+  settingsPlacement?: 'inline' | 'external';
 }
 
 const DEFAULT_VIEW_STATE = {
@@ -62,6 +65,8 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
   onUpdateSettings,
   noDataMessage,
   noCoordinateMessage,
+  settingsContainer,
+  settingsPlacement = 'inline',
 }) => {
   const [viewState, setViewState] = useState(DEFAULT_VIEW_STATE);
 
@@ -389,6 +394,258 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
     return { text: lines.length ? lines.join('\n') : '地物' };
   }, []);
 
+  const settingsContent = (
+    <>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300 md:col-span-3">
+          <span>データソース</span>
+          <select
+            value={activeSource?.id ?? ''}
+            onChange={(event) => onUpdateSettings({ dataSource: event.target.value })}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+          >
+            {dataSources.map((source) => (
+              <option key={source.id} value={source.id}>
+                {source.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <span>緯度列</span>
+          <select
+            value={validLatitudeColumn ?? ''}
+            onChange={(event) => onUpdateSettings({ latitudeColumn: event.target.value || undefined })}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+          >
+            <option value="">未選択</option>
+            {activeSource?.columns.map((column) => (
+              <option key={column} value={column}>
+                {column}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <span>経度列</span>
+          <select
+            value={validLongitudeColumn ?? ''}
+            onChange={(event) => onUpdateSettings({ longitudeColumn: event.target.value || undefined })}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+          >
+            <option value="">未選択</option>
+            {activeSource?.columns.map((column) => (
+              <option key={column} value={column}>
+                {column}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <span>GeoJSON列</span>
+          <select
+            value={validGeoJsonColumn ?? ''}
+            onChange={(event) => onUpdateSettings({ geoJsonColumn: event.target.value || undefined })}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+          >
+            <option value="">未選択</option>
+            {activeSource?.columns.map((column) => (
+              <option key={column} value={column}>
+                {column}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <span>WKT列</span>
+          <select
+            value={validWktColumn ?? ''}
+            onChange={(event) => onUpdateSettings({ wktColumn: event.target.value || undefined })}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+          >
+            <option value="">未選択</option>
+            {activeSource?.columns.map((column) => (
+              <option key={column} value={column}>
+                {column}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <span>ライン列</span>
+          <select
+            value={validPathColumn ?? ''}
+            onChange={(event) => onUpdateSettings({ pathColumn: event.target.value || undefined })}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+          >
+            <option value="">未選択</option>
+            {activeSource?.columns.map((column) => (
+              <option key={column} value={column}>
+                {column}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <span>ポリゴン列</span>
+          <select
+            value={validPolygonColumn ?? ''}
+            onChange={(event) => onUpdateSettings({ polygonColumn: event.target.value || undefined })}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+          >
+            <option value="">未選択</option>
+            {activeSource?.columns.map((column) => (
+              <option key={column} value={column}>
+                {column}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <span>カテゴリ列</span>
+          <select
+            value={validCategoryColumn ?? ''}
+            onChange={(event) => onUpdateSettings({ categoryColumn: event.target.value || undefined })}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+          >
+            <option value="">未選択</option>
+            {activeSource?.columns.map((column) => (
+              <option key={column} value={column}>
+                {column}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <span>色分け列</span>
+          <select
+            value={validColorColumn ?? ''}
+            onChange={(event) => onUpdateSettings({ colorColumn: event.target.value || undefined })}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+          >
+            <option value="">未選択</option>
+            {activeSource?.columns.map((column) => (
+              <option key={column} value={column}>
+                {column}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <span>高さ列</span>
+          <select
+            value={validHeightColumn ?? ''}
+            onChange={(event) => onUpdateSettings({ heightColumn: event.target.value || undefined })}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+          >
+            <option value="">未選択</option>
+            {activeSource?.columns.map((column) => (
+              <option key={column} value={column}>
+                {column}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <span>集計方法</span>
+          <select
+            value={mapSettings.aggregation}
+            onChange={(event) => onUpdateSettings({ aggregation: event.target.value as MapSettings['aggregation'] })}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+          >
+            <option value="sum">合計</option>
+            <option value="avg">平均</option>
+            <option value="count">件数</option>
+            <option value="min">最小</option>
+            <option value="max">最大</option>
+            <option value="none">値をそのまま使用</option>
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <span>点サイズ (px)</span>
+          <input
+            type="number"
+            min={1}
+            value={mapSettings.pointRadius}
+            onChange={(event) => {
+              const value = Number(event.target.value);
+              if (Number.isFinite(value)) {
+                onUpdateSettings({ pointRadius: Math.max(1, value) });
+              }
+            }}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <span>カラム半径 (m)</span>
+          <input
+            type="number"
+            min={10}
+            value={mapSettings.columnRadius}
+            onChange={(event) => {
+              const value = Number(event.target.value);
+              if (Number.isFinite(value)) {
+                onUpdateSettings({ columnRadius: Math.max(10, value) });
+              }
+            }}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <span>高さスケール</span>
+          <input
+            type="number"
+            min={1}
+            value={mapSettings.elevationScale}
+            onChange={(event) => {
+              const value = Number(event.target.value);
+              if (Number.isFinite(value)) {
+                onUpdateSettings({ elevationScale: Math.max(1, value) });
+              }
+            }}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+          />
+        </label>
+      </div>
+
+      {geoData && geoData.categories.length > 0 && (
+        <div className="flex flex-wrap gap-3 text-xs text-gray-600 dark:text-gray-300">
+          {geoData.categories.map((category) => {
+            const color = getColorForValue(category);
+            return (
+              <span key={category} className="flex items-center gap-2 rounded bg-white/70 px-2 py-1 shadow dark:bg-gray-900/60">
+                <span className="h-3 w-3 rounded" style={{ backgroundColor: toCssColor(color) }} />
+                {category}
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {!hasGeometrySelection && (
+        <div className="flex items-center gap-2 rounded border border-dashed border-yellow-400 bg-yellow-50 p-3 text-xs text-yellow-700 dark:border-yellow-500 dark:bg-yellow-900/30 dark:text-yellow-200">
+          <IoInformationCircleOutline size={16} />
+          <span>
+            {noCoordinateMessage ?? '設定パネルで緯度・経度またはGeoJSON / WKT 列を選択するとマップが描画されます。'}
+          </span>
+        </div>
+      )}
+    </>
+  );
+
   if (!dataSources.length) {
     return (
       <div className="flex h-full items-center justify-center text-gray-500 dark:text-gray-400">
@@ -399,255 +656,15 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          <label className="flex flex-col text-xs font-medium text-gray-700 dark:text-gray-300">
-            データソース
-            <select
-              value={activeSource?.id ?? ''}
-              onChange={(event) => onUpdateSettings({ dataSource: event.target.value })}
-              className="mt-1 rounded border border-gray-300 bg-white p-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            >
-              {dataSources.map((source) => (
-                <option key={source.id} value={source.id}>
-                  {source.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col text-xs font-medium text-gray-700 dark:text-gray-300">
-            緯度列
-            <select
-              value={validLatitudeColumn ?? ''}
-              onChange={(event) => onUpdateSettings({ latitudeColumn: event.target.value || undefined })}
-              className="mt-1 rounded border border-gray-300 bg-white p-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            >
-              <option value="">未選択</option>
-              {activeSource?.columns.map((column) => (
-                <option key={column} value={column}>
-                  {column}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col text-xs font-medium text-gray-700 dark:text-gray-300">
-            経度列
-            <select
-              value={validLongitudeColumn ?? ''}
-              onChange={(event) => onUpdateSettings({ longitudeColumn: event.target.value || undefined })}
-              className="mt-1 rounded border border-gray-300 bg-white p-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            >
-              <option value="">未選択</option>
-              {activeSource?.columns.map((column) => (
-                <option key={column} value={column}>
-                  {column}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col text-xs font-medium text-gray-700 dark:text-gray-300">
-            GeoJSON列
-            <select
-              value={validGeoJsonColumn ?? ''}
-              onChange={(event) => onUpdateSettings({ geoJsonColumn: event.target.value || undefined })}
-              className="mt-1 rounded border border-gray-300 bg-white p-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            >
-              <option value="">未選択</option>
-              {activeSource?.columns.map((column) => (
-                <option key={column} value={column}>
-                  {column}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col text-xs font-medium text-gray-700 dark:text-gray-300">
-            WKT列
-            <select
-              value={validWktColumn ?? ''}
-              onChange={(event) => onUpdateSettings({ wktColumn: event.target.value || undefined })}
-              className="mt-1 rounded border border-gray-300 bg-white p-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            >
-              <option value="">未選択</option>
-              {activeSource?.columns.map((column) => (
-                <option key={column} value={column}>
-                  {column}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col text-xs font-medium text-gray-700 dark:text-gray-300">
-            ライン列
-            <select
-              value={validPathColumn ?? ''}
-              onChange={(event) => onUpdateSettings({ pathColumn: event.target.value || undefined })}
-              className="mt-1 rounded border border-gray-300 bg-white p-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            >
-              <option value="">未選択</option>
-              {activeSource?.columns.map((column) => (
-                <option key={column} value={column}>
-                  {column}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col text-xs font-medium text-gray-700 dark:text-gray-300">
-            ポリゴン列
-            <select
-              value={validPolygonColumn ?? ''}
-              onChange={(event) => onUpdateSettings({ polygonColumn: event.target.value || undefined })}
-              className="mt-1 rounded border border-gray-300 bg-white p-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            >
-              <option value="">未選択</option>
-              {activeSource?.columns.map((column) => (
-                <option key={column} value={column}>
-                  {column}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col text-xs font-medium text-gray-700 dark:text-gray-300">
-            カテゴリ列
-            <select
-              value={validCategoryColumn ?? ''}
-              onChange={(event) => onUpdateSettings({ categoryColumn: event.target.value || undefined })}
-              className="mt-1 rounded border border-gray-300 bg-white p-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            >
-              <option value="">未選択</option>
-              {activeSource?.columns.map((column) => (
-                <option key={column} value={column}>
-                  {column}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col text-xs font-medium text-gray-700 dark:text-gray-300">
-            色分け列
-            <select
-              value={validColorColumn ?? ''}
-              onChange={(event) => onUpdateSettings({ colorColumn: event.target.value || undefined })}
-              className="mt-1 rounded border border-gray-300 bg-white p-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            >
-              <option value="">未選択</option>
-              {activeSource?.columns.map((column) => (
-                <option key={column} value={column}>
-                  {column}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col text-xs font-medium text-gray-700 dark:text-gray-300">
-            高さ列
-            <select
-              value={validHeightColumn ?? ''}
-              onChange={(event) => onUpdateSettings({ heightColumn: event.target.value || undefined })}
-              className="mt-1 rounded border border-gray-300 bg-white p-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            >
-              <option value="">未選択</option>
-              {activeSource?.columns.map((column) => (
-                <option key={column} value={column}>
-                  {column}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col text-xs font-medium text-gray-700 dark:text-gray-300">
-            集計方法
-            <select
-              value={mapSettings.aggregation}
-              onChange={(event) => onUpdateSettings({ aggregation: event.target.value as MapSettings['aggregation'] })}
-              className="mt-1 rounded border border-gray-300 bg-white p-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            >
-              <option value="sum">合計</option>
-              <option value="avg">平均</option>
-              <option value="count">件数</option>
-              <option value="min">最小</option>
-              <option value="max">最大</option>
-              <option value="none">値をそのまま使用</option>
-            </select>
-          </label>
-
-          <label className="flex flex-col text-xs font-medium text-gray-700 dark:text-gray-300">
-            点サイズ (px)
-            <input
-              type="number"
-              min={1}
-              value={mapSettings.pointRadius}
-              onChange={(event) => {
-                const value = Number(event.target.value);
-                if (Number.isFinite(value)) {
-                  onUpdateSettings({ pointRadius: Math.max(1, value) });
-                }
-              }}
-              className="mt-1 rounded border border-gray-300 bg-white p-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            />
-          </label>
-
-          <label className="flex flex-col text-xs font-medium text-gray-700 dark:text-gray-300">
-            カラム半径 (m)
-            <input
-              type="number"
-              min={10}
-              value={mapSettings.columnRadius}
-              onChange={(event) => {
-                const value = Number(event.target.value);
-                if (Number.isFinite(value)) {
-                  onUpdateSettings({ columnRadius: Math.max(10, value) });
-                }
-              }}
-              className="mt-1 rounded border border-gray-300 bg-white p-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            />
-          </label>
-
-          <label className="flex flex-col text-xs font-medium text-gray-700 dark:text-gray-300">
-            高さスケール
-            <input
-              type="number"
-              min={1}
-              value={mapSettings.elevationScale}
-              onChange={(event) => {
-                const value = Number(event.target.value);
-                if (Number.isFinite(value)) {
-                  onUpdateSettings({ elevationScale: Math.max(1, value) });
-                }
-              }}
-              className="mt-1 rounded border border-gray-300 bg-white p-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            />
-          </label>
+      {settingsPlacement === 'inline' && (
+        <div className="border-b border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800">
+          <div className="space-y-4">
+            {settingsContent}
+          </div>
         </div>
-
-        {geoData && geoData.categories.length > 0 && (
-          <div className="mt-4 flex flex-wrap gap-3 text-xs text-gray-600 dark:text-gray-300">
-            {geoData.categories.map((category) => {
-              const color = getColorForValue(category);
-              return (
-                <span key={category} className="flex items-center gap-2 rounded bg-white/70 px-2 py-1 shadow dark:bg-gray-900/60">
-                  <span className="h-3 w-3 rounded" style={{ backgroundColor: toCssColor(color) }} />
-                  {category}
-                </span>
-              );
-            })}
-          </div>
-        )}
-
-        {!hasGeometrySelection && (
-          <div className="mt-4 flex items-center gap-2 rounded border border-dashed border-yellow-400 bg-yellow-50 p-3 text-xs text-yellow-700 dark:border-yellow-500 dark:bg-yellow-900/30 dark:text-yellow-200">
-            <IoInformationCircleOutline size={16} />
-            <span>
-              {noCoordinateMessage ?? '緯度・経度またはGeoJSON / WKT 列を選択するとマップが描画されます。'}
-            </span>
-          </div>
-        )}
-      </div>
+      )}
+      {settingsPlacement === 'external' && settingsContainer
+        && createPortal(<div className="space-y-4">{settingsContent}</div>, settingsContainer)}
 
       <div className="relative flex-1 bg-gray-200 dark:bg-gray-900">
         <DeckGL
@@ -662,7 +679,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-gray-600 dark:text-gray-300">
             {hasGeometrySelection
               ? '選択された列に基づくジオメトリが見つかりませんでした。データ値を確認してください。'
-              : (noCoordinateMessage ?? '緯度・経度またはGeoJSON / WKT 列を選択するとマップが描画されます。')}
+              : (noCoordinateMessage ?? '設定パネルで緯度・経度またはGeoJSON / WKT 列を選択するとマップが描画されます。')}
           </div>
         )}
       </div>
