@@ -283,7 +283,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     const tab = tabs.get(tabId);
     
     // コンテンツが空の場合（Excelファイルは除く）
-    if ((!content || content.trim() === '') && type !== 'excel') {
+    if ((!content || content.trim() === '') && type !== 'excel' && type !== 'shapefile') {
       setLoading(false);
       setParsedData(null);
       return;

@@ -169,6 +169,8 @@ export const getFileType = (
     return 'mermaid';
   } else if (lowerFileName.endsWith('.xlsx') || lowerFileName.endsWith('.xls')) {
     return 'excel';
+  } else if (lowerFileName.endsWith('.shp')) {
+    return 'shapefile';
   } else if (lowerFileName.endsWith('.ipynb')) {
     return 'ipynb';
   } else if (lowerFileName.endsWith('.pdf')) {
