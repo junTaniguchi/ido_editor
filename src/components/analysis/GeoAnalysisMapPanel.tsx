@@ -739,7 +739,6 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
           </label>
         </div>
       </div>
-
       {!hasGeometrySelection && (
         <div className="flex items-center gap-2 rounded border border-dashed border-yellow-400 bg-yellow-50 p-3 text-xs text-yellow-700 dark:border-yellow-500 dark:bg-yellow-900/30 dark:text-yellow-200">
           <IoInformationCircleOutline size={16} />
@@ -759,7 +758,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
           色分けや棒グラフの高さ、ベースマップなど表示スタイルを調整できます。
         </p>
       </div>
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+      <div className="flex flex-col gap-3">
         <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
           <span>カテゴリ列</span>
           <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
@@ -914,14 +913,14 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
           </select>
         </label>
 
-        <div className="col-span-3 rounded border border-gray-200 bg-white p-3 text-xs text-gray-700 shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
+        <div className="rounded border border-gray-200 bg-white p-3 text-xs text-gray-700 shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
           <div className="font-medium">OpenStreetMap オーバーレイ</div>
           <div className="mt-1 text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">
             道路・鉄道・起伏のタイルレイヤーを個別にON/OFFできます。見たい情報に合わせて切り替えてください。
           </div>
-          <div className="mt-3 flex flex-wrap gap-3">
+          <div className="mt-3 flex flex-col gap-2">
             {(Object.entries(BASEMAP_OVERLAYS) as [MapBasemapOverlay, typeof BASEMAP_OVERLAYS[MapBasemapOverlay]][]).map(([key, overlay]) => (
-              <label key={key} className="flex items-center gap-2 rounded border border-gray-200 px-2 py-1 font-medium text-gray-700 dark:border-gray-700 dark:text-gray-200">
+              <label key={key} className="flex items-start gap-2 rounded border border-gray-200 px-2 py-2 font-medium text-gray-700 dark:border-gray-700 dark:text-gray-200">
                 <input
                   type="checkbox"
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600"
@@ -936,9 +935,9 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
                     });
                   }}
                 />
-                <span className="flex flex-col">
+                <span className="flex flex-col gap-1">
                   <span>{overlay.label}</span>
-                  <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">{overlay.description}</span>
+                  <span className="text-[11px] font-normal leading-snug text-gray-500 dark:text-gray-400">{overlay.description}</span>
                 </span>
               </label>
             ))}
@@ -996,7 +995,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
                   <IoCloseOutline size={16} />
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto px-3 py-4">
+              <div className="flex-1 overflow-y-auto pl-3 pr-4 py-4">
                 {optionalSettingsContent}
               </div>
             </div>
