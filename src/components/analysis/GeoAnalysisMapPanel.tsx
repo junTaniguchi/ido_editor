@@ -139,6 +139,8 @@ const BASEMAP_OVERLAYS: Record<MapBasemapOverlay, {
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 19;
 
+const OPTIONAL_SIDEBAR_WIDTH_PX = 320;
+
 const DEFAULT_VIEW_STATE = {
   longitude: 139.767,
   latitude: 35.681,
@@ -978,9 +980,9 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
           onViewStateChange={handleViewStateChange}
           getTooltip={tooltipFormatter}
         />
-        <div className="pointer-events-none absolute inset-y-0 left-0 flex items-start">
+        <div className="pointer-events-none absolute inset-y-0 left-0 flex min-h-0 items-start">
           {isOptionalSidebarOpen ? (
-            <div className="pointer-events-auto flex h-full max-h-full w-80 max-w-[90vw] flex-col border-r border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
+            <div className="pointer-events-auto z-10 flex h-full max-h-full min-h-0 w-80 max-w-[90vw] flex-col border-r border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
               <div className="flex items-center justify-between border-b border-gray-200 px-3 py-2 dark:border-gray-700">
                 <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
                   <IoOptionsOutline size={16} />
@@ -995,7 +997,7 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
                   <IoCloseOutline size={16} />
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto pl-3 pr-4 py-4">
+              <div className="min-h-0 flex-1 overflow-y-auto pl-3 pr-4 py-4">
                 {optionalSettingsContent}
               </div>
             </div>
@@ -1033,7 +1035,10 @@ const GeoAnalysisMapPanel: React.FC<GeoAnalysisMapPanelProps> = ({
             </button>
           </div>
         </div>
-        <div className="pointer-events-none absolute bottom-3 left-3 text-[10px] text-gray-600 dark:text-gray-300">
+        <div
+          className="pointer-events-none absolute bottom-3 text-[10px] text-gray-600 dark:text-gray-300"
+          style={{ left: `${isOptionalSidebarOpen ? OPTIONAL_SIDEBAR_WIDTH_PX + 16 : 12}px` }}
+        >
           <span className="rounded bg-white/80 px-2 py-1 shadow dark:bg-gray-900/70">
             {selectedBasemap.attribution}
           </span>
