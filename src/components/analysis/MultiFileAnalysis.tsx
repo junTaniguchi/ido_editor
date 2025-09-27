@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useEditorStore } from '@/store/editorStore';
-import { parseCSV, parseJSON, parseYAML, parseParquet, parseExcel } from '@/lib/dataPreviewUtils';
-import { 
-  combineMultipleFiles, 
-  compareMultipleFileStatistics, 
+import { parseCSV, parseJSON, parseYAML, parseParquet, parseExcel, parseGeospatialData } from '@/lib/dataPreviewUtils';
+import {
+  combineMultipleFiles,
+  compareMultipleFileStatistics,
   createCrossTabFromFiles,
   executeQuery,
   executeMultiFileQueryAnalysis,
@@ -13,7 +13,8 @@ import {
   prepareChartData,
   calculateInfo,
   aggregateData,
-  downloadData
+  downloadData,
+  buildGeoJsonFromRows,
 } from '@/lib/dataAnalysisUtils';
 import {
   IoAnalyticsOutline,
@@ -196,6 +197,90 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
 
     return sources;
   }, [combinedData, fileDataMap, queryColumns, queryRowsForMap]);
+
+  const hasActiveGeoSources = useMemo(() => {
+    const activeIds = mapSettings.activeDataSourceIds ?? [];
+    return activeIds.some((sourceId) => {
+      const source = mapDataSources.find((item) => item.id === sourceId);
+      return Boolean(source && source.rows.length > 0);
+    });
+  }, [mapDataSources, mapSettings.activeDataSourceIds]);
+
+  const canExportCombinedGeoJson = useMemo(() => Boolean(combinedData && combinedData.length), [combinedData]);
+
+  const createGeoOptions = useCallback((sourceId: string, columns: string[]) => {
+    const settings = mapSettings.layerSettings?.[sourceId] ?? {};
+    const ensureColumn = (explicit: string | undefined, fallback: string) => (
+      explicit ?? (columns.includes(fallback) ? fallback : undefined)
+    );
+
+    return {
+      latitudeColumn: settings.latitudeColumn,
+      longitudeColumn: settings.longitudeColumn,
+      geoJsonColumn: ensureColumn(settings.geoJsonColumn, 'geometry'),
+      wktColumn: ensureColumn(settings.wktColumn, 'wkt'),
+      pathColumn: ensureColumn(settings.pathColumn, 'path'),
+      polygonColumn: ensureColumn(settings.polygonColumn, 'polygon'),
+      categoryColumn: settings.categoryColumn,
+      colorColumn: settings.colorColumn,
+      heightColumn: settings.heightColumn,
+      aggregation: mapSettings.aggregation,
+    };
+  }, [mapSettings.aggregation, mapSettings.layerSettings]);
+
+  const handleExportActiveGeoJson = useCallback(() => {
+    const activeIds = mapSettings.activeDataSourceIds ?? [];
+    const features: Array<{ type: 'Feature'; geometry: any; properties: Record<string, any> }> = [];
+
+    activeIds.forEach((sourceId) => {
+      const source = mapDataSources.find((item) => item.id === sourceId);
+      if (!source) {
+        return;
+      }
+      const options = createGeoOptions(sourceId, source.columns);
+      const geo = buildGeoJsonFromRows(source.rows, options);
+      if (geo.geoJsonFeatures.length) {
+        features.push(...geo.geoJsonFeatures);
+      }
+    });
+
+    if (!features.length) {
+      setError('GeoJSONに変換できる地理データが選択されていません。');
+      return;
+    }
+
+    setError(null);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    downloadData(
+      JSON.stringify({ type: 'FeatureCollection', features }, null, 2),
+      `map-selection-${timestamp}.geojson`,
+      'application/geo+json',
+    );
+  }, [createGeoOptions, downloadData, mapDataSources, mapSettings.activeDataSourceIds, setError]);
+
+  const handleExportCombinedGeoJson = useCallback(() => {
+    if (!combinedData || combinedData.length === 0) {
+      setError('統合データが存在しません。');
+      return;
+    }
+
+    const columns = Object.keys(combinedData[0] ?? {});
+    const options = createGeoOptions('combinedData', columns);
+    const geo = buildGeoJsonFromRows(combinedData, options);
+
+    if (!geo.geoJsonFeatures.length) {
+      setError('統合データからGeoJSONを生成できませんでした。');
+      return;
+    }
+
+    setError(null);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    downloadData(
+      JSON.stringify({ type: 'FeatureCollection', features: geo.geoJsonFeatures }, null, 2),
+      `combined-data-${timestamp}.geojson`,
+      'application/geo+json',
+    );
+  }, [combinedData, createGeoOptions, downloadData, setError]);
 
   // テーマ関連
   const [currentTheme, setCurrentTheme] = useState<string>('light');
@@ -647,34 +732,42 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
           const fileName = pathParts[pathParts.length - 1];
           const fileHandle = await currentHandle.getFileHandle(fileName);
           const file = await fileHandle.getFile();
-          const content = await file.text();
+          const extension = fileName.split('.').pop()?.toLowerCase();
+
+          let textContent: string | null = null;
+          let binaryContent: ArrayBuffer | null = null;
+
+          if (extension === 'shp') {
+            binaryContent = await file.arrayBuffer();
+          } else {
+            textContent = await file.text();
+          }
 
           // ファイル形式に応じてパース
           let data: any[] = [];
-          const extension = fileName.split('.').pop()?.toLowerCase();
-          
+
           switch (extension) {
             case 'csv':
-              const csvResult = parseCSV(content);
+              const csvResult = parseCSV(textContent ?? '');
               if (csvResult.error) throw new Error(csvResult.error);
               data = csvResult.data || [];
               break;
             case 'json':
-              const jsonResult = parseJSON(content);
+              const jsonResult = parseJSON(textContent ?? '');
               if (jsonResult.error) throw new Error(jsonResult.error);
               data = Array.isArray(jsonResult.data) ? jsonResult.data : [jsonResult.data];
               break;
             case 'yaml':
             case 'yml':
-              const yamlResult = parseYAML(content);
+              const yamlResult = parseYAML(textContent ?? '');
               if (yamlResult.error) throw new Error(yamlResult.error);
               data = Array.isArray(yamlResult.data) ? yamlResult.data : [yamlResult.data];
               break;
             case 'parquet':
             case 'parq':
-              const parquetResult = await parseParquet(content);
+              const parquetResult = await parseParquet(textContent ?? '');
               if (parquetResult.error) throw new Error(parquetResult.error);
-              
+
               if (parquetResult.headers && parquetResult.rows) {
                 data = parquetResult.rows.map((row: any[]) => {
                   const obj: any = {};
@@ -688,6 +781,28 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
               }
               break;
             
+            case 'geojson':
+            case 'topojson':
+            case 'wkt': {
+              const geoResult = await parseGeospatialData(textContent ?? '', {
+                fileName,
+                formatHint: extension as 'geojson' | 'topojson' | 'wkt',
+              });
+              if (geoResult.error) throw new Error(geoResult.error);
+              data = geoResult.data;
+              break;
+            }
+            case 'shp':
+            case 'shapefile': {
+              const buffer = binaryContent ?? (await file.arrayBuffer());
+              const geoResult = await parseGeospatialData(buffer, {
+                fileName,
+                formatHint: 'shapefile',
+              });
+              if (geoResult.error) throw new Error(geoResult.error);
+              data = geoResult.data;
+              break;
+            }
             case 'xlsx':
             case 'xls':
               // Excelファイルの処理
@@ -2434,16 +2549,36 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
 )}
 
         {activeTab === 'map' && (
-          <div className="flex-1 min-h-0">
-            <GeoAnalysisMapPanel
-              dataSources={mapDataSources}
-              mapSettings={mapSettings}
-              onUpdateSettings={updateMapSettings}
-              noDataMessage="クエリ結果がありません。SQLクエリを実行してください。"
-              noCoordinateMessage="統合データに緯度・経度が見つからない場合は、設定パネルで列を選択してください。"
-              settingsPlacement="external"
-              settingsContainer={mapSettingsContainer}
-            />
+          <div className="flex-1 min-h-0 flex flex-col">
+            <div className="flex flex-wrap items-center justify-end gap-2 border-b border-gray-200 bg-gray-50 p-2 dark:border-gray-700 dark:bg-gray-800">
+              <button
+                className="flex items-center gap-1 rounded border border-blue-500 px-3 py-1 text-sm font-medium text-blue-600 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-300 disabled:text-gray-400 dark:border-blue-400 dark:text-blue-300 dark:hover:bg-blue-900/40 dark:disabled:border-gray-600 dark:disabled:text-gray-500"
+                onClick={handleExportActiveGeoJson}
+                disabled={!hasActiveGeoSources}
+              >
+                <IoDownloadOutline />
+                <span>表示中データをGeoJSON出力</span>
+              </button>
+              <button
+                className="flex items-center gap-1 rounded border border-blue-500 px-3 py-1 text-sm font-medium text-blue-600 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-300 disabled:text-gray-400 dark:border-blue-400 dark:text-blue-300 dark:hover:bg-blue-900/40 dark:disabled:border-gray-600 dark:disabled:text-gray-500"
+                onClick={handleExportCombinedGeoJson}
+                disabled={!canExportCombinedGeoJson}
+              >
+                <IoDownloadOutline />
+                <span>統合データをGeoJSON出力</span>
+              </button>
+            </div>
+            <div className="flex-1 min-h-0">
+              <GeoAnalysisMapPanel
+                dataSources={mapDataSources}
+                mapSettings={mapSettings}
+                onUpdateSettings={updateMapSettings}
+                noDataMessage="クエリ結果がありません。SQLクエリを実行してください。"
+                noCoordinateMessage="統合データに緯度・経度が見つからない場合は、設定パネルで列を選択してください。"
+                settingsPlacement="external"
+                settingsContainer={mapSettingsContainer}
+              />
+            </div>
           </div>
         )}
 
