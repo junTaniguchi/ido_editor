@@ -14,10 +14,24 @@ const getShapefileLoader = (() => {
   return async (): Promise<LoaderWithParser | null> => {
     if (!cachedPromise) {
       cachedPromise = (async () => {
-        const moduleId = '@loaders.gl/' + 'shapefile';
+        const moduleIdParts = ['@loaders.gl', 'shapefile'];
+        const moduleId = moduleIdParts.join('/');
         try {
+          console.debug('[debug] Attempting to dynamically import shapefile loader', {
+            moduleId,
+          });
           const module = await import(moduleId);
-          return module?.ShapefileLoader as LoaderWithParser;
+          const availableKeys = module ? Object.keys(module) : [];
+          const loader = module?.ShapefileLoader as LoaderWithParser | undefined;
+          if (!loader) {
+            console.warn('[debug] ShapefileLoader export is unavailable.', {
+              moduleId,
+              availableKeys,
+            });
+          } else {
+            console.debug('[debug] ShapefileLoader export resolved successfully.');
+          }
+          return loader ?? null;
         } catch (error) {
           console.warn(
             'Shapefile support is unavailable. Install @loaders.gl/shapefile to enable shapefile previews.'
