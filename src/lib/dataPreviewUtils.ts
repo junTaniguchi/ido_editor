@@ -2,6 +2,11 @@ import Papa from 'papaparse';
 import YAML from 'js-yaml';
 import { tableFromArrays, Table } from 'apache-arrow';
 import * as XLSX from 'xlsx';
+import { load } from '@loaders.gl/core';
+import { ShapefileLoader } from '@loaders.gl/shapefile';
+import { WKTLoader } from '@loaders.gl/wkt';
+import { feature as topojsonFeature } from 'topojson-client';
+import type { Feature, FeatureCollection, Geometry } from 'geojson';
 
 /**
  * CSVデータをパースする
@@ -177,6 +182,344 @@ export const flattenNestedObjects = (data: any, parentPrefix: string = ''): any[
   });
 
   return flattened;
+};
+
+const toFeatureCollection = (value: any): FeatureCollection | null => {
+  if (!value) {
+    return null;
+  }
+
+  if (value.type === 'FeatureCollection' && Array.isArray(value.features)) {
+    return value as FeatureCollection;
+  }
+
+  if (value.type === 'Feature' && value.geometry) {
+    return {
+      type: 'FeatureCollection',
+      features: [value as Feature],
+    };
+  }
+
+  if (value.type && value.coordinates) {
+    return {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: value as Geometry,
+          properties: {},
+        },
+      ],
+    };
+  }
+
+  if (Array.isArray(value)) {
+    const features: Feature[] = [];
+    value.forEach((item) => {
+      const collection = toFeatureCollection(item);
+      if (collection) {
+        features.push(...collection.features);
+      } else if (item && typeof item === 'object' && 'type' in item && 'coordinates' in item) {
+        features.push({
+          type: 'Feature',
+          geometry: item as Geometry,
+          properties: {},
+        });
+      }
+    });
+    if (features.length > 0) {
+      return {
+        type: 'FeatureCollection',
+        features,
+      };
+    }
+  }
+
+  return null;
+};
+
+export const flattenGeoJsonFeatures = (featureCollection: FeatureCollection | null) => {
+  if (!featureCollection || !Array.isArray(featureCollection.features) || featureCollection.features.length === 0) {
+    return {
+      rows: [] as any[],
+      columns: [] as string[],
+    };
+  }
+
+  const propertyRecords = featureCollection.features.map((feature) => (
+    feature && feature.properties && typeof feature.properties === 'object'
+      ? (feature.properties as Record<string, any>)
+      : {}
+  ));
+
+  const flattenedProperties = propertyRecords.length > 0
+    ? flattenNestedObjects(propertyRecords)
+    : propertyRecords;
+
+  const rows = featureCollection.features.map((feature, index) => {
+    const flattened = flattenedProperties[index] ?? {};
+    const row: Record<string, any> = { ...flattened };
+
+    if (feature.id !== undefined && feature.id !== null) {
+      row.featureId = feature.id;
+    }
+
+    row.geometry = feature.geometry ?? null;
+
+    return row;
+  });
+
+  const columnSet = new Set<string>();
+  rows.forEach((row) => {
+    Object.keys(row).forEach((key) => columnSet.add(key));
+  });
+
+  const columns = Array.from(columnSet);
+  if (!columns.includes('geometry')) {
+    columns.push('geometry');
+  }
+
+  return {
+    rows,
+    columns,
+  };
+};
+
+type ParseGeospatialFormat = 'geojson' | 'topojson' | 'wkt' | 'shapefile';
+
+interface ParseGeospatialOptions {
+  fileName?: string;
+  formatHint?: ParseGeospatialFormat;
+}
+
+interface ParseGeospatialResult {
+  columns: string[];
+  data: any[];
+  geoJson: FeatureCollection | null;
+  error: string | null;
+}
+
+const textFromInput = async (input: string | ArrayBuffer | Blob): Promise<string> => {
+  if (typeof input === 'string') {
+    return input;
+  }
+  if (input instanceof Blob) {
+    return await input.text();
+  }
+  return new TextDecoder().decode(input);
+};
+
+const arrayBufferFromInput = async (input: string | ArrayBuffer | Blob): Promise<ArrayBuffer> => {
+  if (input instanceof ArrayBuffer) {
+    return input;
+  }
+  if (input instanceof Blob) {
+    return await input.arrayBuffer();
+  }
+  return new TextEncoder().encode(input).buffer;
+};
+
+const detectGeospatialFormat = async (
+  input: string | ArrayBuffer | Blob,
+  options: ParseGeospatialOptions = {},
+): Promise<ParseGeospatialFormat> => {
+  if (options.formatHint) {
+    return options.formatHint;
+  }
+
+  const fileName = options.fileName?.toLowerCase();
+  if (fileName) {
+    if (fileName.endsWith('.shp')) {
+      return 'shapefile';
+    }
+    if (fileName.endsWith('.topojson')) {
+      return 'topojson';
+    }
+    if (fileName.endsWith('.wkt')) {
+      return 'wkt';
+    }
+    if (fileName.endsWith('.geojson')) {
+      return 'geojson';
+    }
+  }
+
+  if (typeof input !== 'string') {
+    return 'shapefile';
+  }
+
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return 'geojson';
+  }
+
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === 'object') {
+        if ((parsed as any).type === 'Topology' || (parsed as any).objects) {
+          return 'topojson';
+        }
+        const asCollection = toFeatureCollection(parsed);
+        if (asCollection) {
+          return 'geojson';
+        }
+      }
+    } catch {
+      // JSONとして解析できない場合は後続で判定
+    }
+  }
+
+  if (/^(?:SRID=\d+;)?\s*(POINT|LINESTRING|POLYGON|MULTI|GEOMETRYCOLLECTION)/i.test(trimmed)) {
+    return 'wkt';
+  }
+
+  return 'geojson';
+};
+
+export const parseGeospatialData = async (
+  input: string | ArrayBuffer | Blob,
+  options: ParseGeospatialOptions = {},
+): Promise<ParseGeospatialResult> => {
+  try {
+    const format = await detectGeospatialFormat(input, options);
+    let featureCollection: FeatureCollection | null = null;
+
+    switch (format) {
+      case 'shapefile': {
+        const buffer = await arrayBufferFromInput(input);
+        const loaded = await load(buffer, ShapefileLoader);
+        featureCollection = toFeatureCollection(loaded);
+        break;
+      }
+      case 'topojson': {
+        const text = typeof input === 'string' ? input : await textFromInput(input);
+        let topoJson: any = null;
+        try {
+          topoJson = JSON.parse(text);
+        } catch (parseError) {
+          throw new Error('TopoJSONの解析に失敗しました');
+        }
+
+        const objectEntries = topoJson && typeof topoJson === 'object' && topoJson.objects
+          ? Object.entries(topoJson.objects as Record<string, any>)
+          : [];
+
+        const features: Feature[] = [];
+        if (objectEntries.length > 0) {
+          for (const [key, topoObject] of objectEntries) {
+            try {
+              const result = topojsonFeature(topoJson, topoObject as any);
+              if (!result) {
+                continue;
+              }
+              if (result.type === 'FeatureCollection' && Array.isArray(result.features)) {
+                features.push(...result.features);
+              } else if (result.type === 'Feature') {
+                features.push(result as Feature);
+              }
+            } catch (conversionError) {
+              console.warn(`TopoJSONオブジェクト ${key} の変換に失敗しました`, conversionError);
+            }
+          }
+        }
+
+        if (features.length > 0) {
+          featureCollection = {
+            type: 'FeatureCollection',
+            features,
+          };
+        } else {
+          featureCollection = toFeatureCollection(topoJson);
+        }
+        break;
+      }
+      case 'wkt': {
+        const text = typeof input === 'string' ? input : await textFromInput(input);
+        const entries = text
+          .split(/\r?\n+/)
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0);
+        const features: Feature[] = [];
+        if (entries.length === 0) {
+          const loaded = await load(text, WKTLoader);
+          const collection = toFeatureCollection(loaded);
+          if (collection) {
+            featureCollection = collection;
+            break;
+          }
+        }
+        for (const entry of (entries.length > 0 ? entries : [text])) {
+          try {
+            const loaded = await load(entry, WKTLoader);
+            const collection = toFeatureCollection(loaded);
+            if (collection) {
+              features.push(...collection.features);
+              continue;
+            }
+          } catch {
+            // フォールバックで後続処理
+          }
+          try {
+            // wellknown互換のフォールバック
+            const wellknownModule = await import('wellknown');
+            const geometry = wellknownModule.parse(entry) as Geometry | null;
+            if (geometry) {
+              features.push({
+                type: 'Feature',
+                geometry,
+                properties: {},
+              });
+            }
+          } catch {
+            // 無効な行はスキップ
+          }
+        }
+        if (features.length > 0) {
+          featureCollection = {
+            type: 'FeatureCollection',
+            features,
+          };
+        }
+        break;
+      }
+      case 'geojson':
+      default: {
+        const text = typeof input === 'string' ? input : await textFromInput(input);
+        try {
+          const parsed = JSON.parse(text);
+          featureCollection = toFeatureCollection(parsed);
+        } catch {
+          featureCollection = null;
+        }
+        break;
+      }
+    }
+
+    if (!featureCollection) {
+      return {
+        columns: [],
+        data: [],
+        geoJson: null,
+        error: 'GeoJSONフィーチャの解析に失敗しました',
+      };
+    }
+
+    const flattened = flattenGeoJsonFeatures(featureCollection);
+    return {
+      columns: flattened.columns,
+      data: flattened.rows,
+      geoJson: featureCollection,
+      error: null,
+    };
+  } catch (error) {
+    console.error('Error parsing geospatial data:', error);
+    return {
+      columns: [],
+      data: [],
+      geoJson: null,
+      error: error instanceof Error ? error.message : '地理空間データの解析に失敗しました',
+    };
+  }
 };
 
 /**
