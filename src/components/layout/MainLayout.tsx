@@ -7,17 +7,19 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useEditorStore } from '@/store/editorStore';
+import { useGitStore } from '@/store/gitStore';
 import TabBarDnD from '@/components/tabs/TabBarDnD';
 import InputDialog from '@/components/modals/InputDialog';
 import MermaidTemplateDialog from '@/components/modals/MermaidTemplateDialog';
 import MainHeader from '@/components/layout/MainHeader';
 import ViewModeBanner from '@/components/layout/ViewModeBanner';
 import Workspace from '@/components/layout/Workspace';
-import { createNewFile } from '@/lib/fileSystemUtils';
+import { createNewFile, readDirectoryContents } from '@/lib/fileSystemUtils';
 import { getFileType } from '@/lib/editorUtils';
 import { getMermaidTemplate } from '@/lib/mermaid/diagramDefinitions';
 import { TabData } from '@/types';
 import type { MermaidDiagramType } from '@/lib/mermaid/types';
+import GitCloneDialog from '@/components/git/GitCloneDialog';
 
 const MainLayout = () => {
   const {
@@ -28,6 +30,9 @@ const MainLayout = () => {
     editorSettings,
     updateEditorSettings,
     rootDirHandle,
+    setRootDirHandle,
+    setRootFileTree,
+    setRootFolderName,
     addTab,
     addTempTab,
     multiFileAnalysisEnabled,
@@ -41,10 +46,15 @@ const MainLayout = () => {
 
   const [showNewFileDialog, setShowNewFileDialog] = useState(false);
   const [showMermaidTemplateDialog, setShowMermaidTemplateDialog] = useState(false);
+  const [showGitCloneDialog, setShowGitCloneDialog] = useState(false);
+  const [gitCloneError, setGitCloneError] = useState<string | null>(null);
+  const [isCloningRepo, setIsCloningRepo] = useState(false);
   const [pendingMermaidFile, setPendingMermaidFile] = useState<{
     fileName: string;
     directoryHandle: FileSystemDirectoryHandle | null;
   } | null>(null);
+
+  const cloneRepository = useGitStore((state) => state.cloneRepository);
 
   const activeTab = activeTabId ? tabs.get(activeTabId) : null;
   const activeTabViewMode = activeTabId ? getViewMode(activeTabId) : 'editor';
@@ -114,6 +124,56 @@ const MainLayout = () => {
   const handleToggleMultiFile = useCallback(() => {
     setMultiFileAnalysisEnabled(!multiFileAnalysisEnabled);
   }, [multiFileAnalysisEnabled, setMultiFileAnalysisEnabled]);
+
+  const handleOpenGitCloneDialog = useCallback(() => {
+    setGitCloneError(null);
+    useGitStore.setState({ error: null });
+    setShowGitCloneDialog(true);
+  }, []);
+
+  const handleCloneRepositoryConfirm = useCallback(
+    async ({ url, directoryName, reference }: { url: string; directoryName?: string; reference?: string }) => {
+      setIsCloningRepo(true);
+      try {
+        const result = await cloneRepository({ url, directoryName, reference });
+        if (!result) {
+          const currentError = useGitStore.getState().error;
+          if (currentError && currentError.trim().length > 0) {
+            setGitCloneError(currentError);
+          } else {
+            setGitCloneError(null);
+          }
+          return;
+        }
+
+        const { handle, folderName } = result;
+        setRootDirHandle(handle);
+        setRootFolderName(folderName);
+        try {
+          const tree = await readDirectoryContents(handle);
+          setRootFileTree(tree);
+        } catch (error) {
+          console.error('Failed to read cloned repository contents:', error);
+        }
+        updatePaneState({ activeSidebar: 'explorer', isExplorerVisible: true });
+        setShowGitCloneDialog(false);
+        setGitCloneError(null);
+      } catch (error) {
+        console.error('Failed to clone repository from dialog:', error);
+        const message = error instanceof Error ? error.message : 'Gitリポジトリのクローンに失敗しました。';
+        setGitCloneError(message);
+      } finally {
+        setIsCloningRepo(false);
+      }
+    },
+    [cloneRepository, setRootDirHandle, setRootFileTree, setRootFolderName, updatePaneState]
+  );
+
+  const handleCloneDialogClose = useCallback(() => {
+    setShowGitCloneDialog(false);
+    setGitCloneError(null);
+    useGitStore.setState({ error: null });
+  }, []);
 
   const handleCycleViewMode = useCallback(() => {
     if (!activeTabId) return;
@@ -363,6 +423,7 @@ const MainLayout = () => {
         selectedFileCount={selectedFiles.size}
         onToggleGit={handleToggleGitPane}
         isGitPaneVisible={paneState.activeSidebar === 'git'}
+        onCloneRepository={handleOpenGitCloneDialog}
       />
 
       <TabBarDnD />
@@ -417,6 +478,16 @@ const MainLayout = () => {
           isOpen={showMermaidTemplateDialog}
           onCancel={handleMermaidTemplateCancel}
           onConfirm={handleMermaidTemplateConfirm}
+        />
+      )}
+
+      {showGitCloneDialog && (
+        <GitCloneDialog
+          isOpen={showGitCloneDialog}
+          onCancel={handleCloneDialogClose}
+          onClone={handleCloneRepositoryConfirm}
+          isCloning={isCloningRepo}
+          errorMessage={gitCloneError ?? undefined}
         />
       )}
     </div>

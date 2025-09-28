@@ -133,90 +133,6 @@ const Workspace: React.FC<WorkspaceProps> = ({
     [isScrollSyncEnabled]
   );
 
-  if (multiFileAnalysisEnabled) {
-    return (
-      <div className="flex flex-1 overflow-hidden bg-white dark:bg-gray-900">
-        {paneState.isExplorerVisible && (
-          <div className="w-64 flex-shrink-0">
-            <FileExplorer />
-          </div>
-        )}
-        <div className="flex-1 flex overflow-hidden">
-          {paneState.isSearchVisible && (
-            <div className="w-80 flex-shrink-0">
-              <SearchPanel />
-            </div>
-          )}
-          {paneState.isGitVisible && (
-            <div className="w-96 flex-shrink-0">
-              <GitPanel />
-            </div>
-          )}
-          <div className="w-full h-full overflow-hidden">
-            <MultiFileAnalysis onClose={onCloseMultiFileAnalysis} />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!activeTabId || !activeTab) {
-    return (
-      <div className="flex flex-1 overflow-hidden bg-white dark:bg-gray-900">
-        {paneState.isExplorerVisible && (
-          <div className="w-64 flex-shrink-0">
-            <FileExplorer />
-          </div>
-        )}
-        <div className="flex-1 flex overflow-hidden">
-          {paneState.isSearchVisible && (
-            <div className="w-80 flex-shrink-0">
-              <SearchPanel />
-            </div>
-          )}
-          {paneState.isGitVisible && (
-            <div className="w-96 flex-shrink-0">
-              <GitPanel />
-            </div>
-          )}
-          <div className="flex-1 flex items-center justify-center text-gray-500">
-            <div className="text-center">
-              <p className="mb-4">ファイルが開かれていません</p>
-              <p className="text-sm">エクスプローラからファイルを選択してください</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (isDataAnalyzable && paneState.isAnalysisVisible) {
-    return (
-      <div className="flex flex-1 overflow-hidden bg-white dark:bg-gray-900">
-        {paneState.isExplorerVisible && (
-          <div className="w-64 flex-shrink-0">
-            <FileExplorer />
-          </div>
-        )}
-        <div className="flex-1 flex overflow-hidden">
-          {paneState.isSearchVisible && (
-            <div className="w-80 flex-shrink-0">
-              <SearchPanel />
-            </div>
-          )}
-          {paneState.isGitVisible && (
-            <div className="w-96 flex-shrink-0">
-              <GitPanel />
-            </div>
-          )}
-          <div className="w-full h-full overflow-hidden">
-            <DataAnalysis tabId={activeTabId} />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   const renderMarkdownOrMermaid = () => {
     if (activeTabViewMode === 'editor') {
       return (
@@ -384,7 +300,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
         </div>
       )}
       {showGitSidebar && (
-        <div className="w-96 flex-shrink-0 border-r border-gray-200 dark:border-gray-800">
+        <div className="w-96 flex-shrink-0 border-r border-gray-200 dark:border-gray-800 overflow-hidden">
           <GitPanel />
         </div>
       )}

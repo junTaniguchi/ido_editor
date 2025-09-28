@@ -48,6 +48,11 @@ interface GitStoreState {
   getFileHistory: (filepath: string) => Promise<GitCommitEntry[]>;
   getDiffAgainstWorkingTree: (filepath: string, oid: string) => Promise<string>;
   restoreFileToCommit: (filepath: string, oid: string) => Promise<string | null>;
+  cloneRepository: (options: {
+    url: string;
+    directoryName?: string;
+    reference?: string;
+  }) => Promise<{ handle: FileSystemDirectoryHandle; folderName: string } | null>;
 }
 
 const interpretStatus = (head: number, value: number): GitFileStatus => {
@@ -461,6 +466,85 @@ export const useGitStore = create<GitStoreState>((set, get) => ({
         throw new Error(message);
       }
     });
+  },
+
+  cloneRepository: async ({ url, directoryName, reference }) => {
+    const trimmedUrl = url.trim();
+    if (!trimmedUrl) {
+      set({ error: 'リポジトリのURLを入力してください。' });
+      return null;
+    }
+
+    if (!('showDirectoryPicker' in window)) {
+      set({ error: 'このブラウザはGitのクローンに必要なファイルアクセスAPIをサポートしていません。' });
+      return null;
+    }
+
+    set({ loading: true, error: null });
+
+    let parentHandle: FileSystemDirectoryHandle | null = null;
+    let createdFolderName: string | null = null;
+
+    try {
+      // @ts-ignore File System Access API is experimental
+      parentHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+
+      const fallbackName = (() => {
+        const sanitized = trimmedUrl.replace(/\.git$/i, '');
+        const segments = sanitized.split('/').filter(Boolean);
+        const last = segments[segments.length - 1] ?? '';
+        return last.replace(/[^a-zA-Z0-9._-]/g, '-') || `repository-${Date.now()}`;
+      })();
+
+      const targetName = (directoryName?.trim() || fallbackName).replace(/\s+/g, '-');
+      createdFolderName = targetName;
+
+      const repoHandle = await parentHandle.getDirectoryHandle(targetName, { create: true });
+
+      for await (const _entry of repoHandle.entries()) {
+        throw new Error('クローン先のフォルダが空ではありません。別のフォルダ名を指定してください。');
+      }
+
+      const adapter = new FileSystemAccessFs(repoHandle);
+      const fs = adapter.getFs();
+      const git = await loadGit();
+      const httpModule = await import('isomorphic-git/http/web');
+      const http = (httpModule as { default?: any }).default ?? httpModule;
+
+      await git.clone({
+        fs,
+        http,
+        dir: '/',
+        url: trimmedUrl,
+        singleBranch: true,
+        depth: 50,
+        corsProxy: 'https://cors.isomorphic-git.org',
+        ref: reference?.trim() || undefined,
+      });
+
+      await get().setRootDirectory(repoHandle);
+
+      return { handle: repoHandle, folderName: targetName };
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        set({ loading: false, error: null });
+        return null;
+      }
+
+      console.error('Failed to clone repository:', error);
+      set({
+        loading: false,
+        error: error instanceof Error ? error.message : 'Gitリポジトリのクローンに失敗しました',
+      });
+
+      if (parentHandle && createdFolderName) {
+        parentHandle
+          .removeEntry(createdFolderName, { recursive: true })
+          .catch(() => undefined);
+      }
+
+      return null;
+    }
   },
 
   setAuthorName: (name) => set({ authorName: name }),

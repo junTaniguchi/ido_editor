@@ -76,7 +76,7 @@ const GitPanel: React.FC = () => {
   };
 
   return (
-    <div className="h-full flex flex-col bg-white dark:bg-gray-900 border-l border-gray-300 dark:border-gray-700">
+    <div className="h-full flex flex-col overflow-hidden bg-white dark:bg-gray-900 border-l border-gray-300 dark:border-gray-700">
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-2">
           <IoGitCompareOutline size={18} />
@@ -117,7 +117,7 @@ const GitPanel: React.FC = () => {
           </div>
         </div>
       ) : (
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 text-sm">
             <section>
               <div className="flex items-center gap-2 mb-2 font-semibold">
