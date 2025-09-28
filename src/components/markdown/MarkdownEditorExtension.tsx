@@ -10,17 +10,248 @@
  */
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useEditorStore } from '@/store/editorStore';
-import { 
-  IoText, IoList, IoListOutline, IoLink, IoCode, IoAlbumsOutline, 
-  IoHelpCircleOutline, IoGridOutline, IoGridSharp, IoCheckbox, 
+import {
+  IoText, IoList, IoListOutline, IoLink, IoCode, IoAlbumsOutline,
+  IoHelpCircleOutline, IoGridOutline, IoGridSharp, IoCheckbox,
   IoCheckmarkDoneSharp, IoChevronForward, IoChevronBack, IoRemoveOutline,
   IoResize, IoResizeOutline, IoMove, IoCropOutline
 } from 'react-icons/io5';
 import useMarkdownShortcuts from '@/hooks/useMarkdownShortcuts';
 import MarkdownHelpDialog from './MarkdownHelpDialog';
 import TableWizard from './TableWizard';
+import { readDirectoryContents } from '@/lib/fileSystemUtils';
+import type { TabData } from '@/types';
+
+type TableAlignment = 'left' | 'center' | 'right' | null;
+
+const sanitizeMarkdownCell = (value: string) => {
+  return value
+    .replace(/\u00a0/g, ' ')
+    .replace(/\r\n|\r|\n/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\|/g, '\\|')
+    .trim();
+};
+
+const alignmentToMarkdown = (alignment: TableAlignment) => {
+  switch (alignment) {
+    case 'left':
+      return ':---';
+    case 'center':
+      return ':---:';
+    case 'right':
+      return '---:';
+    default:
+      return '---';
+  }
+};
+
+const getAlignmentFromCell = (cell: Element): TableAlignment => {
+  const alignAttr = cell.getAttribute('align');
+  if (alignAttr) {
+    const lower = alignAttr.toLowerCase();
+    if (lower === 'left' || lower === 'center' || lower === 'right') {
+      return lower;
+    }
+  }
+
+  const styleAttr = cell.getAttribute('style');
+  if (styleAttr) {
+    if (/text-align\s*:\s*center/i.test(styleAttr)) return 'center';
+    if (/text-align\s*:\s*right/i.test(styleAttr)) return 'right';
+    if (/text-align\s*:\s*left/i.test(styleAttr)) return 'left';
+  }
+
+  return null;
+};
+
+const convertHtmlTableToMarkdown = (html: string): string | null => {
+  if (!html || !/<table/i.test(html)) return null;
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+  const table = doc.querySelector('table');
+  if (!table) return null;
+
+  const rows: string[][] = [];
+  const alignments: TableAlignment[] = [];
+
+  const rowElements = Array.from(table.querySelectorAll('tr'));
+  rowElements.forEach(row => {
+    const cellElements = Array.from(row.querySelectorAll('th,td'));
+    if (cellElements.length === 0) return;
+
+    const values = cellElements.map((cell, index) => {
+      const alignment = getAlignmentFromCell(cell);
+      if (alignment && !alignments[index]) {
+        alignments[index] = alignment;
+      }
+      const text = 'innerText' in cell
+        ? (cell as HTMLElement).innerText
+        : cell.textContent || '';
+      return sanitizeMarkdownCell(text);
+    });
+
+    const isNonEmpty = values.some(value => value.length > 0);
+    if (isNonEmpty) {
+      rows.push(values);
+    }
+  });
+
+  if (rows.length === 0) return null;
+
+  const columnCount = rows.reduce((max, row) => Math.max(max, row.length), 0);
+  if (columnCount === 0) return null;
+
+  const normalizedRows = rows.map(row => {
+    if (row.length === columnCount) return row;
+    const filled = [...row];
+    while (filled.length < columnCount) {
+      filled.push('');
+    }
+    return filled;
+  });
+
+  if (columnCount < 2 && normalizedRows.length < 2) {
+    return null;
+  }
+
+  while (alignments.length < columnCount) {
+    alignments.push(null);
+  }
+
+  const header = normalizedRows[0];
+  const headerLine = `| ${header.map(value => (value.length > 0 ? value : ' ')).join(' | ')} |`;
+  const separatorLine = `| ${alignments.map(alignmentToMarkdown).join(' | ')} |`;
+  const bodyLines = normalizedRows.slice(1).map(row => `| ${row.map(value => (value.length > 0 ? value : ' ')).join(' | ')} |`);
+
+  return [headerLine, separatorLine, ...bodyLines].join('\n');
+};
+
+const convertPlainTextTableToMarkdown = (text: string): string | null => {
+  if (!text) return null;
+
+  const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (!normalized.includes('\t')) return null;
+
+  const lines = normalized.split('\n').map(line => line.trimEnd());
+  const rows = lines
+    .map(line => line.split('\t').map(cell => sanitizeMarkdownCell(cell)))
+    .filter(row => row.some(cell => cell.length > 0));
+
+  if (rows.length === 0) return null;
+
+  const columnCount = rows.reduce((max, row) => Math.max(max, row.length), 0);
+  if (columnCount === 0) return null;
+
+  const normalizedRows = rows.map(row => {
+    if (row.length === columnCount) return row;
+    const filled = [...row];
+    while (filled.length < columnCount) {
+      filled.push('');
+    }
+    return filled;
+  });
+
+  if (columnCount < 2 && normalizedRows.length < 2) {
+    return null;
+  }
+
+  const header = normalizedRows[0];
+  const headerLine = `| ${header.map(value => (value.length > 0 ? value : ' ')).join(' | ')} |`;
+  const separatorLine = `| ${new Array(columnCount).fill('---').join(' | ')} |`;
+  const bodyLines = normalizedRows.slice(1).map(row => `| ${row.map(value => (value.length > 0 ? value : ' ')).join(' | ')} |`);
+
+  return [headerLine, separatorLine, ...bodyLines].join('\n');
+};
+
+const MIME_EXTENSION_MAP: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'image/svg+xml': 'svg'
+};
+
+const sanitizeBaseName = (baseName: string) => {
+  const trimmed = baseName.replace(/\.[^/.]+$/, '');
+  const sanitized = trimmed.replace(/[^a-zA-Z0-9-_]+/g, '-').replace(/^-+|-+$/g, '');
+  return sanitized || 'pasted-image';
+};
+
+const resolveWorkingDirectory = async (
+  tab: TabData,
+  rootDirHandle: FileSystemDirectoryHandle | null
+): Promise<FileSystemDirectoryHandle | null> => {
+  if (!rootDirHandle) return null;
+  if (!tab.id || tab.id.startsWith('temp_')) return null;
+
+  const normalizedPath = tab.id.replace(/\\/g, '/');
+  const segments = normalizedPath.split('/').filter(Boolean);
+
+  let directoryHandle: FileSystemDirectoryHandle = rootDirHandle;
+  try {
+    for (let index = 0; index < Math.max(segments.length - 1, 0); index += 1) {
+      directoryHandle = await directoryHandle.getDirectoryHandle(segments[index]);
+    }
+    return directoryHandle;
+  } catch (error) {
+    console.error('Failed to resolve directory for pasted image:', error);
+    return null;
+  }
+};
+
+const ensureUniqueFileName = async (
+  directoryHandle: FileSystemDirectoryHandle,
+  baseName: string,
+  extension: string
+) => {
+  const timestamp = new Date();
+  const pad = (value: number) => value.toString().padStart(2, '0');
+  const dateStamp = `${timestamp.getFullYear()}${pad(timestamp.getMonth() + 1)}${pad(timestamp.getDate())}-${pad(timestamp.getHours())}${pad(timestamp.getMinutes())}${pad(timestamp.getSeconds())}`;
+  const normalizedBase = sanitizeBaseName(baseName);
+
+  let candidate = `${normalizedBase}-${dateStamp}.${extension}`;
+  let counter = 1;
+
+  const fileExists = async (name: string) => {
+    try {
+      await directoryHandle.getFileHandle(name);
+      return true;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'NotFoundError') {
+        return false;
+      }
+      throw error;
+    }
+  };
+
+  while (await fileExists(candidate)) {
+    candidate = `${normalizedBase}-${dateStamp}-${counter}.${extension}`;
+    counter += 1;
+  }
+
+  return candidate;
+};
+
+const getImageExtension = (file: File) => {
+  const name = file.name || '';
+  const existingExt = name.includes('.') ? name.split('.').pop() : '';
+  if (existingExt) {
+    return existingExt.toLowerCase();
+  }
+  const mimeExt = MIME_EXTENSION_MAP[file.type];
+  return mimeExt || 'png';
+};
+
+const buildImageMarkdown = (fileName: string, altText: string) => {
+  const encoded = encodeURI(fileName);
+  const alt = altText || 'image';
+  return `![${alt}](./${encoded})`;
+};
 
 interface MarkdownEditorExtensionProps {
   tabId: string;
@@ -44,6 +275,150 @@ const MarkdownEditorExtension: React.FC<MarkdownEditorExtensionProps> = ({ tabId
   const [showBulkMenu, setShowBulkMenu] = useState(false);
 
   const currentTab = tabs.get(tabId);
+
+  useEffect(() => {
+    let disposed = false;
+    let cleanup: (() => void) | null = null;
+
+    const attachPasteHandler = () => {
+      if (disposed) return;
+      const editor = editorRef.current?.view;
+      if (!editor) {
+        requestAnimationFrame(attachPasteHandler);
+        return;
+      }
+
+      const handlePaste = async (event: ClipboardEvent) => {
+        if (!event.clipboardData) return;
+
+        const htmlData = event.clipboardData.getData('text/html');
+        const plainText = event.clipboardData.getData('text/plain');
+        const files = Array.from(event.clipboardData.files || []);
+        const imageFiles = files.filter(file => file.type.startsWith('image/'));
+        const nonImageFiles = files.filter(file => !file.type.startsWith('image/'));
+
+        const editorState = useEditorStore.getState();
+        const targetTab = editorState.tabs.get(tabId);
+
+        const insertMarkdown = (markdown: string) => {
+          const activeEditor = editorRef.current?.view;
+          if (!activeEditor || !targetTab) return;
+
+          const { from, to } = activeEditor.state.selection.main;
+          activeEditor.dispatch({ changes: { from, to, insert: markdown } });
+          const newContent = activeEditor.state.doc.toString();
+          editorState.updateTab(tabId, {
+            content: newContent,
+            isDirty: newContent !== targetTab.originalContent,
+          });
+          activeEditor.focus();
+        };
+
+        if (htmlData) {
+          const markdownTable = convertHtmlTableToMarkdown(htmlData);
+          if (markdownTable) {
+            event.preventDefault();
+            insertMarkdown(markdownTable);
+            return;
+          }
+        }
+
+        if (plainText) {
+          const markdownTable = convertPlainTextTableToMarkdown(plainText);
+          if (markdownTable) {
+            event.preventDefault();
+            insertMarkdown(markdownTable);
+            return;
+          }
+        }
+
+        if (imageFiles.length > 0) {
+          event.preventDefault();
+
+          if (!targetTab) {
+            alert('画像を貼り付けできません。編集中のタブ情報を取得できませんでした。');
+            return;
+          }
+
+          const { rootDirHandle, setRootFileTree } = editorState;
+          if (!rootDirHandle) {
+            alert('画像を貼り付けるには、エクスプローラでフォルダを開いてください。');
+            return;
+          }
+
+          const workingDirectory = await resolveWorkingDirectory(targetTab, rootDirHandle);
+          if (!workingDirectory) {
+            alert('画像の保存先を特定できませんでした。保存済みのファイルを開いてから貼り付けてください。');
+            return;
+          }
+
+          const markdownLines: string[] = [];
+
+          for (const imageFile of imageFiles) {
+            const extension = getImageExtension(imageFile);
+            let baseName = imageFile.name || targetTab.name || 'pasted-image';
+            if (!baseName.trim()) {
+              baseName = 'pasted-image';
+            }
+
+            let fileName: string;
+            try {
+              fileName = await ensureUniqueFileName(workingDirectory, baseName, extension);
+            } catch (error) {
+              console.error('Failed to determine filename for pasted image:', error);
+              alert('画像ファイル名の生成に失敗しました。');
+              return;
+            }
+
+            try {
+              const fileHandle = await workingDirectory.getFileHandle(fileName, { create: true });
+              const writable = await fileHandle.createWritable();
+              await writable.write(imageFile);
+              await writable.close();
+              markdownLines.push(buildImageMarkdown(fileName, sanitizeBaseName(baseName)));
+            } catch (error) {
+              console.error('Failed to save pasted image:', error);
+              alert('画像の保存に失敗しました。');
+              return;
+            }
+          }
+
+          if (markdownLines.length > 0) {
+            insertMarkdown(markdownLines.join('\n'));
+
+            if (editorState.rootDirHandle && setRootFileTree) {
+              try {
+                const updatedTree = await readDirectoryContents(editorState.rootDirHandle);
+                setRootFileTree(updatedTree);
+              } catch (error) {
+                console.error('Failed to refresh file tree after image paste:', error);
+              }
+            }
+          }
+          return;
+        }
+
+        if (nonImageFiles.length > 0) {
+          // 他のコンポーネント側で処理できるように残す
+          return;
+        }
+      };
+
+      editor.contentDOM.addEventListener('paste', handlePaste);
+      cleanup = () => {
+        editor.contentDOM.removeEventListener('paste', handlePaste);
+      };
+    };
+
+    attachPasteHandler();
+
+    return () => {
+      disposed = true;
+      if (cleanup) {
+        cleanup();
+      }
+    };
+  }, [editorRef, tabId]);
   
   const { 
     insertHeading,
