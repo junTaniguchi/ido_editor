@@ -73,10 +73,31 @@ const MainLayout = () => {
 
   const togglePane = useCallback(
     (pane: keyof typeof paneState) => {
+      if (pane === 'isExplorerVisible' || pane === 'isGitVisible' || pane === 'activeSidebar') {
+        return;
+      }
       updatePaneState({ [pane]: !paneState[pane] });
     },
     [paneState, updatePaneState]
   );
+
+  const handleToggleExplorerPane = useCallback(() => {
+    const isActive = paneState.activeSidebar === 'explorer';
+    updatePaneState({
+      activeSidebar: isActive ? null : 'explorer',
+      isExplorerVisible: !isActive,
+      isGitVisible: false,
+    });
+  }, [paneState.activeSidebar, updatePaneState]);
+
+  const handleToggleGitPane = useCallback(() => {
+    const isActive = paneState.activeSidebar === 'git';
+    updatePaneState({
+      activeSidebar: isActive ? null : 'git',
+      isGitVisible: !isActive,
+      isExplorerVisible: false,
+    });
+  }, [paneState.activeSidebar, updatePaneState]);
 
   const handleDecreaseFont = useCallback(() => {
     updateEditorSettings({ fontSize: Math.max(10, editorSettings.fontSize - 1) });
@@ -329,7 +350,7 @@ const MainLayout = () => {
   return (
     <div className="flex flex-col h-screen bg-white text-gray-900 dark:bg-[#0f172a] dark:text-gray-100">
       <MainHeader
-        onToggleExplorer={() => togglePane('isExplorerVisible')}
+        onToggleExplorer={handleToggleExplorerPane}
         onDecreaseFont={handleDecreaseFont}
         onIncreaseFont={handleIncreaseFont}
         fontSize={editorSettings.fontSize}
@@ -340,6 +361,8 @@ const MainLayout = () => {
         multiFileAnalysisEnabled={multiFileAnalysisEnabled}
         onToggleMultiFileAnalysis={handleToggleMultiFile}
         selectedFileCount={selectedFiles.size}
+        onToggleGit={handleToggleGitPane}
+        isGitPaneVisible={paneState.activeSidebar === 'git'}
       />
 
       <TabBarDnD />

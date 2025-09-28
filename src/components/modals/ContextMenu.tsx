@@ -13,7 +13,8 @@ import {
   IoDocumentOutline,
   IoReloadOutline,
   IoArchiveOutline,
-  IoFolderOpenOutline
+  IoFolderOpenOutline,
+  IoGitCommitOutline,
 } from 'react-icons/io5';
 
 interface ContextMenuProps {
@@ -34,6 +35,8 @@ interface ContextMenuProps {
   onExtractTarGz?: () => void;
   onCompressZip?: () => void;
   onCompressTarGz?: () => void;
+  showGitHistory?: boolean;
+  onShowGitHistory?: () => void;
 }
 
 const ContextMenu: React.FC<ContextMenuProps> = ({ 
@@ -66,7 +69,9 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   onExtractZip,
   onExtractTarGz,
   onCompressZip,
-  onCompressTarGz
+  onCompressTarGz,
+  showGitHistory = false,
+  onShowGitHistory,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   
@@ -132,8 +137,10 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
 
   const showCreationActions = !isFile;
 
+  const showGitHistoryAction = Boolean(isFile && showGitHistory && onShowGitHistory);
+
   return (
-    <div 
+    <div
       ref={menuRef}
       className="fixed z-50 w-52 bg-white dark:bg-gray-800 shadow-lg rounded-md border border-gray-300 dark:border-gray-700 overflow-hidden"
       style={{ left: x, top: y }}
@@ -204,6 +211,20 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
         )}
 
         {hasArchiveActions && (
+          <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
+        )}
+
+        {showGitHistoryAction && (
+          <button
+            className="w-full px-4 py-2 text-left flex items-center hover:bg-gray-100 dark:hover:bg-gray-700"
+            onClick={() => onShowGitHistory && handleAction(onShowGitHistory)}
+          >
+            <IoGitCommitOutline className="mr-2" />
+            Git履歴を表示
+          </button>
+        )}
+
+        {showGitHistoryAction && (
           <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
         )}
 

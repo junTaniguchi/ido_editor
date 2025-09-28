@@ -17,6 +17,7 @@ import {
   IoCreateOutline, IoReloadOutline
 } from 'react-icons/io5';
 import { useEditorStore } from '@/store/editorStore';
+import { useGitStore } from '@/store/gitStore';
 import { 
   readFileContent, 
   readDirectoryContents, 
@@ -49,11 +50,11 @@ import type { MermaidDiagramType } from '@/lib/mermaid/types';
  * - ダイアログによる入力・確認
  */
 const FileExplorer = () => {
-  const { 
-    rootFileTree, 
-    rootDirHandle, 
+  const {
+    rootFileTree,
+    rootDirHandle,
     rootFolderName,
-    setRootDirHandle, 
+    setRootDirHandle,
     setRootFileTree, 
     setRootFolderName,
     addTab,
@@ -68,6 +69,11 @@ const FileExplorer = () => {
     addSelectedFile,
     removeSelectedFile
   } = useEditorStore();
+  const setGitRootDirectory = useGitStore((state) => state.setRootDirectory);
+  const { repoInitialized, getFileHistory } = useGitStore((state) => ({
+    repoInitialized: state.repoInitialized,
+    getFileHistory: state.getFileHistory,
+  }));
   
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [apiSupported, setApiSupported] = useState<boolean>(true);
@@ -104,6 +110,14 @@ const FileExplorer = () => {
       
       const fileTree = await readDirectoryContents(targetDirHandle);
       setRootFileTree(fileTree);
+      const gitState = useGitStore.getState();
+      if (gitState.fsAdapter) {
+        try {
+          await gitState.refreshRepository();
+        } catch (gitError) {
+          console.warn('Failed to refresh Git repository state:', gitError);
+        }
+      }
     } catch (error) {
       console.error('Failed to refresh directory contents:', error);
       alert(`フォルダの内容を更新できませんでした: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -123,6 +137,7 @@ const FileExplorer = () => {
       // @ts-ignore - TypeScriptの型定義エラーを無視
       const dirHandle = await window.showDirectoryPicker();
       setRootDirHandle(dirHandle);
+      await setGitRootDirectory(dirHandle);
       setRootFolderName(dirHandle.name);
       
       // フォルダ内容を読み込む
@@ -390,6 +405,55 @@ const FileExplorer = () => {
       alert(`圧縮に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
+
+  const handleShowGitHistory = useCallback(async () => {
+    if (!selectedItem || selectedItem.isDirectory || !selectedItem.path) {
+      return;
+    }
+    if (!repoInitialized) {
+      setShowContextMenu(false);
+      alert('Gitリポジトリが初期化されていません。');
+      return;
+    }
+
+    setShowContextMenu(false);
+
+    try {
+      const history = await getFileHistory(selectedItem.path);
+      const historyContent = JSON.stringify({
+        filePath: selectedItem.path,
+        fileName: selectedItem.name,
+        commits: history,
+      });
+      const tabId = `git-history:${selectedItem.path}`;
+      const tabName = `${selectedItem.name} の履歴`;
+      const existingTab = tabs.get(tabId);
+
+      if (existingTab) {
+        updateTab(tabId, {
+          content: historyContent,
+          originalContent: historyContent,
+          isDirty: false,
+          type: 'git-history',
+          isReadOnly: true,
+        });
+        setActiveTabId(tabId);
+      } else {
+        addTab({
+          id: tabId,
+          name: tabName,
+          content: historyContent,
+          originalContent: historyContent,
+          isDirty: false,
+          type: 'git-history',
+          isReadOnly: true,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to load Git history:', error);
+      alert(`コミット履歴の取得に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }, [addTab, getFileHistory, repoInitialized, selectedItem, setActiveTabId, tabs]);
   
   // 入力ダイアログの確認処理
   const handleInputConfirm = async (value: string) => {
@@ -743,6 +807,8 @@ const FileExplorer = () => {
           onExtractTarGz={() => handleExtractArchive('tar.gz')}
           onCompressZip={() => handleCompressArchive('zip')}
           onCompressTarGz={() => handleCompressArchive('tar.gz')}
+          showGitHistory={Boolean(repoInitialized && selectedItem && !selectedItem.isDirectory)}
+          onShowGitHistory={handleShowGitHistory}
         />
       )}
       
