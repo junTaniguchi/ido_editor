@@ -61,6 +61,7 @@ const FileExplorer = () => {
     addTempTab,
     activeTabId,
     setActiveTabId,
+  updateTab,
     tabs,
     setContextMenuTarget,
     contextMenuTarget,
@@ -70,10 +71,11 @@ const FileExplorer = () => {
     removeSelectedFile
   } = useEditorStore();
   const setGitRootDirectory = useGitStore((state) => state.setRootDirectory);
-  const { repoInitialized, getFileHistory } = useGitStore((state) => ({
-    repoInitialized: state.repoInitialized,
-    getFileHistory: state.getFileHistory,
-  }));
+  // Avoid returning an object literal from the selector which creates a new
+  // reference on each render and can cause infinite update loops. Select
+  // individual properties instead so selectors are stable.
+  const repoInitialized = useGitStore((state) => state.repoInitialized);
+  const getFileHistory = useGitStore((state) => state.getFileHistory);
   
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [apiSupported, setApiSupported] = useState<boolean>(true);
