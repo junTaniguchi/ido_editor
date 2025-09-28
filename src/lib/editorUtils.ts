@@ -138,9 +138,11 @@ export const getEditorExtensions = (
 /**
  * ファイルの種類を判定する
  */
-export const getFileType = (fileName: string): 'text' | 'markdown' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' | 'excel' => {
+export const getFileType = (
+  fileName: string,
+): 'text' | 'markdown' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' | 'excel' | 'ipynb' | 'pdf' => {
   const lowerFileName = fileName.toLowerCase();
-  
+
   if (lowerFileName.endsWith('.md') || lowerFileName.endsWith('.markdown')) {
     return 'markdown';
   } else if (lowerFileName.endsWith('.html') || lowerFileName.endsWith('.htm')) {
@@ -165,7 +167,9 @@ export const getFileType = (fileName: string): 'text' | 'markdown' | 'html' | 'j
     return 'ipynb';
   } else if (lowerFileName.endsWith('.pdf')) {
     return 'pdf';
+  } else if (lowerFileName.endsWith('.wkt')) {
+    return 'text';
   }
-  
+
   return 'text';
 };

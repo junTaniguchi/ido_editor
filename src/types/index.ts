@@ -124,41 +124,6 @@ export interface ChartSettings {
   }
 }
 
-export type MapAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'none';
-
-export type MapBasemap = 'osm-standard' | 'osm-humanitarian' | 'osm-germany' | 'osm-standard-oblique';
-
-export type MapBasemapOverlay = 'roads' | 'railways' | 'terrain';
-
-export type MapBasemapOverlayState = Record<MapBasemapOverlay, boolean>;
-
-export interface MapLayerSettings {
-  latitudeColumn?: string;
-  longitudeColumn?: string;
-  geoJsonColumn?: string;
-  wktColumn?: string;
-  pathColumn?: string;
-  polygonColumn?: string;
-  heightColumn?: string;
-  categoryColumn?: string;
-  colorColumn?: string;
-}
-
-export interface MapSettings {
-  /**
-   * @deprecated 以前の単一データソース選択用のフィールド。activeDataSourceIds を使用してください。
-   */
-  dataSource?: string;
-  activeDataSourceIds: string[];
-  layerSettings: Record<string, MapLayerSettings>;
-  aggregation: MapAggregation;
-  pointRadius: number;
-  columnRadius: number;
-  elevationScale: number;
-  basemap: MapBasemap;
-  basemapOverlays: MapBasemapOverlayState;
-}
-
 // SQLノートブックセルに関する型定義
 export interface SqlNotebookCell {
   id: string;
