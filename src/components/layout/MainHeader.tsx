@@ -56,7 +56,7 @@ const MainHeader: React.FC<MainHeaderProps> = ({
       >
         <IoMenu size={24} />
       </button>
-      <h1 className="text-xl font-semibold flex-1">高機能エディタ</h1>
+      <h1 className="text-xl font-semibold flex-1">DataLoom Studio</h1>
       <div className="ml-2 flex items-center">
         <label htmlFor="font-size-controls" className="text-xs mr-1">フォントサイズ</label>
         <button
