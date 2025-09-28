@@ -1,155 +1,106 @@
-# IDO Editor アーキテクチャ設計
+# DataLoom Studio アーキテクチャ設計
 
 ## 🏗️ 全体アーキテクチャ
 
-IDO Editor は Next.js + React をベースとした現代的なWebアプリケーションアーキテクチャを採用しています。
+DataLoom Studio は Next.js 15 + React 19 をベースとしたクライアントファースト構成です。Electron 版も同じ Next.js ビルドを取り込み、ブラウザとデスクトップで共通の UI/ロジックを再利用します。
 
 ### 設計原則
-
-1. **コンポーネント志向** - 機能ごとの独立コンポーネント設計
-2. **型安全性** - TypeScript による厳密な型チェック
-3. **状態管理の最適化** - Zustand による軽量状態管理
-4. **パフォーマンス重視** - 動的インポートと最適化
-5. **拡張性** - プラガブルな機能追加アーキテクチャ
+1. **モジュラー設計** – エディタ、プレビュー、分析、Git などの機能を独立したモジュールとして構成
+2. **型安全性** – TypeScript と型付きユーティリティによる堅牢な開発体験
+3. **ローカルファースト** – File System Access API と isomorphic-git でブラウザ内完結の操作を実現
+4. **漸進的ロード** – dynamic import と遅延初期化により重い依存関係を必要時にロード
+5. **LLM フレンドリー** – `llms.txt` / `llms-full.txt` により自動ドキュメント化と AI 連携を最適化
 
 ## 📱 レイヤー構造
-
 ```
 ┌─────────────────────────────────────┐
 │             Presentation            │
-│         (React Components)          │
+│   (React Components / Tailwind UI)  │
 ├─────────────────────────────────────┤
-│              Business               │
-│           (Custom Hooks)            │
+│        Interaction & Business       │
+│ (Custom Hooks, Zustand Selectors)   │
 ├─────────────────────────────────────┤
-│              Service                │
-│          (Utility Functions)        │
+│           Service Utilities         │
+│ (ファイルI/O, 変換, 分析, Git)        │
 ├─────────────────────────────────────┤
-│               Data                  │
-│        (Zustand Store + APIs)       │
+│         Persistence & Platform      │
+│ (Zustand Store, File System API)    │
 └─────────────────────────────────────┘
 ```
 
-### Presentation Layer
-- **React Components**: UI表示とユーザーインタラクション
-- **Layout Components**: レイアウト管理とページ構成
-- **Feature Components**: 各機能固有のコンポーネント
-
-### Business Layer
-- **Custom Hooks**: ビジネスロジックの抽象化
-- **State Management**: アプリケーション状態の管理
-
-### Service Layer
-- **Utility Functions**: 再利用可能な処理ロジック
-- **Data Processing**: ファイル処理・変換・分析
-
-### Data Layer
-- **Zustand Store**: 集中化された状態管理
-- **File System APIs**: ブラウザファイルシステムアクセス
+- **Presentation**: `src/components/**` 配下の UI。Tailwind CSS と Headless なコンポーネントで構築。
+- **Interaction & Business**: `src/store/` や `src/hooks/`（store 内）で定義した Zustand ストアとカスタムフック。
+- **Service Utilities**: `src/lib/` のユーティリティ群（ファイル操作、データ変換、Mermaid レンダリング、Git 操作など）。
+- **Persistence & Platform**: File System Access API、IndexedDB ベースの Zustand persist、Electron ブリッジ。
 
 ## 🔄 データフロー
-
 ```mermaid
 graph TD
-    A[User Interaction] --> B[React Component]
-    B --> C[Custom Hook]
-    C --> D[Zustand Store]
-    C --> E[Utility Function]
-    E --> F[File System API]
-    F --> E
-    E --> C
-    D --> C
-    C --> B
-    B --> G[UI Update]
+    U[User Interaction] --> C[React Component]
+    C --> H[Custom Hook]
+    H --> S[Zustand Store]
+    H --> L[Utility Function]
+    L --> FS[File System Access / Git / Data Parsers]
+    FS --> L
+    S --> H
+    H --> C
+    C --> UI[UI Update]
 ```
 
-## 📂 ディレクトリ構造設計
+- エクスプローラの選択は Zustand ストアに保存され、プレビュー/分析コンポーネントが購読します。
+- データファイルはユーティリティ層でパースされ、必要に応じて Web Worker 互換の非同期処理を実行します（現在はメインスレッド、Worker 化を拡張予定）。
+- SQL 実行は AlasQL、統計計算は jStat、グラフ描画は Chart.js / Plotly / React Force Graph を利用します。
 
-### コンポーネント組織
+## 📂 ディレクトリ構成
 ```
-src/components/
-├── analysis/          # データ分析機能
-├── editor/           # テキストエディタ
-├── explorer/         # ファイルエクスプローラ
-├── layout/           # レイアウト管理
-├── markdown/         # マークダウン機能
-├── modals/           # モーダルダイアログ
-├── preview/          # ファイルプレビュー
-├── search/           # 検索・置換
-└── tabs/             # タブ管理
+src/
+├── app/                 # Next.js App Router エントリ
+├── components/
+│   ├── analysis/        # 単一・複数ファイル分析 UI
+│   ├── editor/          # CodeMirror エディタ
+│   ├── explorer/        # ファイルツリーとハンドリング
+│   ├── git/             # Git パネル
+│   ├── layout/          # レイアウト/ヘッダー/パンくず
+│   ├── markdown/        # Markdown プレビュー
+│   ├── mermaid/         # Mermaid GUI・レンダリング
+│   ├── modals/          # 共通モーダル
+│   ├── preview/         # データ/Notebook/PDF プレビュー
+│   ├── search/          # 全体検索パネル
+│   ├── tabs/            # タブ管理コンポーネント
+│   └── theme/           # テーマ制御
+├── lib/
+│   ├── dataAnalysisUtils.ts
+│   ├── dataFormatUtils.ts
+│   ├── dataPreviewUtils.ts
+│   ├── editorUtils.ts
+│   ├── fileSystemUtils.ts
+│   ├── git/
+│   └── mermaid/
+└── store/
+    └── editorStore.ts   # Zustand ストアと永続化設定
 ```
 
-### ライブラリ組織
-```
-src/lib/
-├── dataAnalysisUtils.ts    # データ分析処理
-├── dataPreviewUtils.ts     # プレビュー処理
-├── editorUtils.ts          # エディタ処理
-├── fileSystemUtils.ts      # ファイルシステム
-└── tocUtils.ts             # 目次生成
-```
-
-## 🔧 技術アーキテクチャ
-
-### フロントエンド
-- **Next.js 15.4.5**: React Serverフレームワーク
-- **React 19**: 宣言的UI構築
-- **TypeScript 5.0+**: 型安全開発
-- **Tailwind CSS**: ユーティリティファーストCSS
-
-### 状態管理
-- **Zustand**: 軽量状態管理ライブラリ
-- **React Query**: サーバー状態管理（将来拡張用）
-
-### データ処理
-- **AlasSQL**: ブラウザ内SQL実行
-- **jStat**: 統計計算
-- **PapaParse**: CSV/TSVパース
-- **Apache Arrow**: Parquetデータ処理
-
-### 可視化
-- **Plotly.js**: インタラクティブグラフ
-- **Chart.js**: 基本チャート描画
-- **Mermaid**: ダイアグラム描画
-- **React Force Graph**: ネットワーク図
+## 🔧 技術スタック
+- **UI**: Next.js 15.4 / React 19 / TypeScript 5 / Tailwind CSS 4
+- **エディタ**: CodeMirror 6 + @uiw/react-codemirror 拡張
+- **状態管理**: Zustand（persist + immer）、Electron 版では IPC を通じて同期
+- **データ処理**: AlasQL、PapaParse、Apache Arrow、xlsx、js-yaml
+- **可視化**: Chart.js、Plotly.js、Mermaid、React Flow、React Force Graph
+- **ファイル I/O**: File System Access API、fflate（Zip/Tar.gz）、isomorphic-git
 
 ## 🚀 パフォーマンス最適化
+- 分析系モジュールや Plotly は dynamic import で遅延ロード
+- テーブル表示はページネーションと列表示制御でメモリ負荷を抑制
+- Zustand セレクターで必要な slice のみ購読し再レンダリングを抑制
+- Mermaid/Plotly 初期化は 1 度のみ行い、後続はキャッシュしたインスタンスを再利用
 
-### コンポーネント最適化
-- **React.memo**: 不要な再レンダリング防止
-- **useMemo/useCallback**: 重い計算処理のキャッシュ
-- **動的インポート**: 必要時のみモジュール読み込み
+## 🔐 セキュリティ
+- File System Access API による明示的なユーザー許可が必須
+- ローカル処理を徹底し、データは外部サーバーへ送信しない
+- Electron 版では `contextIsolation` 有効、IPC は限定的なチャネルに制限
 
-### データ処理最適化
-- **Web Workers**: バックグラウンド処理（将来拡張）
-- **仮想化**: 大容量データテーブル表示
-- **ページネーション**: メモリ使用量制限
-
-### ビルド最適化
-- **Tree Shaking**: 不要コードの除去
-- **Code Splitting**: チャンク分割による初期読み込み高速化
-- **バンドルサイズ最適化**: Next.js 最適化機能活用
-
-## 🔐 セキュリティ設計
-
-### データ保護
-- **ローカル処理**: データはブラウザ内で処理、外部送信なし
-- **File System Access API**: セキュアなファイルアクセス
-- **型安全性**: TypeScriptによるランタイムエラー防止
-
-### アクセス制御
-- **ブラウザ権限**: ユーザー明示的許可によるファイルアクセス
-- **HTTPS必須**: File System Access API セキュリティ要件
-
-## 📈 拡張性設計
-
-### プラガブルアーキテクチャ
-- **モジュラー設計**: 機能ごとの独立したコンポーネント
-- **設定ベース**: JSON設定による機能カスタマイズ
-- **フック型拡張**: Custom Hooks による機能拡張
-
-### 将来拡張予定
-- **プラグインシステム**: サードパーティ機能統合
-- **テーマシステム**: カスタムテーマ対応
-- **言語国際化**: i18n対応
-- **PWA化**: オフライン機能とアプリ化
+## 📈 将来拡張
+- データ処理の Web Worker 化と進行状況 UI
+- Cypher 実行エンジンの統合とグラフデータベース接続
+- カスタムテンプレート/レポートエクスポートの追加
+- i18n 対応とモジュラーなテーマ切替

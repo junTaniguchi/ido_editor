@@ -16,8 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "IDO Editor",
-  description: "ブラウザとElectronで利用できるドキュメント編集・プレビューアプリケーション",
+  title: "DataLoom Studio",
+  description: "ブラウザとElectronで動作するデータ分析&ドキュメント統合ワークスペース",
   icons: {
     icon: [
       { url: "/favicon.svg", type: "image/svg+xml" },
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
     shortcut: "/favicon.svg",
     apple: "/favicon.svg",
   },
-  applicationName: "IDO Editor",
+  applicationName: "DataLoom Studio",
 };
 
 export default async function RootLayout({
@@ -34,7 +34,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const cookieStore = await cookies();
-  const cookieTheme = cookieStore.get('ido-theme')?.value;
+  const cookieTheme = cookieStore.get('dataloom-theme')?.value;
   const initialTheme = cookieTheme === 'dark' ? 'dark' : 'light';
 
   return (
@@ -47,7 +47,7 @@ export default async function RootLayout({
           {`
           (function(){
             try {
-              var cookieMatch = document.cookie.match(/(?:^|; )ido-theme=([^;]+)/);
+              var cookieMatch = document.cookie.match(/(?:^|; )dataloom-theme=([^;]+)/);
               if (cookieMatch) {
                 var themeFromCookie = decodeURIComponent(cookieMatch[1]);
                 if (themeFromCookie === 'dark') {

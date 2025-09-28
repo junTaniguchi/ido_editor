@@ -1,434 +1,61 @@
-# API Reference - ユーティリティ関数仕様
-
-## 📚 概要
-
-IDO Editor のコア機能を支える各種ユーティリティ関数の詳細API仕様です。
-
-## 🗂️ ファイルシステム関数
-
-### fileSystemUtils.ts
-
-#### `openDirectory(): Promise<FileSystemDirectoryHandle>`
-ディレクトリ選択ダイアログを開き、選択されたディレクトリハンドルを取得。
-
-```typescript
-const dirHandle = await openDirectory();
-console.log(dirHandle.name); // ディレクトリ名
-```
-
-#### `buildFileTree(dirHandle: FileSystemDirectoryHandle): Promise<FileTree>`
-ディレクトリハンドルから階層ファイルツリー構造を構築。
-
-```typescript
-interface FileTree {
-  name: string;
-  kind: 'file' | 'directory';
-  children?: FileTree[];
-  handle?: FileSystemFileHandle | FileSystemDirectoryHandle;
-}
-
-const fileTree = await buildFileTree(dirHandle);
-```
-
-#### `readFileContent(fileHandle: FileSystemFileHandle): Promise<string>`
-ファイルハンドルからテキストコンテンツを読み取り。
-
-```typescript
-const content = await readFileContent(fileHandle);
-```
-
-#### `writeFileContent(fileHandle: FileSystemFileHandle, content: string): Promise<void>`
-ファイルハンドルにテキストコンテンツを書き込み。
-
-```typescript
-await writeFileContent(fileHandle, "新しいコンテンツ");
-```
-
-#### `searchInFiles(dirHandle: FileSystemDirectoryHandle, searchConfig: SearchConfig): Promise<SearchResult[]>`
-ディレクトリ内ファイルの全文検索。
-
-```typescript
-interface SearchConfig {
-  query: string;
-  caseSensitive: boolean;
-  useRegex: boolean;
-  includePattern: string;
-  excludePattern: string;
-}
-
-interface SearchResult {
-  filePath: string;
-  lineNumber: number;
-  lineContent: string;
-  matchIndex: number;
-}
-
-const results = await searchInFiles(dirHandle, searchConfig);
-```
-
-#### `replaceInFiles(dirHandle: FileSystemDirectoryHandle, replaceConfig: ReplaceConfig): Promise<ReplaceResult[]>`
-ディレクトリ内ファイルの一括置換。
-
-```typescript
-interface ReplaceConfig extends SearchConfig {
-  replacement: string;
-}
-
-interface ReplaceResult {
-  filePath: string;
-  replacementCount: number;
-  success: boolean;
-}
-
-const results = await replaceInFiles(dirHandle, replaceConfig);
-```
-
-## 📊 データプレビュー関数
-
-### dataPreviewUtils.ts
-
-#### `parseCSV(content: string): Promise<any[]>`
-CSV文字列をJavaScriptオブジェクト配列に変換。
-
-```typescript
-const csvData = await parseCSV(csvContent);
-// => [{ col1: "value1", col2: "value2" }, ...]
-```
-
-#### `parseTSV(content: string): Promise<any[]>`  
-TSV文字列をJavaScriptオブジェクト配列に変換。
-
-```typescript
-const tsvData = await parseTSV(tsvContent);
-```
-
-#### `parseJSON(content: string): any`
-JSON文字列を安全にパース（エラーハンドリング付き）。
-
-```typescript
-const jsonData = parseJSON(jsonContent);
-```
-
-#### `parseYAML(content: string): any`
-YAML文字列をJavaScriptオブジェクトに変換。
-
-```typescript
-const yamlData = parseYAML(yamlContent);
-```
-
-#### `parseExcel(file: File, options: ExcelParseOptions): Promise<any[]>`
-Excelファイルを解析し、指定シートのデータを取得。
-
-```typescript
-interface ExcelParseOptions {
-  sheetName?: string;
-  startRow?: number;
-  startCol?: number;
-  endRow?: number;
-  endCol?: number;
-}
-
-const excelData = await parseExcel(excelFile, {
-  sheetName: "Sheet1",
-  startRow: 1
-});
-```
-
-#### `parseParquet(file: File): Promise<any[]>`
-Parquetファイルを解析（簡易対応）。
-
-```typescript
-const parquetData = await parseParquet(parquetFile);
-```
-
-#### `detectFileType(fileName: string, content: string): string`
-ファイル名と内容からファイルタイプを推定。
-
-```typescript
-const fileType = detectFileType("data.csv", content);
-// => "csv"
-```
-
-## 📈 データ分析関数
-
-### dataAnalysisUtils.ts
-
-#### `executeSQL(data: any[], query: string): Promise<any[]>`
-AlasQLエンジンでSQLクエリを実行。
-
-```typescript
-const results = await executeSQL(data, "SELECT * FROM ? WHERE age > 25");
-```
-
-#### `calculateStatistics(data: any[]): StatsSummary`
-データの統計情報を計算（pandas.describe()相当）。
-
-```typescript
-interface StatsSummary {
-  [column: string]: {
-    count: number;
-    mean?: number;
-    std?: number;
-    min?: number;
-    '25%'?: number;
-    '50%'?: number;
-    '75%'?: number;
-    max?: number;
-  };
-}
-
-const stats = calculateStatistics(data);
-```
-
-#### `getColumnInfo(data: any[]): ColumnInfo`
-各カラムの型・サンプル値・統計情報を分析。
-
-```typescript
-interface ColumnInfo {
-  [column: string]: {
-    type: string;
-    nonNullCount: number;
-    maxLength?: number;
-    sample: any[];
-  };
-}
-
-const columnInfo = getColumnInfo(data);
-```
-
-#### `prepareChartData(data: any[], settings: ChartSettings): ChartData`
-グラフ描画用データを準備・集計。
-
-```typescript
-interface ChartSettings {
-  chartType: 'bar' | 'line' | 'pie' | 'scatter' | 'stacked' | 'regression' | 'histogram';
-  xAxis: string;
-  yAxis: string;
-  groupBy?: string;
-  aggregation: 'sum' | 'avg' | 'count' | 'min' | 'max';
-}
-
-interface ChartData {
-  labels: string[];
-  datasets: {
-    label: string;
-    data: number[];
-    backgroundColor?: string[];
-    borderColor?: string;
-  }[];
-}
-
-const chartData = prepareChartData(data, settings);
-```
-
-#### `performRegression(xData: number[], yData: number[]): RegressionResult`
-線形回帰分析を実行。
-
-```typescript
-interface RegressionResult {
-  slope: number;
-  intercept: number;
-  rSquared: number;
-  equation: string;
-  predictions: number[];
-}
-
-const regression = performRegression([1,2,3,4], [2,4,6,8]);
-```
-
-#### `unionFiles(files: FileData[]): any[]`
-複数ファイルをUNION結合。
-
-```typescript
-interface FileData {
-  name: string;
-  data: any[];
-}
-
-const unionData = unionFiles([file1Data, file2Data]);
-```
-
-#### `intersectionFiles(files: FileData[]): any[]`
-複数ファイルのINTERSECTION結合。
-
-```typescript
-const intersectionData = intersectionFiles([file1Data, file2Data]);
-```
-
-#### `joinFiles(files: FileData[], joinKey: string, joinType: JoinType): any[]`
-複数ファイルをJOIN結合。
-
-```typescript
-type JoinType = 'inner' | 'left' | 'right' | 'full';
-
-const joinedData = joinFiles([file1Data, file2Data], 'id', 'inner');
-```
-
-## ✏️ エディタ関数
-
-### editorUtils.ts
-
-#### `getLanguageFromFileName(fileName: string): string`
-ファイル名から言語タイプを推定。
-
-```typescript
-const language = getLanguageFromFileName("script.py");
-// => "python"
-```
-
-#### `getThemeFromSettings(settings: EditorSettings): Extension`
-設定からCodeMirrorテーマ拡張を取得。
-
-```typescript
-interface EditorSettings {
-  theme: 'light' | 'dark';
-  fontSize: number;
-  wordWrap: boolean;
-  lineNumbers: boolean;
-}
-
-const themeExtension = getThemeFromSettings(settings);
-```
-
-#### `createLanguageExtension(language: string): Extension`
-指定言語のCodeMirror拡張を作成。
-
-```typescript
-const jsExtension = createLanguageExtension('javascript');
-```
-
-#### `formatCode(code: string, language: string): string`
-コードフォーマッター（基本実装）。
-
-```typescript
-const formattedCode = formatCode(rawCode, 'javascript');
-```
-
-## 📚 目次生成関数
-
-### tocUtils.ts
-
-#### `generateTOC(markdownContent: string): TOCItem[]`
-マークダウンコンテンツから目次を生成。
-
-```typescript
-interface TOCItem {
-  id: string;
-  title: string;
-  level: number; // 1-6 (h1-h6)
-  children?: TOCItem[];
-}
-
-const toc = generateTOC(markdownContent);
-```
-
-#### `createTOCTree(items: TOCItem[]): TOCItem[]`
-フラットなTOCアイテムを階層ツリー構造に変換。
-
-```typescript
-const tocTree = createTOCTree(flatTocItems);
-```
-
-## 🔧 データフォーマット関数
-
-### dataFormatUtils.ts
-
-#### `convertToCSV(data: any[]): string`
-JavaScript配列をCSV形式に変換。
-
-```typescript
-const csvString = convertToCSV(data);
-```
-
-#### `convertToJSON(data: any[]): string`
-データをJSON形式に変換（整形済み）。
-
-```typescript
-const jsonString = convertToJSON(data);
-```
-
-#### `convertToYAML(data: any[]): string`
-データをYAML形式に変換。
-
-```typescript
-const yamlString = convertToYAML(data);
-```
-
-#### `downloadAsFile(content: string, fileName: string, mimeType: string): void`
-コンテンツをファイルとしてダウンロード。
-
-```typescript
-downloadAsFile(csvContent, "export.csv", "text/csv");
-```
-
-## 🚨 エラーハンドリング
-
-### 共通エラータイプ
-```typescript
-interface APIError {
-  code: string;
-  message: string;
-  details?: any;
-}
-
-// 使用例
-try {
-  const result = await executeSQL(data, query);
-} catch (error: APIError) {
-  console.error(`SQL Error [${error.code}]: ${error.message}`);
-}
-```
-
-### エラーコード一覧
-- `FILE_READ_ERROR`: ファイル読み込み失敗
-- `FILE_WRITE_ERROR`: ファイル書き込み失敗
-- `PARSE_ERROR`: データ解析失敗
-- `SQL_EXECUTION_ERROR`: SQLクエリ実行失敗  
-- `CHART_RENDER_ERROR`: グラフ描画失敗
-- `PERMISSION_ERROR`: ファイルアクセス権限不足
-
-## 🔄 非同期処理のベストプラクティス
-
-### Promise チェーン
-```typescript
-// 推奨
-await readFileContent(fileHandle)
-  .then(content => parseCSV(content))
-  .then(data => calculateStatistics(data))
-  .catch(error => handleError(error));
-```
-
-### エラーハンドリング付きasync/await
-```typescript
-try {
-  const content = await readFileContent(fileHandle);
-  const data = await parseCSV(content);
-  const stats = calculateStatistics(data);
-  return stats;
-} catch (error) {
-  console.error('処理エラー:', error);
-  throw new APIError('DATA_PROCESSING_ERROR', '処理中にエラーが発生しました');
-}
-```
-
-## 🧪 テスト例
-
-### ユニットテスト例
-```typescript
-// Jest テスト例
-describe('dataAnalysisUtils', () => {
-  test('calculateStatistics should return correct stats', () => {
-    const testData = [
-      { age: 25, salary: 50000 },
-      { age: 30, salary: 60000 },
-      { age: 35, salary: 70000 }
-    ];
-    
-    const stats = calculateStatistics(testData);
-    expect(stats.age.mean).toBe(30);
-    expect(stats.age.count).toBe(3);
-  });
-});
-```
-
-この API リファレンスにより、開発者は IDO Editor の各ユーティリティ関数を効率的に活用し、新機能の開発やカスタマイズを行うことができます。
+# API リファレンス（ユーティリティ概要）
+
+DataLoom Studio のユーティリティ層は、ファイル I/O・データ変換・分析・Git 操作・Mermaid レンダリングを支える関数群で構成されています。ここでは主要モジュールと代表的なエクスポートを整理します。
+
+## 🗂️ `src/lib/fileSystemUtils.ts`
+| 関数 | 役割 |
+| ---- | ---- |
+| `readDirectoryContents(dirHandle)` | File System Access API でフォルダ階層を再帰的に走査し、`FileTreeItem` を構築 |
+| `findFileHandleByPath(tree, path)` | 読み込んだツリーから指定パスの `FileSystemFileHandle` を取得 |
+| `readFileContent(fileHandle)` | テキスト/Excel/Parquet を判定しつつ内容を取得（Excel はプレースホルダーを返す） |
+| `readExcelFileContent(fileHandle)` | Excel ファイルを ArrayBuffer で読み込み、プレビュー/分析ユーティリティに委譲 |
+| `writeFileContent(fileHandle, content)` | File System Access API を利用してテキストを書き込み |
+| `createNewFile(dirHandle, name)` / `createNewDirectory(dirHandle, name)` | 新規ファイル/ディレクトリを生成 |
+| `renameFile(dirHandle, oldPath, newPath)` / `renameDirectory(...)` | ツリーを維持したままリネーム |
+| `deleteFile(fileHandle)` / `deleteDirectory(dirHandle)` | アイテムを削除（ディレクトリは再帰削除） |
+| `extractZipArchive(fileHandle, target)` / `extractTarGzArchive(...)` | Zip/Tar.gz アーカイブを展開し必要に応じてサブディレクトリを作成 |
+| `compressToZip(entries)` / `compressToTarGz(entries)` | 選択ファイルを圧縮し Uint8Array を返却 |
+| `searchInDirectory(dirHandle, keyword, options)` | include/exclude/regex 対応の全文検索。結果は `SearchResult[]` |
+| `replaceInFile(fileHandle, config)` | 正規表現対応の置換を実行し、ヒット数と成功可否を返す |
+| `getFileExtension(name)` / `getMimeType(name)` | ファイル種別推定（プレビューの分岐に利用） |
+
+## 📄 `src/lib/dataPreviewUtils.ts`
+| 関数 | 役割 |
+| ---- | ---- |
+| `detectFileType(name, content?)` | 文字列/バイナリからファイルタイプを推定（csv/json/yaml/ipynb/pdf 等） |
+| `parseCsvLike(content, delimiter)` | CSV/TSV を共通処理で解析し配列を返す |
+| `parseJson(content)` / `parseYaml(content)` | JSON/YAML をパースし、エラー時はスタック情報付きで例外を投げる |
+| `loadExcelFromArrayBuffer(buffer, options)` | `xlsx` を利用し任意シート・範囲を抽出 |
+| `loadNotebookFromFile(file)` | `.ipynb` を JSON として読み込み、セル情報を正規化 |
+| `readPdfFirstPage(file)` | PDF.js 用に ArrayBuffer を返却 |
+| `preparePreviewData(fileHandle, options)` | ファイルハンドルを受け取り、プレビュー用の標準化データを返すハイレベル関数 |
+
+## 📊 `src/lib/dataAnalysisUtils.ts`
+| 関数 | 役割 |
+| ---- | ---- |
+| `executeQuery(data, query, enableNestedAccess)` | AlasQL を実行し結果配列を返す（ネストアクセス用のビューも生成） |
+| `executeMultiFileQueryAnalysis(datasets, query, options)` | 複数ファイルモードの統合クエリを処理し、結果セット・統計・チャート設定を返却 |
+| `calculateStatistics(data)` | jStat を用いて平均/分散/四分位/欠損数などを算出 |
+| `calculateInfo(data)` | 各列の型推定とサンプル値を抽出 |
+| `aggregateData(data, grouping, aggregations)` | UI で定義した集計設定からグループ化/集約を実行 |
+| `prepareChartData(config)` | 棒/折れ線/散布/ヒストグラム/ガント等に必要なデータとレイアウトを生成 |
+| `calculateRegressionLine(points, type)` | 回帰分析（線形/指数/対数/二次）を計算しチャートに重ねるデータを返す |
+| `combineMultipleFiles(files, mode)` | UNION / INTERSECTION / JOIN 設定を適用し統合データを生成 |
+| `convertDataToFormat(data, format, options)` | CSV/TSV/JSON/YAML/Excel/Parquet テキストへの変換 |
+| `downloadData(blob, filename)` | ブラウザダウンロードをトリガー（エクスポート UI で使用） |
+
+## 🔐 `src/lib/git/fileSystemAccessFs.ts`
+- File System Access API を isomorphic-git が扱えるようにラップした `FileSystemAccessFs` クラスを提供
+- 読み書き/ディレクトリ列挙/メタ情報取得を isomorphic-git の FS インターフェースに合わせて実装
+
+## 🪄 `src/lib/mermaid/*`
+- `initMermaid`：Mermaid v11 を遅延ロードしつつグローバル設定（テーマ/フォント/シーケンス図設定）を適用
+- `renderMermaidDiagram`：SVG を生成し、エラー時は再試行ロジックを含む
+- `exportMermaidDiagram`：PNG/SVG/クリップボードコピーのエクスポートを司る
+
+## 📦 その他の補助
+- `src/lib/editorUtils.ts`：CodeMirror 拡張セットの生成、言語判定、差分ハイライト
+- `src/lib/dataFormatUtils.ts`：日付推定、ネスト解除、Excel レンジ正規化など分析前処理
+- `src/lib/tocUtils.ts`：Markdown から見出し情報を抽出しプレビューの目次に供給
+
+これらのユーティリティはすべて TypeScript で記述され、Zustand ストアや UI コンポーネントから直接呼び出されます。詳細なシグネチャはソースコードを参照してください。

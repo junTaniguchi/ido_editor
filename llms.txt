@@ -1,43 +1,36 @@
-# IDO Editor - 高機能データ分析エディタ
+# DataLoom Studio - 高機能データ分析ワークスペース
 
-> ReactとNext.jsを使用して構築された高機能エディタアプリケーション。Zustandによる状態管理、CodeMirrorベースのテキスト編集、Excel/Wordエクスポート、複数データ形式のプレビュー、強力なデータ分析機能を備えたモダンなWebアプリケーション。
+> Next.js 15 / React 19 / TypeScript をベースに、Zustand と CodeMirror 6 を組み合わせたローカルファーストな編集・プレビュー・分析ツール。File System Access API でローカルファイルを直接操作し、Markdown / データ / Notebook のプレビューや単一・複数ファイル分析、Git 連携までブラウザで完結します。
 
 ## 主要技術スタック
+- **Next.js 15.4.5**（App Router）
+- **React 19** + **TypeScript 5**
+- **Zustand**（persist 付き）
+- **CodeMirror 6** / **@uiw/react-codemirror**
+- **Tailwind CSS v4**
+- **AlasQL**, **jStat**, **PapaParse**, **xlsx**, **Apache Arrow**
+- **Plotly.js**, **Chart.js**, **Mermaid**, **React Flow**, **React Force Graph**
+- **isomorphic-git**（Git パネル）、**Electron**（デスクトップ版）
 
-- **Next.js 15.4.5** - React Serverフレームワーク
-- **React 19** - UIライブラリ
-- **TypeScript 5.0+** - 型安全JavaScript
-- **Zustand** - 軽量状態管理
-- **CodeMirror 6** - 高性能テキストエディタ
-- **Tailwind CSS** - ユーティリティファーストCSS
-- **AlasSQL** - ブラウザ内SQL実行エンジン
-- **Plotly.js** - インタラクティブグラフライブラリ
+## クイックリンク
+- [README](./README.md) – 概要・クイックスタート
+- [docs/README.md](./docs/README.md) – ドキュメント入口
+- [docs/mygpt-knowledge.md](./docs/mygpt-knowledge.md) – マイGPT 向け要約
+- [docs/features/README.md](./docs/features/README.md) – 機能仕様
+- [docs/data-analysis.md](./docs/data-analysis.md) – 分析機能詳細
+- [docs/api-reference.md](./docs/api-reference.md) – ユーティリティ API
 
-## ドキュメントナビゲーション
+## 機能ハイライト
+- マルチタブ編集、モード切替（エディタ/プレビュー/分割）、ダークテーマ
+- Markdown プレビュー＋Mermaid GUI、Word (.docx) エクスポート
+- CSV/TSV/JSON/YAML/Excel/Parquet/Notebook/PDF プレビューとエクスポート
+- 単一/複数ファイル分析、SQL ノートブック、Plotly/Chart.js のチャート、関係グラフ表示
+- File System Access API ベースのエクスプローラ、Zip/Tar.gz 圧縮・解凍
+- isomorphic-git によるステージング/コミット/履歴表示とリポジトリクローン
 
-### コアドキュメント
-- [アーキテクチャ概要](/docs/architecture.md) - アプリケーション全体のアーキテクチャと設計思想
-- [API リファレンス](/docs/api-reference.md) - 内部API、ユーティリティ関数、型定義の詳細
-- [コンポーネント構造](/docs/component-structure.md) - React コンポーネントの階層と責務
-- [開発ガイド](/docs/development-guide.md) - 開発環境セットアップ、ビルド、デプロイ手順
+## 互換性・制限
+- File System Access API は Chromium 系ブラウザのみサポート（Firefox/Safari は未対応）
+- Parquet はテキスト変換による簡易解析
+- Cypher 入力欄はプレースホルダー（実行は未実装）
 
-### 機能別ドキュメント
-- [データ分析機能](/docs/data-analysis.md) - SQL実行、統計分析、グラフ作成、回帰分析の詳細
-- [シーケンス図集](/docs/sequence-diagrams/) - 各機能の処理フロー可視化
-
-### 技術仕様
-- **エディタ機能**: マルチタブエディタ、50+プログラミング言語対応、ダークモード
-- **データプレビュー**: CSV/TSV/JSON/YAML/Excel/Parquet/Jupyter Notebook/PDF対応
-- **データ分析**: 8種類のグラフ、5種類の回帰分析、SQL実行、統計情報表示
-- **マークダウン**: リアルタイムプレビュー、Mermaidダイアグラム、Word出力
-- **検索・置換**: 正規表現対応、一括置換、ファイルパターンフィルタ
-
-### 高度な機能
-- **File System Access API** - 直接ファイルシステムアクセス
-- **自前実装回帰分析** - 線形代数・ガウス消去法による5種類の回帰計算
-- **Cypherクエリ** - グラフデータベース機能
-- **複数ファイル分析** - UNION/INTERSECTION/JOIN結合
-
-## LLMフレンドリーな完全ドキュメント
-
-詳細な技術文書、実装ガイド、APIリファレンスについては [llms-full.txt](/llms-full.txt) をご参照ください。
+詳細な設計・実装ガイドは [llms-full.txt](./llms-full.txt) を参照してください。

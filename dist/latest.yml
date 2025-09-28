@@ -1,8 +1,8 @@
 version: 0.1.0
 files:
-  - url: IDO-Editor-Setup-0.1.0.exe
+  - url: DataLoom-Studio-Setup-0.1.0.exe
     sha512: tMk+qYT08r0mJi9vJIkaTnZ1lNJ+gX9B6qVkAWzMcIJVNND4Vw/94I9/1z1/oxwwd44IuqenMxdI4f1sej9v8A==
     size: 463567878
-path: IDO-Editor-Setup-0.1.0.exe
+path: DataLoom-Studio-Setup-0.1.0.exe
 sha512: tMk+qYT08r0mJi9vJIkaTnZ1lNJ+gX9B6qVkAWzMcIJVNND4Vw/94I9/1z1/oxwwd44IuqenMxdI4f1sej9v8A==
 releaseDate: '2025-09-13T23:45:45.969Z'

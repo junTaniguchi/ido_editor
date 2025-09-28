@@ -1,400 +1,82 @@
 # コンポーネント構造詳細
 
-## 🏗️ 全体構成
+DataLoom Studio の UI は Next.js App Router 上で構築され、Zustand ストアを介した状態同期とコンポーネント分離によって拡張性と再利用性を確保しています。ここでは主要なコンポーネントと責務を整理します。
 
-IDO Editor は機能ごとに分離された独立コンポーネントで構成されており、保守性と拡張性を重視した設計になっています。
+## 🧱 レイアウト
 
-## 📱 メインレイアウト
+### `src/app/layout.tsx`
+- メタデータやテーマ初期化 Script を注入
+- `ThemeController` により Cookie/LocalStorage を参照してライト/ダークテーマを決定
 
-### MainLayout.tsx
-```typescript
-// アプリケーション全体のレイアウト管理
-interface MainLayoutProps {
-  children: React.ReactNode;
-}
+### `src/components/layout/MainLayout.tsx`
+- ヘッダー、エクスプローラ、タブ、プレビュー/分析領域を 3 ペイン構成で描画
+- ブラウザ幅に応じてエクスプローラ/分析パネルの開閉を制御
 
-const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
-  // ファイルエクスプローラ、エディタ、プレビューの配置
-  // テーマ管理、状態管理の統合
-};
-```
+### `src/components/layout/MainHeader.tsx`
+- アプリ名（DataLoom Studio）とヘッダー操作（フォントサイズ、テーマ切替、検索、マルチファイル分析、Git パネルなど）を提供
 
-**主要機能**:
-- 3ペイン レイアウト (Explorer | Editor | Preview)
-- レスポンシブ対応
-- ダークモード切替
-- パネル表示/非表示制御
+## 📁 ファイル & タブ
 
-## 🗂️ ファイル管理
+### `src/components/explorer`
+- `FileExplorer`：File System Access API から取得したディレクトリツリーを仮想 DOM に展開
+- `ExplorerToolbar`：フォルダ選択、Zip/Tar.gz 解凍、選択ノード作成を制御
+- `useDirectoryLoader`（lib）と連携し、非同期読み込み時はスケルトン表示を行う
 
-### FileExplorer.tsx
-```typescript
-interface FileTree {
-  name: string;
-  kind: 'file' | 'directory';
-  children?: FileTree[];
-  handle?: FileSystemFileHandle | FileSystemDirectoryHandle;
-}
-```
+### `src/components/tabs`
+- `TabBar`：ドラッグ&ドロップによる順序入れ替えと未保存タブのインジケータ表示
+- `TabContentSwitcher`：アクティブタブの種別に応じてエディタ/プレビュー/分析コンポーネントを切替
 
-**主要機能**:
-- File System Access API 統合
-- 階層ファイルツリー表示
-- ファイル選択・開く機能
-- コンテキストメニュー
+## ✍️ エディタ
 
-### TabBar.tsx
-```typescript
-interface Tab {
-  id: string;
-  title: string;
-  content: string;
-  language: string;
-  isDirty: boolean;
-  filePath?: string;
-}
-```
+### `src/components/editor`
+- `CodeEditor`：@uiw/react-codemirror をベースに、言語自動判別・矩形選択・折り畳みなどの拡張を適用
+- `EditorToolbar`：モード切替、エクスポート、Notebook モード起動などのアクションを提供
+- `NotebookPanel`：SQL セルの追加、順次実行、結果のテーブル/チャート表示切替を管理
 
-**主要機能**:
-- マルチタブ管理
-- タブ並び替え (Drag & Drop)
-- 未保存状態表示
-- タブ閉じる機能
+## 👁️ プレビュー
 
-## ✏️ エディタ機能
+### `src/components/preview`
+- `MarkdownPreview`：react-markdown + remark/rehype プラグインでライブプレビューと目次生成を実装
+- `MermaidPreview` & `MermaidDesigner`（`src/components/mermaid`）: Mermaid コードブロック描画と React Flow を利用した GUI 編集
+- `DataPreview`：CSV/TSV/JSON/YAML/Excel/Parquet/HTML のレンダリングを統合。Plotly/Chart.js を遅延ロードしてチャート描画を行う
+- `NotebookPreview`：`.ipynb` をセル単位にレンダリングし、画像や HTML 出力をそのまま表示
+- `PdfPreview`：PDF.js で 1 ページ目のキャンバス描画を行いズーム操作に対応
 
-### Editor.tsx
-**使用ライブラリ**: CodeMirror 6
+## 📊 分析
 
-```typescript
-interface EditorProps {
-  value: string;
-  language: string;
-  theme: 'light' | 'dark';
-  onChange: (value: string) => void;
-}
-```
+### `src/components/analysis`
+- `SingleFileAnalysis`：単一ファイルの SQL 実行、統計サマリー、チャート、関係グラフをまとめたタブ UI
+- `MultiFileAnalysis`：複数ファイルキュー、UNION/INTERSECTION/JOIN の構成、統合結果に対する SQL/Notebook/チャートを提供
+- `AnalysisSidebar`：データセットやチャートテンプレートの選択、Notebook 実行履歴の保存/復元をサポート
 
-**機能**:
-- 50+ プログラミング言語対応
-- シンタックスハイライト
-- 自動インデント
-- 検索・置換
-- キーボードショートカット
+## 🔍 検索 & Git
 
-### MarkdownToolbar.tsx
-```typescript
-interface ToolbarAction {
-  icon: React.ReactNode;
-  title: string;
-  action: () => void;
-  shortcut?: string;
-}
-```
+### `src/components/search`
+- `SearchPanel`：VS Code 風の検索 UI。正規表現、除外パターン、ヒットごとのジャンプ/置換を実装
 
-**機能**:
-- ビジュアル編集ボタン
-- テーブルウィザード
-- ヘルプダイアログ
-- ショートカットキー対応
+### `src/components/git`
+- `GitPanel`：isomorphic-git を利用してステージング、コミット、ブランチ操作、履歴確認を行う
+- `CloneRepositoryModal`：URL 入力からローカルフォルダへのクローンをブラウザ内で完結
 
-## 👁️ プレビュー機能
+## 🎨 テーマ
 
-### MarkdownPreview.tsx
-**使用ライブラリ**: react-markdown, mermaid
+### `src/components/theme/ThemeController.tsx`
+- Zustand の `editorSettings.theme` を監視し、`data-theme` 属性と Cookie (`dataloom-theme`) を同期
+- ダークモードでは Tailwind の `dark` クラスを `<html>` に付与
 
-```typescript
-interface MarkdownPreviewProps {
-  content: string;
-  darkMode: boolean;
-}
-```
+## 🧠 ストア
 
-**機能**:
-- リアルタイムプレビュー
-- 目次自動生成
-- Mermaid図表描画
-- Word エクスポート
+### `src/store/editorStore.ts`
+- File System Access ハンドル、タブ状態、分析設定、Notebook セル、Git ステータスなどを一元管理
+- `persist` ミドルウェアで IndexedDB に保存し、再訪時の状態復元を実現
+- セレクターを細分化し、パフォーマンスを確保
 
-### DataPreview.tsx
-**統合プレビューシステム**
+## 🔌 ユーティリティ連携
 
-```typescript
-interface DataPreviewProps {
-  data: any[];
-  fileType: 'csv' | 'json' | 'yaml' | 'excel' | 'parquet';
-  fileName: string;
-}
-```
+- `src/lib/fileSystemUtils.ts`：ディレクトリ走査、Zip/Tar.gz 展開、バイナリフィルタリング
+- `src/lib/dataAnalysisUtils.ts`：AlasQL 実行、統計集計、チャート用データ生成
+- `src/lib/dataPreviewUtils.ts`：ファイル種別の自動判定とプレビュー用データ整形
+- `src/lib/git/*`：isomorphic-git の高レベルラッパーとステータス差分整形
+- `src/lib/mermaid/*`：Mermaid 初期化とダイアグラムエクスポート
 
-**対応形式**:
-- CSV/TSV: DataTable コンポーネント
-- JSON/YAML: ObjectViewer コンポーネント  
-- Excel: ExcelPreview コンポーネント
-- Parquet: 簡易対応
-- PDF: PdfPreview コンポーネント
-
-### DataTable.tsx
-**高機能データテーブル**
-
-```typescript
-interface DataTableProps {
-  data: Record<string, any>[];
-  pageSize?: number;
-  sortable?: boolean;
-  editable?: boolean;
-}
-```
-
-**機能**:
-- ページネーション
-- カラムソート
-- データ編集
-- 検索・フィルタリング
-- CSV エクスポート
-
-## 📊 データ分析コンポーネント
-
-### DataAnalysis.tsx (643行に最適化)
-**メインコンポーネント**: 分析機能の統合管理
-
-```typescript
-interface DataAnalysisProps {
-  data: any[];
-  fileName: string;
-  fileType: string;
-}
-```
-
-### AnalysisTabNavigation.tsx (115行)
-**タブナビゲーション管理**
-
-```typescript
-interface AnalysisTab {
-  id: string;
-  label: string;
-  icon: React.ReactNode;
-  content: React.ReactNode;
-}
-```
-
-**タブ構成**:
-- SQL クエリ
-- 統計情報
-- グラフ作成
-- 関係性分析
-
-### AnalysisSettingsPanel.tsx (317行)
-**分析設定パネル**
-
-```typescript
-interface ChartSettings {
-  chartType: ChartType;
-  xAxis: string;
-  yAxis: string;
-  groupBy?: string;
-  aggregation: 'sum' | 'avg' | 'count' | 'min' | 'max';
-}
-```
-
-**機能**:
-- グラフタイプ選択
-- 軸設定
-- 集計方法設定
-- データソース選択
-- 折りたたみUI
-
-### AnalysisChartRenderer.tsx (561行)
-**チャート描画エンジン**
-
-```typescript
-interface ChartRendererProps {
-  data: any[];
-  settings: ChartSettings;
-  darkMode: boolean;
-}
-```
-
-**対応チャート (7種類)**:
-- Bar Chart (Plotly.js)
-- Line Chart (Chart.js)  
-- Pie Chart (Chart.js)
-- Scatter Plot (Plotly.js)
-- Stacked Bar (Chart.js)
-- Regression (Plotly.js)
-- Histogram (Plotly.js)
-
-### MultiFileAnalysis.tsx
-**複数ファイル統合分析**
-
-```typescript
-interface MultiFileAnalysisProps {
-  files: FileData[];
-  analysisType: 'union' | 'intersection' | 'join';
-}
-```
-
-**機能**:
-- UNION結合
-- INTERSECTION結合  
-- JOIN結合
-- FROM句指定
-- クロス集計
-
-## 🔍 検索機能
-
-### SearchPanel.tsx
-**VSCode風全文検索**
-
-```typescript
-interface SearchConfig {
-  query: string;
-  caseSensitive: boolean;
-  useRegex: boolean;
-  includePattern: string;
-  excludePattern: string;
-}
-```
-
-**機能**:
-- フォルダ内検索
-- 正規表現対応
-- ファイルパターンフィルタ
-- 一括置換
-- 結果ハイライト
-
-## 🎛️ モーダル・ダイアログ
-
-### ConfirmDialog.tsx
-```typescript
-interface ConfirmDialogProps {
-  isOpen: boolean;
-  title: string;
-  message: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}
-```
-
-### InputDialog.tsx
-```typescript
-interface InputDialogProps {
-  isOpen: boolean;
-  title: string;
-  placeholder: string;
-  onSubmit: (value: string) => void;
-  onCancel: () => void;
-}
-```
-
-### ContextMenu.tsx
-```typescript
-interface MenuItem {
-  label: string;
-  icon?: React.ReactNode;
-  action: () => void;
-  divider?: boolean;
-}
-```
-
-## 🔄 状態管理統合
-
-### Zustand Store 連携
-```typescript
-// 各コンポーネントでの状態管理統合例
-const MyComponent: React.FC = () => {
-  const { 
-    activeTabId, 
-    tabs,
-    updateTab,
-    analysisData,
-    setAnalysisData 
-  } = useEditorStore();
-  
-  // コンポーネント固有ロジック
-};
-```
-
-## 📈 パフォーマンス最適化
-
-### React.memo 適用箇所
-```typescript
-// 重いコンポーネントのメモ化
-const DataTable = React.memo<DataTableProps>(({ data, ...props }) => {
-  // 実装
-});
-
-const ChartRenderer = React.memo<ChartRendererProps>(({ data, settings }) => {
-  // 実装  
-});
-```
-
-### useMemo/useCallback 最適化
-```typescript
-const ExpensiveComponent: React.FC = ({ data }) => {
-  // 重い計算処理のメモ化
-  const processedData = useMemo(() => {
-    return heavyDataProcessing(data);
-  }, [data]);
-  
-  // イベントハンドラのメモ化
-  const handleClick = useCallback(() => {
-    // ハンドラ処理
-  }, [dependency]);
-  
-  return <div>{/* レンダリング */}</div>;
-};
-```
-
-## 🎨 デザインシステム
-
-### 共通スタイリング
-```typescript
-// Tailwind CSS クラス統一
-const commonStyles = {
-  card: 'bg-white dark:bg-gray-900 rounded-lg shadow-md p-4',
-  button: 'px-4 py-2 rounded-md font-medium transition-colors',
-  input: 'w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md',
-  table: 'min-w-full divide-y divide-gray-300 dark:divide-gray-700'
-};
-```
-
-### ダークモード対応
-```tsx
-// 全コンポーネントでの一貫したダークモード実装
-<div className="bg-white dark:bg-gray-900 text-black dark:text-white">
-  <button className="bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700">
-    Action
-  </button>
-</div>
-```
-
-## 🔌 拡張性設計
-
-### プラグイン型アーキテクチャ
-```typescript
-// 将来のプラグインシステム設計
-interface Plugin {
-  id: string;
-  name: string;
-  version: string;
-  components: {
-    [key: string]: React.ComponentType;
-  };
-  hooks: {
-    [key: string]: () => any;
-  };
-}
-```
-
-### コンポーネント登録システム
-```typescript
-// 動的コンポーネント登録
-const ComponentRegistry = {
-  register: (name: string, component: React.ComponentType) => void;
-  get: (name: string) => React.ComponentType | undefined;
-  list: () => string[];
-};
-```
-
-この設計により、新機能を既存コードに影響を与えずに追加できる拡張性の高いアーキテクチャを実現しています。
+これらのコンポーネントは、Zustand ストアとユーティリティ層を介して疎結合に連携し、マルチタブ・マルチモードの編集体験を実現しています。

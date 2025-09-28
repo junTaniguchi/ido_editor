@@ -1,5 +1,5 @@
 {
-  "name": "ido_editor",
+  "name": "dataloom-studio",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -97,8 +97,8 @@
   "build": {
     "npmRebuild": false,
     "nodeGypRebuild": false,
-    "appId": "com.ido.editor",
-    "productName": "IDO Editor",
+    "appId": "studio.dataloom",
+    "productName": "DataLoom Studio",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "files": [
       "electron/**",

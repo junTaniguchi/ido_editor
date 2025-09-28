@@ -1,11 +1,11 @@
 version: 0.1.0
 files:
-  - url: IDO-Editor-0.1.0-mac-arm64.zip
+  - url: DataLoom-Studio-0.1.0-mac-arm64.zip
     sha512: 13yLrvfQmmFlNPAG+idedS6W+Gyzb8n1IqSzgSJJEfDKY/U3jeM5nLe3WRNSbpmBG64FGhLuJYO6d4iJ/H22ZA==
     size: 689472328
-  - url: IDO-Editor-0.1.0-mac-arm64.dmg
+  - url: DataLoom-Studio-0.1.0-mac-arm64.dmg
     sha512: zZwVoiHZV8zJybqbd74yFwfQ8YtWYtI8Us8R5wf7HIzG2u+Pt6jmqFID/Ui4csMzzozWqfWmkhj4OEXxqziG6g==
     size: 706774418
-path: IDO-Editor-0.1.0-mac-arm64.zip
+path: DataLoom-Studio-0.1.0-mac-arm64.zip
 sha512: 13yLrvfQmmFlNPAG+idedS6W+Gyzb8n1IqSzgSJJEfDKY/U3jeM5nLe3WRNSbpmBG64FGhLuJYO6d4iJ/H22ZA==
 releaseDate: '2025-09-15T12:25:56.081Z'

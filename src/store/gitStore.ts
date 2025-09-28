@@ -111,8 +111,8 @@ export const useGitStore = create<GitStoreState>((set, get) => ({
   branches: [],
   currentBranch: null,
   commits: [],
-  authorName: 'IDO User',
-  authorEmail: 'ido@example.com',
+  authorName: 'DataLoom User',
+  authorEmail: 'dataloom@example.com',
 
   setRootDirectory: async (handle) => {
     if (!handle) {
