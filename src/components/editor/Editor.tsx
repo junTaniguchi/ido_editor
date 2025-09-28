@@ -11,6 +11,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef, forwardRef, useCallback } from 'react';
+import type { EditorView } from '@codemirror/view';
 import CodeMirror from '@uiw/react-codemirror';
 import { useEditorStore } from '@/store/editorStore';
 import { getLanguageByFileName, getTheme, getEditorExtensions, getFileType } from '@/lib/editorUtils';
@@ -155,6 +156,49 @@ const ensureNamedFile = (file: File, index: number, timestamp: number): File => 
   return new File([file], generatedName, options);
 };
 
+const SUPPORTED_PASTED_FILE_TYPES = new Set<TabData['type']>([
+  'text',
+  'markdown',
+  'html',
+  'json',
+  'yaml',
+  'sql',
+  'csv',
+  'tsv',
+  'parquet',
+  'mermaid',
+  'excel',
+  'ipynb',
+  'pdf',
+]);
+
+const MIME_FALLBACK_EXTENSION: Record<string, string> = {
+  'text/plain': 'txt',
+  'text/markdown': 'md',
+  'text/html': 'html',
+  'application/json': 'json',
+  'text/csv': 'csv',
+  'text/tab-separated-values': 'tsv',
+  'application/pdf': 'pdf',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.ms-excel': 'xls',
+};
+
+const ensureNamedFile = (file: File, index: number, timestamp: number): File => {
+  if (file.name && file.name.trim()) {
+    return file;
+  }
+
+  const extension = MIME_FALLBACK_EXTENSION[file.type] || 'txt';
+  const generatedName = `clipboard-file-${timestamp}-${index}.${extension}`;
+  const options: FilePropertyBag = {
+    type: file.type || 'application/octet-stream',
+    lastModified: file.lastModified || Date.now(),
+  };
+
+  return new File([file], generatedName, options);
+};
+
 export interface EditorProps {
   tabId: string;
   onScroll?: (e: React.UIEvent<HTMLDivElement>) => void;
@@ -187,7 +231,7 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
   const [isInitialized, setIsInitialized] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [parsedDataForExport, setParsedDataForExport] = useState<any[] | null>(null);
-  const editorRef = useRef<EditorRefValue | null>(null);
+  const editorRef = useRef<EditorView | null>(null);
   // CodeMirrorのscroller要素をrefで取得
   const codeMirrorScrollerRef = useRef<HTMLDivElement | null>(null);
   const saveShortcutHandlerRef = useRef<() => void>(() => {});
@@ -216,7 +260,7 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
   }, [editorSettings.theme]);
   
   const viewMode = getViewMode(tabId);
-  
+
   // 初期化時にタブデータを設定
   useEffect(() => {
     const tab = tabs.get(tabId);
@@ -231,9 +275,19 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
     let disposed = false;
     let cleanup: (() => void) | null = null;
 
+    if (viewMode !== 'editor' && viewMode !== 'split') {
+      editorRef.current = null;
+      return () => {
+        disposed = true;
+        if (cleanup) {
+          cleanup();
+        }
+      };
+    }
+
     const attachPasteHandler = () => {
       if (disposed) return;
-      const editorInstance = editorRef.current?.view;
+      const editorInstance = editorRef.current;
       if (!editorInstance) {
         requestAnimationFrame(attachPasteHandler);
         return;
@@ -338,8 +392,9 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
       if (cleanup) {
         cleanup();
       }
+      editorRef.current = null;
     };
-  }, [tabId]);
+  }, [tabId, viewMode]);
 
   // エディタの変更処理
   const handleChange = (value: string) => {
@@ -661,7 +716,7 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
               }}
               // CodeMirrorのscroller要素にrefを付与
               onCreateEditor={editor => {
-                editorRef.current = { view: editor };
+                editorRef.current = editor;
                 // CodeMirror v6: scroller要素は editor.contentDOM.parentElement
                 if (editor && editor.contentDOM && editor.contentDOM.parentElement) {
                   codeMirrorScrollerRef.current = editor.contentDOM.parentElement as HTMLDivElement;

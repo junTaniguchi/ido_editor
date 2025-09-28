@@ -11,6 +11,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import type { EditorView } from '@codemirror/view';
 import { useEditorStore } from '@/store/editorStore';
 import {
   IoText, IoList, IoListOutline, IoLink, IoCode, IoAlbumsOutline,
@@ -255,7 +256,7 @@ const buildImageMarkdown = (fileName: string, altText: string) => {
 
 interface MarkdownEditorExtensionProps {
   tabId: string;
-  editorRef: React.RefObject<EditorRefValue | null>;
+  editorRef: React.RefObject<EditorView | null>;
 }
 
 /**
@@ -282,7 +283,7 @@ const MarkdownEditorExtension: React.FC<MarkdownEditorExtensionProps> = ({ tabId
 
     const attachPasteHandler = () => {
       if (disposed) return;
-      const editor = editorRef.current?.view;
+      const editor = editorRef.current;
       if (!editor) {
         requestAnimationFrame(attachPasteHandler);
         return;
@@ -301,7 +302,7 @@ const MarkdownEditorExtension: React.FC<MarkdownEditorExtensionProps> = ({ tabId
         const targetTab = editorState.tabs.get(tabId);
 
         const insertMarkdown = (markdown: string) => {
-          const activeEditor = editorRef.current?.view;
+          const activeEditor = editorRef.current;
           if (!activeEditor || !targetTab) return;
 
           const { from, to } = activeEditor.state.selection.main;
