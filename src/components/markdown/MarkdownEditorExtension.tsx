@@ -23,7 +23,6 @@ import MarkdownHelpDialog from './MarkdownHelpDialog';
 import TableWizard from './TableWizard';
 import { readDirectoryContents } from '@/lib/fileSystemUtils';
 import type { TabData } from '@/types';
-import type { EditorRefValue } from '@/types/editor';
 
 type TableAlignment = 'left' | 'center' | 'right' | null;
 

@@ -69,6 +69,49 @@ const ensureNamedFile = (file: File, index: number, timestamp: number): File => 
   return new File([file], generatedName, options);
 };
 
+const SUPPORTED_CLIPBOARD_FILE_TYPES = new Set<TabData['type']>([
+  'text',
+  'markdown',
+  'html',
+  'json',
+  'yaml',
+  'sql',
+  'csv',
+  'tsv',
+  'parquet',
+  'mermaid',
+  'excel',
+  'ipynb',
+  'pdf',
+]);
+
+const MIME_FALLBACK_EXTENSION: Record<string, string> = {
+  'text/plain': 'txt',
+  'text/markdown': 'md',
+  'text/html': 'html',
+  'application/json': 'json',
+  'text/csv': 'csv',
+  'text/tab-separated-values': 'tsv',
+  'application/pdf': 'pdf',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.ms-excel': 'xls',
+};
+
+const ensureNamedFile = (file: File, index: number, timestamp: number): File => {
+  if (file.name && file.name.trim()) {
+    return file;
+  }
+
+  const extension = MIME_FALLBACK_EXTENSION[file.type] || 'txt';
+  const generatedName = `clipboard-file-${timestamp}-${index}.${extension}`;
+  const options: FilePropertyBag = {
+    type: file.type || 'application/octet-stream',
+    lastModified: file.lastModified || Date.now(),
+  };
+
+  return new File([file], generatedName, options);
+};
+
 export interface EditorProps {
   tabId: string;
   onScroll?: (e: React.UIEvent<HTMLDivElement>) => void;
