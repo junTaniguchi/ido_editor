@@ -3,6 +3,7 @@
 import { useCallback, useEffect, RefObject } from 'react';
 import type { EditorView } from '@codemirror/view';
 import { useEditorStore } from '@/store/editorStore';
+import type { EditorRefValue } from '@/types/editor';
 
 const useMarkdownShortcuts = (editorRef: RefObject<EditorView | null>, tabId: string) => {
   const { tabs, updateTab } = useEditorStore();

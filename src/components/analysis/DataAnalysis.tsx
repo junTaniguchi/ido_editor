@@ -9,7 +9,7 @@ import QueryResultTable from './QueryResultTable';
 import InfoResultTable from './InfoResultTable';
 import EditableQueryResultTable from './EditableQueryResultTable';
 import ResultChartPanel from './ResultChartPanel';
-import { 
+import {
   Chart as ChartJS, 
   CategoryScale, 
   LinearScale, 
@@ -590,7 +590,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
             return;
           }
           break;
-          
+
         default:
           setError('分析に対応していないファイル形式です');
           setLoading(false);

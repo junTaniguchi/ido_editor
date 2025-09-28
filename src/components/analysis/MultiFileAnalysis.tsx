@@ -3,9 +3,9 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useEditorStore } from '@/store/editorStore';
 import { parseCSV, parseJSON, parseYAML, parseParquet, parseExcel } from '@/lib/dataPreviewUtils';
-import { 
-  combineMultipleFiles, 
-  compareMultipleFileStatistics, 
+import {
+  combineMultipleFiles,
+  compareMultipleFileStatistics,
   createCrossTabFromFiles,
   executeQuery,
   executeMultiFileQueryAnalysis,
@@ -13,7 +13,7 @@ import {
   prepareChartData,
   calculateInfo,
   aggregateData,
-  downloadData
+  downloadData,
 } from '@/lib/dataAnalysisUtils';
 import {
   IoAnalyticsOutline,
@@ -33,14 +33,12 @@ import {
   IoBookOutline,
   IoDownloadOutline,
   IoAddOutline,
-  IoTrashOutline,
-  IoMapOutline
+  IoTrashOutline
 } from 'react-icons/io5';
 import QueryResultTable from './QueryResultTable';
 import InfoResultTable from './InfoResultTable';
 import EditableQueryResultTable from './EditableQueryResultTable';
 import ResultChartPanel from './ResultChartPanel';
-import GeoAnalysisMapPanel from './GeoAnalysisMapPanel';
 import { SqlNotebookCell } from '@/types';
 import { 
   Chart as ChartJS, 
@@ -114,7 +112,7 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
   }>>(new Map());
   
   // 分析タブの管理
-  const [activeTab, setActiveTab] = useState<'excel-settings' | 'combine' | 'query' | 'stats' | 'chart' | 'map' | 'relationship'>('excel-settings');
+  const [activeTab, setActiveTab] = useState<'excel-settings' | 'combine' | 'query' | 'stats' | 'chart' | 'relationship'>('excel-settings');
   const [isSettingsCollapsed, setIsSettingsCollapsed] = useState(false);
   const [isQueryCollapsed, setIsQueryCollapsed] = useState(false);
   
@@ -156,46 +154,7 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
 
   // チャート関連
   const [chartData, setChartData] = useState<any | null>(null);
-  const { chartSettings, updateChartSettings, mapSettings, updateMapSettings } = useEditorStore();
-
-  const queryRowsForMap = useMemo(() => {
-    if (editedQueryResult && editedQueryResult.length > 0) {
-      return editedQueryResult;
-    }
-    if (queryResult && queryResult.length > 0) {
-      return queryResult;
-    }
-    return [] as any[];
-  }, [editedQueryResult, queryResult]);
-
-  const queryColumns = useMemo(() => {
-    if (queryRowsForMap.length > 0) {
-      return Object.keys(queryRowsForMap[0]);
-    }
-    return [] as string[];
-  }, [queryRowsForMap]);
-
-  const mapDataSources = useMemo(() => {
-    const sources: { id: string; label: string; rows: any[]; columns: string[] }[] = [];
-
-    fileDataMap.forEach((rows, filePath) => {
-      const fileName = filePath.split('/').pop() || filePath;
-      const label = `ファイル: ${fileName}`;
-      const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
-      sources.push({ id: `file:${filePath}`, label, rows, columns });
-    });
-
-    if (combinedData && combinedData.length > 0) {
-      const columns = Object.keys(combinedData[0]);
-      sources.push({ id: 'combinedData', label: '統合データ', rows: combinedData, columns });
-    }
-
-    if (queryRowsForMap.length > 0) {
-      sources.push({ id: 'queryResult', label: 'クエリ結果', rows: queryRowsForMap, columns: queryColumns });
-    }
-
-    return sources;
-  }, [combinedData, fileDataMap, queryColumns, queryRowsForMap]);
+  const { chartSettings, updateChartSettings } = useEditorStore();
 
   // テーマ関連
   const [currentTheme, setCurrentTheme] = useState<string>('light');
@@ -212,11 +171,6 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
   const graphContainerRef = useRef<HTMLDivElement | null>(null);
   const [graphSize, setGraphSize] = useState({ width: 800, height: 600 });
   const notebookImportInputRef = useRef<HTMLInputElement | null>(null);
-  const [mapSettingsContainer, setMapSettingsContainer] = useState<HTMLDivElement | null>(null);
-  const mapSettingsContainerRef = useCallback((node: HTMLDivElement | null) => {
-    setMapSettingsContainer(node);
-  }, []);
-
   const generateCellId = useCallback(() => {
     if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
       return crypto.randomUUID();
@@ -647,34 +601,39 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
           const fileName = pathParts[pathParts.length - 1];
           const fileHandle = await currentHandle.getFileHandle(fileName);
           const file = await fileHandle.getFile();
-          const content = await file.text();
+          const extension = fileName.split('.').pop()?.toLowerCase();
+
+          let textContent: string | null = null;
+
+          if (!(extension === 'shp' || extension === 'shpz' || extension === 'shz' || (extension === 'zip' && fileName.toLowerCase().includes('.shp')))) {
+            textContent = await file.text();
+          }
 
           // ファイル形式に応じてパース
           let data: any[] = [];
-          const extension = fileName.split('.').pop()?.toLowerCase();
-          
+
           switch (extension) {
             case 'csv':
-              const csvResult = parseCSV(content);
+              const csvResult = parseCSV(textContent ?? '');
               if (csvResult.error) throw new Error(csvResult.error);
               data = csvResult.data || [];
               break;
             case 'json':
-              const jsonResult = parseJSON(content);
+              const jsonResult = parseJSON(textContent ?? '');
               if (jsonResult.error) throw new Error(jsonResult.error);
               data = Array.isArray(jsonResult.data) ? jsonResult.data : [jsonResult.data];
               break;
             case 'yaml':
             case 'yml':
-              const yamlResult = parseYAML(content);
+              const yamlResult = parseYAML(textContent ?? '');
               if (yamlResult.error) throw new Error(yamlResult.error);
               data = Array.isArray(yamlResult.data) ? yamlResult.data : [yamlResult.data];
               break;
             case 'parquet':
             case 'parq':
-              const parquetResult = await parseParquet(content);
+              const parquetResult = await parseParquet(textContent ?? '');
               if (parquetResult.error) throw new Error(parquetResult.error);
-              
+
               if (parquetResult.headers && parquetResult.rows) {
                 data = parquetResult.rows.map((row: any[]) => {
                   const obj: any = {};
@@ -1331,17 +1290,6 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         </button>
         <button
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'map'
-              ? 'text-blue-600 border-blue-600'
-              : 'text-gray-600 border-transparent hover:text-gray-800 hover:border-gray-300'
-          }`}
-          onClick={() => setActiveTab('map')}
-        >
-          <IoMapOutline className="inline mr-1" size={16} />
-          マップ
-        </button>
-        <button
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             activeTab === 'relationship'
               ? 'text-blue-600 border-blue-600'
               : 'text-gray-600 border-transparent hover:text-gray-800 hover:border-gray-300'
@@ -1940,16 +1888,6 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
           </div>
         )}
 
-        {/* マップ設定 */}
-        {activeTab === 'map' && (
-          <div className="space-y-4">
-            <div
-              ref={mapSettingsContainerRef}
-              className="max-h-[70vh] space-y-4 overflow-y-auto pr-1"
-            />
-          </div>
-        )}
-
         {/* 関係性設定 */}
         {activeTab === 'relationship' && (
           <div>
@@ -2432,20 +2370,6 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
     </div>
   </div>
 )}
-
-        {activeTab === 'map' && (
-          <div className="flex-1 min-h-0">
-            <GeoAnalysisMapPanel
-              dataSources={mapDataSources}
-              mapSettings={mapSettings}
-              onUpdateSettings={updateMapSettings}
-              noDataMessage="クエリ結果がありません。SQLクエリを実行してください。"
-              noCoordinateMessage="統合データに緯度・経度が見つからない場合は、設定パネルで列を選択してください。"
-              settingsPlacement="external"
-              settingsContainer={mapSettingsContainer}
-            />
-          </div>
-        )}
 
         {/* 関係性タブ */}
         {activeTab === 'relationship' && combinedData && combinedData.length > 0 && (

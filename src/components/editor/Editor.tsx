@@ -25,6 +25,136 @@ import MarkdownEditorExtension from '@/components/markdown/MarkdownEditorExtensi
 import ExportModal from '@/components/preview/ExportModal';
 import { parseCSV, parseJSON, parseYAML, parseParquet } from '@/lib/dataPreviewUtils';
 import { writeFileContent } from '@/lib/fileSystemUtils';
+import type { EditorRefValue } from '@/types/editor';
+
+const SUPPORTED_CLIPBOARD_FILE_TYPES = new Set<TabData['type']>([
+  'text',
+  'markdown',
+  'html',
+  'json',
+  'yaml',
+  'sql',
+  'csv',
+  'tsv',
+  'parquet',
+  'mermaid',
+  'excel',
+  'ipynb',
+  'pdf',
+]);
+
+const MIME_FALLBACK_EXTENSION: Record<string, string> = {
+  'text/plain': 'txt',
+  'text/markdown': 'md',
+  'text/html': 'html',
+  'application/json': 'json',
+  'text/csv': 'csv',
+  'text/tab-separated-values': 'tsv',
+  'application/pdf': 'pdf',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.ms-excel': 'xls',
+};
+
+const ensureNamedFile = (file: File, index: number, timestamp: number): File => {
+  if (file.name && file.name.trim()) {
+    return file;
+  }
+
+  const extension = MIME_FALLBACK_EXTENSION[file.type] || 'txt';
+  const generatedName = `clipboard-file-${timestamp}-${index}.${extension}`;
+  const options: FilePropertyBag = {
+    type: file.type || 'application/octet-stream',
+    lastModified: file.lastModified || Date.now(),
+  };
+
+  return new File([file], generatedName, options);
+};
+
+const SUPPORTED_CLIPBOARD_FILE_TYPES = new Set<TabData['type']>([
+  'text',
+  'markdown',
+  'html',
+  'json',
+  'yaml',
+  'sql',
+  'csv',
+  'tsv',
+  'parquet',
+  'mermaid',
+  'excel',
+  'ipynb',
+  'pdf',
+]);
+
+const MIME_FALLBACK_EXTENSION: Record<string, string> = {
+  'text/plain': 'txt',
+  'text/markdown': 'md',
+  'text/html': 'html',
+  'application/json': 'json',
+  'text/csv': 'csv',
+  'text/tab-separated-values': 'tsv',
+  'application/pdf': 'pdf',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.ms-excel': 'xls',
+};
+
+const ensureNamedFile = (file: File, index: number, timestamp: number): File => {
+  if (file.name && file.name.trim()) {
+    return file;
+  }
+
+  const extension = MIME_FALLBACK_EXTENSION[file.type] || 'txt';
+  const generatedName = `clipboard-file-${timestamp}-${index}.${extension}`;
+  const options: FilePropertyBag = {
+    type: file.type || 'application/octet-stream',
+    lastModified: file.lastModified || Date.now(),
+  };
+
+  return new File([file], generatedName, options);
+};
+
+const SUPPORTED_PASTED_FILE_TYPES = new Set<TabData['type']>([
+  'text',
+  'markdown',
+  'html',
+  'json',
+  'yaml',
+  'sql',
+  'csv',
+  'tsv',
+  'parquet',
+  'mermaid',
+  'excel',
+  'ipynb',
+  'pdf',
+]);
+
+const MIME_FALLBACK_EXTENSION: Record<string, string> = {
+  'text/plain': 'txt',
+  'text/markdown': 'md',
+  'text/html': 'html',
+  'application/json': 'json',
+  'text/csv': 'csv',
+  'text/tab-separated-values': 'tsv',
+  'application/pdf': 'pdf',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.ms-excel': 'xls',
+};
+
+const ensureNamedFile = (file: File, index: number, timestamp: number): File => {
+  if (file.name && file.name.trim()) {
+    return file;
+  }
+
+  const extension = MIME_FALLBACK_EXTENSION[file.type] || 'txt';
+  const generatedName = `clipboard-file-${timestamp}-${index}.${extension}`;
+  const options: FilePropertyBag = {
+    type: file.type || 'application/octet-stream',
+    lastModified: file.lastModified || Date.now(),
+  };
+
+  return new File([file], generatedName, options);
+};
 
 const SUPPORTED_PASTED_FILE_TYPES = new Set<TabData['type']>([
   'text',
@@ -105,6 +235,12 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
   // CodeMirrorのscroller要素をrefで取得
   const codeMirrorScrollerRef = useRef<HTMLDivElement | null>(null);
   const saveShortcutHandlerRef = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    return () => {
+      editorRef.current = null;
+    };
+  }, []);
   
   // テーマ切替時にCodeMirrorのscroller背景色も同期させる
   // 早期returnの前に配置し、フックの順序が変化しないようにする
