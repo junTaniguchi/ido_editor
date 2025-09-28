@@ -6,6 +6,32 @@ const decoder = new TextDecoder();
 type FileType = 'file' | 'dir';
 type SupportedEncoding = 'utf8' | 'utf-8';
 
+type FsError = Error & {
+  code?: string;
+  path?: string;
+  syscall?: string;
+};
+
+const createFsError = (
+  code: 'ENOENT' | 'ENOSYS',
+  path: string,
+  syscall: string,
+  cause?: unknown
+): FsError => {
+  const message =
+    code === 'ENOENT'
+      ? `${code}: no such file or directory, ${syscall} '${path}'`
+      : `${code}: ${syscall} is not supported on this file system`;
+  const error = new Error(message) as FsError;
+  error.code = code;
+  error.path = path;
+  error.syscall = syscall;
+  if (cause !== undefined) {
+    error.cause = cause;
+  }
+  return error;
+};
+
 export interface FileSystemAccessStat {
   type: FileType;
   size: number;
@@ -37,6 +63,18 @@ const normalizePath = (input: string): string => {
     resolved.push(segment);
   }
   return resolved.join('/');
+};
+
+const isDomException = (error: unknown): error is DOMException => error instanceof DOMException;
+
+const isNotFoundError = (error: unknown): boolean =>
+  isDomException(error) && error.name === 'NotFoundError';
+
+const isTypeMismatchError = (error: unknown): boolean =>
+  isDomException(error) && error.name === 'TypeMismatchError';
+
+const throwNotFound = (path: string, syscall: string, error: unknown): never => {
+  throw createFsError('ENOENT', path, syscall, error);
 };
 
 const createStat = (type: FileType, size: number, mtimeMs: number): FileSystemAccessStat => {
@@ -76,6 +114,24 @@ export class FileSystemAccessFs {
     this.root = rootHandle;
   }
 
+  private async runWithErrorHandling<T>(
+    path: string,
+    syscall: string,
+    action: () => Promise<T>
+  ): Promise<T> {
+    try {
+      return await action();
+    } catch (error) {
+      if (isNotFoundError(error)) {
+        throwNotFound(path, syscall, error);
+      }
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error(String(error));
+    }
+  }
+
   private split(path: string): string[] {
     const normalized = normalizePath(path);
     if (!normalized) {
@@ -103,90 +159,111 @@ export class FileSystemAccessFs {
   }
 
   async readFile(path: string, options?: { encoding?: SupportedEncoding } | SupportedEncoding): Promise<Uint8Array | string> {
-    const parentInfo = await this.getParentDirectory(path);
-    if (!parentInfo) {
-      throw new Error(`Cannot read root as file: ${path}`);
-    }
-    const { dir, name } = parentInfo;
-    const fileHandle = await dir.getFileHandle(name);
-    const file = await fileHandle.getFile();
-    const buffer = new Uint8Array(await file.arrayBuffer());
-    const encoding = typeof options === 'string' ? options : options?.encoding;
-    if (encoding && encoding.toLowerCase() !== 'utf8' && encoding.toLowerCase() !== 'utf-8') {
-      throw new Error(`Unsupported encoding: ${encoding}`);
-    }
-    if (encoding) {
-      return decoder.decode(buffer);
-    }
-    return buffer;
+    return this.runWithErrorHandling(path, 'readFile', async () => {
+      const parentInfo = await this.getParentDirectory(path);
+      if (!parentInfo) {
+        throw new Error(`Cannot read root as file: ${path}`);
+      }
+      const { dir, name } = parentInfo;
+      const fileHandle = await dir.getFileHandle(name);
+      const file = await fileHandle.getFile();
+      const buffer = new Uint8Array(await file.arrayBuffer());
+      const encoding = typeof options === 'string' ? options : options?.encoding;
+      if (encoding && encoding.toLowerCase() !== 'utf8' && encoding.toLowerCase() !== 'utf-8') {
+        throw new Error(`Unsupported encoding: ${encoding}`);
+      }
+      if (encoding) {
+        return decoder.decode(buffer);
+      }
+      return buffer;
+    });
   }
 
   async writeFile(path: string, data: Uint8Array | ArrayBuffer | ArrayBufferView | string): Promise<void> {
-    const parentInfo = await this.getParentDirectory(path, true);
-    if (!parentInfo) {
-      throw new Error('Cannot write to repository root directly');
-    }
-    const { dir, name } = parentInfo;
-    const fileHandle = await dir.getFileHandle(name, { create: true });
-    const writable = await fileHandle.createWritable();
-    await writable.write(toUint8Array(data));
-    await writable.close();
+    await this.runWithErrorHandling(path, 'writeFile', async () => {
+      const parentInfo = await this.getParentDirectory(path, true);
+      if (!parentInfo) {
+        throw new Error('Cannot write to repository root directly');
+      }
+      const { dir, name } = parentInfo;
+      const fileHandle = await dir.getFileHandle(name, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(toUint8Array(data));
+      await writable.close();
+    });
   }
 
   async readdir(path: string): Promise<string[]> {
-    const segments = this.split(path);
-    const dir = await this.getDirectoryHandle(segments);
-    const entries: string[] = [];
-    for await (const [name] of dir.entries()) {
-      entries.push(name);
-    }
-    return entries;
+    return this.runWithErrorHandling(path, 'readdir', async () => {
+      const segments = this.split(path);
+      const dir = await this.getDirectoryHandle(segments);
+      const entries: string[] = [];
+      for await (const [name] of dir.entries()) {
+        entries.push(name);
+      }
+      return entries;
+    });
   }
 
   async mkdir(path: string): Promise<void> {
-    const segments = this.split(path);
-    await this.getDirectoryHandle(segments, true);
+    await this.runWithErrorHandling(path, 'mkdir', async () => {
+      const segments = this.split(path);
+      await this.getDirectoryHandle(segments, true);
+    });
   }
 
   async rmdir(path: string): Promise<void> {
-    const parentInfo = await this.getParentDirectory(path);
-    if (!parentInfo) {
-      return;
-    }
-    const { dir, name } = parentInfo;
-    await dir.removeEntry(name, { recursive: true });
+    await this.runWithErrorHandling(path, 'rmdir', async () => {
+      const parentInfo = await this.getParentDirectory(path);
+      if (!parentInfo) {
+        return;
+      }
+      const { dir, name } = parentInfo;
+      await dir.removeEntry(name, { recursive: true });
+    });
   }
 
   async unlink(path: string): Promise<void> {
-    const parentInfo = await this.getParentDirectory(path);
-    if (!parentInfo) {
-      return;
-    }
-    const { dir, name } = parentInfo;
-    await dir.removeEntry(name);
+    await this.runWithErrorHandling(path, 'unlink', async () => {
+      const parentInfo = await this.getParentDirectory(path);
+      if (!parentInfo) {
+        return;
+      }
+      const { dir, name } = parentInfo;
+      await dir.removeEntry(name);
+    });
   }
 
   async stat(path: string): Promise<FileSystemAccessStat> {
-    if (!path || path === '/' || path === '.') {
-      return createStat('dir', 0, Date.now());
-    }
-    const parentInfo = await this.getParentDirectory(path);
-    if (!parentInfo) {
-      return createStat('dir', 0, Date.now());
-    }
-    const { dir, name } = parentInfo;
-    try {
-      const fileHandle = await dir.getFileHandle(name);
-      const file = await fileHandle.getFile();
-      return createStat('file', file.size, file.lastModified);
-    } catch (fileError) {
-      try {
-        await dir.getDirectoryHandle(name);
+    return this.runWithErrorHandling(path, 'stat', async () => {
+      if (!path || path === '/' || path === '.') {
         return createStat('dir', 0, Date.now());
-      } catch (dirError) {
-        throw fileError instanceof Error ? fileError : new Error(`Unable to stat path: ${path}`);
       }
-    }
+      const parentInfo = await this.getParentDirectory(path);
+      if (!parentInfo) {
+        return createStat('dir', 0, Date.now());
+      }
+      const { dir, name } = parentInfo;
+      try {
+        const fileHandle = await dir.getFileHandle(name);
+        const file = await fileHandle.getFile();
+        return createStat('file', file.size, file.lastModified);
+      } catch (fileError) {
+        if (!isNotFoundError(fileError) && !isTypeMismatchError(fileError)) {
+          throw fileError;
+        }
+
+        try {
+          await dir.getDirectoryHandle(name);
+          return createStat('dir', 0, Date.now());
+        } catch (dirError) {
+          if (isNotFoundError(dirError)) {
+            throwNotFound(path, 'stat', dirError);
+          }
+          throw dirError;
+        }
+      }
+    });
   }
 
   async lstat(path: string): Promise<FileSystemAccessStat> {
@@ -203,12 +280,22 @@ export class FileSystemAccessFs {
   }
 
   async delete(path: string, options: { recursive?: boolean } = {}): Promise<void> {
-    const parentInfo = await this.getParentDirectory(path);
-    if (!parentInfo) {
-      return;
-    }
-    const { dir, name } = parentInfo;
-    await dir.removeEntry(name, { recursive: options.recursive ?? false });
+    await this.runWithErrorHandling(path, 'rm', async () => {
+      const parentInfo = await this.getParentDirectory(path);
+      if (!parentInfo) {
+        return;
+      }
+      const { dir, name } = parentInfo;
+      await dir.removeEntry(name, { recursive: options.recursive ?? false });
+    });
+  }
+
+  async readlink(path: string): Promise<string> {
+    throw createFsError('ENOSYS', path, 'readlink');
+  }
+
+  async symlink(_target: string, path: string): Promise<void> {
+    throw createFsError('ENOSYS', path, 'symlink');
   }
 
   getFs(): any {
@@ -221,6 +308,8 @@ export class FileSystemAccessFs {
       unlink: this.unlink.bind(this),
       stat: this.stat.bind(this),
       lstat: this.lstat.bind(this),
+      readlink: this.readlink.bind(this),
+      symlink: this.symlink.bind(this),
     };
 
     return {
@@ -233,6 +322,8 @@ export class FileSystemAccessFs {
       unlink: promises.unlink,
       stat: promises.stat,
       lstat: promises.lstat,
+      readlink: promises.readlink,
+      symlink: promises.symlink,
     };
   }
 }

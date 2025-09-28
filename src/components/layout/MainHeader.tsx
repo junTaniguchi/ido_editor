@@ -1,7 +1,16 @@
 'use client';
 
 import React from 'react';
-import { IoMenu, IoSunny, IoMoon, IoSearch, IoAddOutline, IoGitMergeOutline, IoGitBranchOutline } from 'react-icons/io5';
+import {
+  IoMenu,
+  IoSunny,
+  IoMoon,
+  IoSearch,
+  IoAddOutline,
+  IoGitMergeOutline,
+  IoGitBranchOutline,
+  IoDownloadOutline,
+} from 'react-icons/io5';
 
 interface MainHeaderProps {
   onToggleExplorer: () => void;
@@ -17,6 +26,7 @@ interface MainHeaderProps {
   selectedFileCount: number;
   onToggleGit: () => void;
   isGitPaneVisible: boolean;
+  onCloneRepository: () => void;
 }
 
 const MainHeader: React.FC<MainHeaderProps> = ({
@@ -33,6 +43,7 @@ const MainHeader: React.FC<MainHeaderProps> = ({
   selectedFileCount,
   onToggleGit,
   isGitPaneVisible,
+  onCloneRepository,
 }) => {
   const isDark = theme === 'dark';
 
@@ -79,6 +90,14 @@ const MainHeader: React.FC<MainHeaderProps> = ({
         aria-label="Create New File"
       >
         <IoAddOutline size={20} />
+      </button>
+      <button
+        className="p-1 rounded hover:bg-gray-200 ml-2 dark:hover:bg-gray-800"
+        onClick={onCloneRepository}
+        aria-label="Clone Repository"
+        title="Gitリポジトリをクローン"
+      >
+        <IoDownloadOutline size={20} />
       </button>
       <button
         className="p-1 rounded hover:bg-gray-200 ml-2 dark:hover:bg-gray-800"

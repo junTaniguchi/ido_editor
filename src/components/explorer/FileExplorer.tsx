@@ -94,7 +94,7 @@ const FileExplorer = () => {
     directoryHandle: FileSystemDirectoryHandle | null;
     mode: 'newFile' | 'tempFile';
   } | null>(null);
-  
+
   // コンポーネントマウント時にAPIサポートを確認
   useEffect(() => {
     // File System Access APIのサポートを確認
@@ -103,6 +103,19 @@ const FileExplorer = () => {
       console.warn('File System Access API is not supported in this browser.');
     }
   }, []);
+
+  useEffect(() => {
+    if (!rootFileTree) {
+      return;
+    }
+
+    setExpandedFolders((previous) => {
+      if (previous.size === 1 && previous.has(rootFileTree.path)) {
+        return previous;
+      }
+      return new Set([rootFileTree.path]);
+    });
+  }, [rootFileTree]);
 
   // フォルダ内容を更新する関数
   const refreshFolderContents = useCallback(async (dirHandle: FileSystemDirectoryHandle | null = null) => {
@@ -455,7 +468,7 @@ const FileExplorer = () => {
       console.error('Failed to load Git history:', error);
       alert(`コミット履歴の取得に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }, [addTab, getFileHistory, repoInitialized, selectedItem, setActiveTabId, tabs]);
+  }, [addTab, getFileHistory, repoInitialized, selectedItem, setActiveTabId, tabs, updateTab]);
   
   // 入力ダイアログの確認処理
   const handleInputConfirm = async (value: string) => {
