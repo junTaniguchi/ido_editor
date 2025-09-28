@@ -65,8 +65,13 @@ const normalizePath = (input: string): string => {
   return resolved.join('/');
 };
 
+const isDomException = (error: unknown): error is DOMException => error instanceof DOMException;
+
 const isNotFoundError = (error: unknown): boolean =>
-  error instanceof DOMException && error.name === 'NotFoundError';
+  isDomException(error) && error.name === 'NotFoundError';
+
+const isTypeMismatchError = (error: unknown): boolean =>
+  isDomException(error) && error.name === 'TypeMismatchError';
 
 const throwNotFound = (path: string, syscall: string, error: unknown): never => {
   throw createFsError('ENOENT', path, syscall, error);
@@ -244,9 +249,10 @@ export class FileSystemAccessFs {
         const file = await fileHandle.getFile();
         return createStat('file', file.size, file.lastModified);
       } catch (fileError) {
-        if (!isNotFoundError(fileError)) {
+        if (!isNotFoundError(fileError) && !isTypeMismatchError(fileError)) {
           throw fileError;
         }
+
         try {
           await dir.getDirectoryHandle(name);
           return createStat('dir', 0, Date.now());
