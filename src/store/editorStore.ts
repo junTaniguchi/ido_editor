@@ -2,13 +2,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { TabData, FileTreeItem, EditorSettings, PaneState, ContextMenuTarget, SearchSettings, AnalysisData, SqlResult, ChartSettings, SearchResult, SqlNotebookCell, SqlNotebookSnapshotMeta, MapSettings, MapBasemapOverlayState } from '@/types';
-
-const DEFAULT_MAP_BASEMAP_OVERLAYS: MapBasemapOverlayState = {
-  roads: true,
-  railways: false,
-  terrain: false,
-};
+import { TabData, FileTreeItem, EditorSettings, PaneState, ContextMenuTarget, SearchSettings, AnalysisData, SqlResult, ChartSettings, SearchResult, SqlNotebookCell, SqlNotebookSnapshotMeta } from '@/types';
 
 interface EditorStore {
   // タブ管理
@@ -68,8 +62,6 @@ interface EditorStore {
   setSqlResult: (result: SqlResult | null) => void;
   chartSettings: ChartSettings;
   updateChartSettings: (settings: Partial<ChartSettings>) => void;
-  mapSettings: MapSettings;
-  updateMapSettings: (settings: Partial<MapSettings>) => void;
   sqlNotebook: Record<string, SqlNotebookCell[]>;
   setSqlNotebook: (tabId: string, cells: SqlNotebookCell[]) => void;
   clearSqlNotebook: (tabId: string) => void;
@@ -263,20 +255,6 @@ export const useEditorStore = create<EditorStore>()(
       updateChartSettings: (settings) => set((state) => ({
         chartSettings: { ...state.chartSettings, ...settings }
       })),
-      mapSettings: {
-        dataSource: 'queryResult',
-        activeDataSourceIds: [],
-        layerSettings: {},
-        aggregation: 'sum',
-        pointRadius: 8,
-        columnRadius: 200,
-        elevationScale: 20,
-        basemap: 'osm-standard',
-        basemapOverlays: { ...DEFAULT_MAP_BASEMAP_OVERLAYS },
-      },
-      updateMapSettings: (settings) => set((state) => ({
-        mapSettings: { ...state.mapSettings, ...settings }
-      })),
       sqlNotebook: {},
       setSqlNotebook: (tabId, cells) => set((state) => ({
         sqlNotebook: { ...state.sqlNotebook, [tabId]: cells }
@@ -344,7 +322,6 @@ export const useEditorStore = create<EditorStore>()(
           searchSettings: state.searchSettings,
           analysisEnabled: state.analysisEnabled,
           chartSettings: state.chartSettings,
-          mapSettings: state.mapSettings,
           sqlNotebook: Object.keys(state.sqlNotebook || {}).reduce<Record<string, SqlNotebookCell[]>>((acc, key) => {
             const cells = state.sqlNotebook[key] || [];
             acc[key] = cells.map((cell) => ({
@@ -371,11 +348,18 @@ export const useEditorStore = create<EditorStore>()(
           if (tabsObj) {
             Object.keys(tabsObj).forEach(key => {
               const tabEntry = tabsObj[key];
-              if (tabEntry && tabEntry.type === 'json' && tabEntry.name?.toLowerCase().endsWith('.ipynb')) {
-                tabEntry.type = 'ipynb';
+              if (!tabEntry) {
+                return;
               }
-              if (tabEntry && tabEntry.type === 'text' && tabEntry.name?.toLowerCase().endsWith('.pdf')) {
+              const rawType = tabEntry.type as string;
+              if (rawType === 'json' && tabEntry.name?.toLowerCase().endsWith('.ipynb')) {
+                tabEntry.type = 'ipynb';
+              } else if (rawType === 'text' && tabEntry.name?.toLowerCase().endsWith('.pdf')) {
                 tabEntry.type = 'pdf';
+              } else if (rawType === 'geojson' || rawType === 'topojson') {
+                tabEntry.type = 'json';
+              } else if (rawType === 'wkt') {
+                tabEntry.type = 'text';
               }
               tabsMap.set(key, tabEntry);
             });
@@ -414,35 +398,6 @@ export const useEditorStore = create<EditorStore>()(
           }
           if (!state.sqlNotebookMeta) {
             state.sqlNotebookMeta = {};
-          }
-          if (!state.mapSettings) {
-            state.mapSettings = {
-              dataSource: 'queryResult',
-              activeDataSourceIds: [],
-              layerSettings: {},
-              aggregation: 'sum',
-              pointRadius: 8,
-              columnRadius: 200,
-              elevationScale: 20,
-              basemap: 'osm-standard',
-              basemapOverlays: { ...DEFAULT_MAP_BASEMAP_OVERLAYS },
-            };
-          } else {
-            if (!state.mapSettings.activeDataSourceIds) {
-              state.mapSettings.activeDataSourceIds = state.mapSettings.dataSource
-                ? [state.mapSettings.dataSource]
-                : [];
-            }
-            if (!state.mapSettings.layerSettings) {
-              state.mapSettings.layerSettings = {};
-            }
-          }
-          if (!state.mapSettings.basemap) {
-            state.mapSettings.basemap = 'osm-standard';
-          }
-
-          if (!state.mapSettings.basemapOverlays) {
-            state.mapSettings.basemapOverlays = { ...DEFAULT_MAP_BASEMAP_OVERLAYS };
           }
         }
       }

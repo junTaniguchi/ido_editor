@@ -255,7 +255,7 @@ const buildImageMarkdown = (fileName: string, altText: string) => {
 
 interface MarkdownEditorExtensionProps {
   tabId: string;
-  editorRef: React.RefObject<any>;
+  editorRef: React.RefObject<EditorRefValue | null>;
 }
 
 /**
