@@ -1,13 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, RefObject } from 'react';
+import type { EditorView } from '@codemirror/view';
 import { useEditorStore } from '@/store/editorStore';
 
-const useMarkdownShortcuts = (editorRef: RefObject<any>, tabId: string) => {
+const useMarkdownShortcuts = (editorRef: RefObject<EditorView | null>, tabId: string) => {
   const { tabs, updateTab } = useEditorStore();
   
   const insertMarkdown = useCallback((prefix: string, suffix: string, placeholder: string) => {
-    const editor = editorRef.current?.view;
+    const editor = editorRef.current;
     if (!editor) return;
     
     const selection = editor.state.sliceDoc(
@@ -46,7 +47,7 @@ const useMarkdownShortcuts = (editorRef: RefObject<any>, tabId: string) => {
     processFunc: (line: string, lineIndex: number) => string,
     defaultText: string = ''
   ) => {
-    const editor = editorRef.current?.view;
+    const editor = editorRef.current;
     if (!editor) return;
     
     const { from, to } = editor.state.selection.main;
@@ -143,7 +144,7 @@ const useMarkdownShortcuts = (editorRef: RefObject<any>, tabId: string) => {
   
   // 選択範囲の各行をコメントアウト/コメント解除
   const toggleComment = useCallback(() => {
-    const editor = editorRef.current?.view;
+    const editor = editorRef.current;
     if (!editor) return;
     
     const { from, to } = editor.state.selection.main;
@@ -200,7 +201,7 @@ const useMarkdownShortcuts = (editorRef: RefObject<any>, tabId: string) => {
   
   // 見出しの挿入
   const insertHeading = useCallback((level: number) => {
-    const editor = editorRef.current?.view;
+    const editor = editorRef.current;
     if (!editor) return;
     
     const { from, to } = editor.state.selection.main;
@@ -245,7 +246,7 @@ const useMarkdownShortcuts = (editorRef: RefObject<any>, tabId: string) => {
   
   // 引用の挿入
   const insertBlockquote = useCallback(() => {
-    const editor = editorRef.current?.view;
+    const editor = editorRef.current;
     if (!editor) return;
     
     const { from, to } = editor.state.selection.main;
@@ -288,7 +289,7 @@ const useMarkdownShortcuts = (editorRef: RefObject<any>, tabId: string) => {
   
   // テーブルの挿入
   const insertTable = useCallback((rows: number, cols: number, alignments: string[]) => {
-    const editor = editorRef.current?.view;
+    const editor = editorRef.current;
     if (!editor) return;
     
     // ヘッダー行を作成
@@ -334,7 +335,7 @@ const useMarkdownShortcuts = (editorRef: RefObject<any>, tabId: string) => {
   
   // テーブルの整形
   const formatTable = useCallback(() => {
-    const editor = editorRef.current?.view;
+    const editor = editorRef.current;
     if (!editor) return;
     
     const { from, to } = editor.state.selection.main;
@@ -568,7 +569,7 @@ const useMarkdownShortcuts = (editorRef: RefObject<any>, tabId: string) => {
     
     // Tab: インデント（選択範囲がある場合）
     if (e.key === 'Tab' && !e.shiftKey) {
-      const editor = editorRef.current?.view;
+      const editor = editorRef.current;
       if (editor && editor.state.selection.main.from !== editor.state.selection.main.to) {
         e.preventDefault();
         indentSelection();
@@ -577,7 +578,7 @@ const useMarkdownShortcuts = (editorRef: RefObject<any>, tabId: string) => {
     
     // Shift + Tab: アウトデント（選択範囲がある場合）
     if (e.key === 'Tab' && e.shiftKey) {
-      const editor = editorRef.current?.view;
+      const editor = editorRef.current;
       if (editor && editor.state.selection.main.from !== editor.state.selection.main.to) {
         e.preventDefault();
         outdentSelection();

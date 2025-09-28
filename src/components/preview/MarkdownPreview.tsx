@@ -25,8 +25,188 @@ export interface MarkdownPreviewProps {
   onScroll?: (e: React.UIEvent<HTMLDivElement>) => void;
 }
 
+const isAbsoluteUrl = (src: string) => /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(src);
+
+const resolveImagePathSegments = (tabPath: string, rawSrc: string): string[] | null => {
+  if (!rawSrc) return null;
+
+  const cleanedSrc = rawSrc.trim();
+  if (!cleanedSrc) return null;
+
+  const [pathPart] = cleanedSrc.split(/[?#]/);
+  const normalizedSrc = pathPart.replace(/\\/g, '/');
+  const baseSegments = tabPath.split('/').filter(Boolean);
+  if (baseSegments.length > 0) {
+    baseSegments.pop();
+  }
+
+  const appendDecoded = (segments: string[], value: string) => {
+    if (!value || value === '.') return;
+    if (value === '..') {
+      segments.pop();
+      return;
+    }
+    try {
+      segments.push(decodeURIComponent(value));
+    } catch {
+      segments.push(value);
+    }
+  };
+
+  if (normalizedSrc.startsWith('/')) {
+    const segments = normalizedSrc.split('/').filter(Boolean);
+    const decoded: string[] = [];
+    segments.forEach(segment => appendDecoded(decoded, segment));
+    return decoded.length > 0 ? decoded : null;
+  }
+
+  const targetSegments = [...baseSegments];
+  const parts = normalizedSrc.split('/');
+
+  for (const part of parts) {
+    if (!part || part === '.') {
+      continue;
+    }
+    if (part === '..') {
+      if (targetSegments.length > 0) {
+        targetSegments.pop();
+      }
+      continue;
+    }
+    appendDecoded(targetSegments, part);
+  }
+
+  return targetSegments.length > 0 ? targetSegments : null;
+};
+
+interface MarkdownPreviewImageProps extends React.ImgHTMLAttributes<HTMLImageElement> {
+  tabPath: string;
+  rootDirHandle: FileSystemDirectoryHandle | null;
+}
+
+const MarkdownPreviewImage: React.FC<MarkdownPreviewImageProps> = ({
+  tabPath,
+  rootDirHandle,
+  src,
+  alt,
+  title,
+  className,
+  ...rest
+}) => {
+  const [resolvedSrc, setResolvedSrc] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
+
+  const normalizedTabPath = useMemo(() => tabPath.replace(/\\/g, '/'), [tabPath]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const revokeObjectUrl = () => {
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
+    };
+
+    const loadImage = async () => {
+      if (!isActive) return;
+
+      revokeObjectUrl();
+      setLoading(true);
+      setError(null);
+      setResolvedSrc(null);
+
+      if (!src) {
+        setLoading(false);
+        setError('画像のパスが不正です。');
+        return;
+      }
+
+      if (isAbsoluteUrl(src)) {
+        if (!isActive) return;
+        setResolvedSrc(src);
+        setLoading(false);
+        return;
+      }
+
+      if (!rootDirHandle) {
+        setLoading(false);
+        setError('画像を表示するにはフォルダを開いてください。');
+        return;
+      }
+
+      if (!normalizedTabPath || normalizedTabPath.startsWith('temp_') || normalizedTabPath.startsWith('clipboard_')) {
+        setLoading(false);
+        setError('画像を表示するにはファイルを保存してください。');
+        return;
+      }
+
+      const pathSegments = resolveImagePathSegments(normalizedTabPath, src);
+      if (!pathSegments) {
+        setLoading(false);
+        setError('画像の場所を特定できませんでした。');
+        return;
+      }
+
+      try {
+        let directoryHandle: FileSystemDirectoryHandle = rootDirHandle;
+        for (let index = 0; index < pathSegments.length - 1; index += 1) {
+          directoryHandle = await directoryHandle.getDirectoryHandle(pathSegments[index]);
+        }
+        const fileHandle = await directoryHandle.getFileHandle(pathSegments[pathSegments.length - 1]);
+        const file = await fileHandle.getFile();
+        const objectUrl = URL.createObjectURL(file);
+
+        if (!isActive) {
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
+
+        objectUrlRef.current = objectUrl;
+        setResolvedSrc(objectUrl);
+        setLoading(false);
+      } catch (err) {
+        console.error('Failed to load markdown preview image:', err);
+        revokeObjectUrl();
+
+        if (!isActive) return;
+
+        if (err instanceof DOMException && err.name === 'NotFoundError') {
+          setError('画像ファイルが見つかりませんでした。');
+        } else {
+          setError('画像を読み込めませんでした。');
+        }
+        setLoading(false);
+      }
+    };
+
+    loadImage();
+
+    return () => {
+      isActive = false;
+      revokeObjectUrl();
+    };
+  }, [src, normalizedTabPath, rootDirHandle]);
+
+  if (resolvedSrc) {
+    return <img src={resolvedSrc} alt={alt ?? ''} title={title} className={className ?? 'max-w-full'} {...rest} />;
+  }
+
+  if (loading) {
+    return <span className="text-xs text-gray-500 italic">画像を読み込み中...</span>;
+  }
+
+  if (error) {
+    return <span className="text-xs text-red-500 italic">{error}</span>;
+  }
+
+  return null;
+};
+
 const MarkdownPreview = forwardRef<HTMLDivElement, MarkdownPreviewProps>(({ tabId, onScroll }, ref) => {
-  const { tabs, editorSettings } = useEditorStore();
+  const { tabs, editorSettings, rootDirHandle } = useEditorStore();
   const fontSize = editorSettings.fontSize || 16;
   const [markdown, setMarkdown] = useState('');
   const [showToc, setShowToc] = useState(true);
@@ -148,6 +328,16 @@ const MarkdownPreview = forwardRef<HTMLDivElement, MarkdownPreviewProps>(({ tabI
   };
 
   // JSX全体をreturn
+  const currentTab = tabs.get(tabId);
+  const imageBasePath = useMemo(() => {
+    const identifier = currentTab?.id ? currentTab.id.replace(/\\/g, '/') : '';
+    if (!identifier) return '';
+    if (identifier.startsWith('temp_') || identifier.startsWith('clipboard_')) {
+      return '';
+    }
+    return identifier;
+  }, [currentTab?.id]);
+
   return (
     <div className="h-full flex">
       {/* 目次サイドバー */}
@@ -299,6 +489,13 @@ const MarkdownPreview = forwardRef<HTMLDivElement, MarkdownPreviewProps>(({ tabI
                   <div className="overflow-x-auto my-4">
                     <table {...props}>{children}</table>
                   </div>
+                ),
+                img: ({ node, ...props }) => (
+                  <MarkdownPreviewImage
+                    {...props}
+                    tabPath={imageBasePath}
+                    rootDirHandle={rootDirHandle}
+                  />
                 ),
                 h1: ({ children, ...props }) => {
                   const text = Array.isArray(children) ? children.join('') : children?.toString() || '';

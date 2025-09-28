@@ -11,9 +11,10 @@
 'use client';
 
 import React, { useEffect, useState, useRef, forwardRef, useCallback } from 'react';
+import type { EditorView } from '@codemirror/view';
 import CodeMirror from '@uiw/react-codemirror';
 import { useEditorStore } from '@/store/editorStore';
-import { getLanguageByFileName, getTheme, getEditorExtensions } from '@/lib/editorUtils';
+import { getLanguageByFileName, getTheme, getEditorExtensions, getFileType } from '@/lib/editorUtils';
 import { TabData } from '@/types';
 import { IoCodeSlash, IoEye, IoAnalytics, IoSave, IoGrid, IoDownload } from 'react-icons/io5';
 import DataPreview from '@/components/preview/DataPreview';
@@ -24,6 +25,49 @@ import MarkdownEditorExtension from '@/components/markdown/MarkdownEditorExtensi
 import ExportModal from '@/components/preview/ExportModal';
 import { parseCSV, parseJSON, parseYAML, parseParquet } from '@/lib/dataPreviewUtils';
 import { writeFileContent } from '@/lib/fileSystemUtils';
+
+const SUPPORTED_PASTED_FILE_TYPES = new Set<TabData['type']>([
+  'text',
+  'markdown',
+  'html',
+  'json',
+  'yaml',
+  'sql',
+  'csv',
+  'tsv',
+  'parquet',
+  'mermaid',
+  'excel',
+  'ipynb',
+  'pdf',
+]);
+
+const MIME_FALLBACK_EXTENSION: Record<string, string> = {
+  'text/plain': 'txt',
+  'text/markdown': 'md',
+  'text/html': 'html',
+  'application/json': 'json',
+  'text/csv': 'csv',
+  'text/tab-separated-values': 'tsv',
+  'application/pdf': 'pdf',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.ms-excel': 'xls',
+};
+
+const ensureNamedFile = (file: File, index: number, timestamp: number): File => {
+  if (file.name && file.name.trim()) {
+    return file;
+  }
+
+  const extension = MIME_FALLBACK_EXTENSION[file.type] || 'txt';
+  const generatedName = `clipboard-file-${timestamp}-${index}.${extension}`;
+  const options: FilePropertyBag = {
+    type: file.type || 'application/octet-stream',
+    lastModified: file.lastModified || Date.now(),
+  };
+
+  return new File([file], generatedName, options);
+};
 
 export interface EditorProps {
   tabId: string;
@@ -57,7 +101,7 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
   const [isInitialized, setIsInitialized] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [parsedDataForExport, setParsedDataForExport] = useState<any[] | null>(null);
-  const editorRef = useRef(null);
+  const editorRef = useRef<EditorView | null>(null);
   // CodeMirrorのscroller要素をrefで取得
   const codeMirrorScrollerRef = useRef<HTMLDivElement | null>(null);
   const saveShortcutHandlerRef = useRef<() => void>(() => {});
@@ -80,7 +124,7 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
   }, [editorSettings.theme]);
   
   const viewMode = getViewMode(tabId);
-  
+
   // 初期化時にタブデータを設定
   useEffect(() => {
     const tab = tabs.get(tabId);
@@ -90,11 +134,136 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
       setIsInitialized(true);
     }
   }, [tabId, tabs]);
-  
+
+  useEffect(() => {
+    let disposed = false;
+    let cleanup: (() => void) | null = null;
+
+    if (viewMode !== 'editor' && viewMode !== 'split') {
+      editorRef.current = null;
+      return () => {
+        disposed = true;
+        if (cleanup) {
+          cleanup();
+        }
+      };
+    }
+
+    const attachPasteHandler = () => {
+      if (disposed) return;
+      const editorInstance = editorRef.current;
+      if (!editorInstance) {
+        requestAnimationFrame(attachPasteHandler);
+        return;
+      }
+
+      const handleFilePaste = (event: ClipboardEvent) => {
+        if (event.defaultPrevented) return;
+        if (!event.clipboardData) return;
+
+        const files = Array.from(event.clipboardData.files || []);
+        if (files.length === 0) return;
+
+        const hasImages = files.some(file => file.type.startsWith('image/'));
+        if (hasImages) {
+          return;
+        }
+
+        const timestamp = Date.now();
+        const normalizedFiles = files.map((file, index) => ensureNamedFile(file, index, timestamp));
+        const supportedFiles = normalizedFiles.filter(file => SUPPORTED_PASTED_FILE_TYPES.has(getFileType(file.name)));
+
+        if (supportedFiles.length === 0) {
+          return;
+        }
+
+        event.preventDefault();
+
+        void (async () => {
+          const state = useEditorStore.getState();
+          const baseId = Date.now();
+
+          for (let index = 0; index < supportedFiles.length; index += 1) {
+            const file = supportedFiles[index];
+            const fileType = getFileType(file.name);
+
+            let content = '';
+            try {
+              if (fileType === 'excel') {
+                content = '';
+              } else if (fileType === 'pdf') {
+                content = URL.createObjectURL(file);
+              } else {
+                content = await file.text();
+              }
+            } catch (error) {
+              console.error('Failed to read pasted file:', error);
+              alert(`ファイルの読み込みに失敗しました: ${file.name}`);
+              continue;
+            }
+
+            const existingEntry = Array.from(state.tabs.entries()).find(([, tab]) => {
+              if (tab.file instanceof File) {
+                return (
+                  tab.file.name === file.name &&
+                  tab.file.size === file.size &&
+                  tab.file.lastModified === file.lastModified
+                );
+              }
+              return false;
+            });
+
+            if (existingEntry) {
+              const [existingId] = existingEntry;
+              state.setActiveTabId(existingId);
+              state.updateTab(existingId, {
+                content,
+                originalContent: content,
+                isDirty: false,
+                file,
+                type: fileType,
+              });
+              continue;
+            }
+
+            const generatedId = `clipboard_${baseId}_${index}_${Math.random().toString(36).slice(2, 8)}`;
+            const newTab: TabData = {
+              id: generatedId,
+              name: file.name,
+              content,
+              originalContent: content,
+              isDirty: false,
+              type: fileType,
+              isReadOnly: false,
+              file,
+            };
+
+            state.addTab(newTab);
+          }
+        })();
+      };
+
+      editorInstance.contentDOM.addEventListener('paste', handleFilePaste);
+      cleanup = () => {
+        editorInstance.contentDOM.removeEventListener('paste', handleFilePaste);
+      };
+    };
+
+    attachPasteHandler();
+
+    return () => {
+      disposed = true;
+      if (cleanup) {
+        cleanup();
+      }
+      editorRef.current = null;
+    };
+  }, [tabId, viewMode]);
+
   // エディタの変更処理
   const handleChange = (value: string) => {
     if (!currentTab) return;
-    
+
     // 内容が変更されたかチェック
     const newIsDirty = value !== currentTab.originalContent;
     
@@ -411,6 +580,7 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
               }}
               // CodeMirrorのscroller要素にrefを付与
               onCreateEditor={editor => {
+                editorRef.current = editor;
                 // CodeMirror v6: scroller要素は editor.contentDOM.parentElement
                 if (editor && editor.contentDOM && editor.contentDOM.parentElement) {
                   codeMirrorScrollerRef.current = editor.contentDOM.parentElement as HTMLDivElement;
