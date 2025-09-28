@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { IoMenu, IoSunny, IoMoon, IoSearch, IoAddOutline, IoGitMergeOutline } from 'react-icons/io5';
+import { IoMenu, IoSunny, IoMoon, IoSearch, IoAddOutline, IoGitMergeOutline, IoGitBranchOutline } from 'react-icons/io5';
 
 interface MainHeaderProps {
   onToggleExplorer: () => void;
@@ -15,6 +15,8 @@ interface MainHeaderProps {
   multiFileAnalysisEnabled: boolean;
   onToggleMultiFileAnalysis: () => void;
   selectedFileCount: number;
+  onToggleGit: () => void;
+  isGitPaneVisible: boolean;
 }
 
 const MainHeader: React.FC<MainHeaderProps> = ({
@@ -29,6 +31,8 @@ const MainHeader: React.FC<MainHeaderProps> = ({
   multiFileAnalysisEnabled,
   onToggleMultiFileAnalysis,
   selectedFileCount,
+  onToggleGit,
+  isGitPaneVisible,
 }) => {
   const isDark = theme === 'dark';
 
@@ -82,6 +86,16 @@ const MainHeader: React.FC<MainHeaderProps> = ({
         aria-label="Toggle Search"
       >
         <IoSearch size={20} />
+      </button>
+      <button
+        className={`p-1 rounded ml-2 ${
+          isGitPaneVisible ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-200 dark:hover:bg-gray-800'
+        }`}
+        onClick={onToggleGit}
+        aria-label="Toggle Git Panel"
+        title={`Gitパネル ${isGitPaneVisible ? '表示中' : '非表示'}`}
+      >
+        <IoGitBranchOutline size={20} />
       </button>
       <button
         className={`p-1 rounded ml-2 relative ${

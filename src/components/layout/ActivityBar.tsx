@@ -1,0 +1,43 @@
+'use client';
+
+import React from 'react';
+import { IoFolderOpenOutline, IoGitBranchOutline } from 'react-icons/io5';
+
+type ActivityItem = 'explorer' | 'git';
+
+interface ActivityBarProps {
+  activeItem: ActivityItem | null;
+  onSelect: (item: ActivityItem) => void;
+}
+
+const ActivityBar: React.FC<ActivityBarProps> = ({ activeItem, onSelect }) => {
+  const baseButton =
+    'w-10 h-10 flex items-center justify-center rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500';
+  const inactiveClass = 'text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-800';
+  const activeClass = 'bg-blue-100 text-blue-600 dark:bg-blue-600/20 dark:text-blue-200';
+
+  return (
+    <nav className="flex w-12 flex-col items-center border-r border-gray-200 bg-gray-100 py-2 dark:border-gray-800 dark:bg-slate-950">
+      <button
+        type="button"
+        className={`${baseButton} ${activeItem === 'explorer' ? activeClass : inactiveClass}`}
+        onClick={() => onSelect('explorer')}
+        title="エクスプローラ"
+        aria-pressed={activeItem === 'explorer'}
+      >
+        <IoFolderOpenOutline size={20} />
+      </button>
+      <button
+        type="button"
+        className={`${baseButton} mt-2 ${activeItem === 'git' ? activeClass : inactiveClass}`}
+        onClick={() => onSelect('git')}
+        title="Git"
+        aria-pressed={activeItem === 'git'}
+      >
+        <IoGitBranchOutline size={20} />
+      </button>
+    </nav>
+  );
+};
+
+export default ActivityBar;

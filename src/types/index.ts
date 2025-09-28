@@ -5,7 +5,24 @@ export interface TabData {
   content: string;
   originalContent: string;
   isDirty: boolean;
-  type: 'text' | 'markdown' | 'md' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' | 'mmd' | 'excel' | 'pdf' | 'ipynb';
+  type:
+    | 'text'
+    | 'markdown'
+    | 'md'
+    | 'html'
+    | 'json'
+    | 'yaml'
+    | 'sql'
+    | 'csv'
+    | 'tsv'
+    | 'parquet'
+    | 'mermaid'
+    | 'mmd'
+    | 'excel'
+    | 'pdf'
+    | 'ipynb'
+    | 'git-history'
+    | 'git-diff';
   isReadOnly: boolean;
   file?: FileSystemFileHandle | File;
 }
@@ -32,12 +49,14 @@ export interface EditorSettings {
 
 // パネル表示状態に関する型定義
 export interface PaneState {
+  activeSidebar: 'explorer' | 'git' | null;
   isExplorerVisible: boolean;
   isEditorVisible: boolean;
   isPreviewVisible: boolean;
   isTocVisible: boolean;
   isSearchVisible: boolean;
   isAnalysisVisible: boolean;
+  isGitVisible: boolean;
 }
 
 // コンテキストメニューに関する型定義

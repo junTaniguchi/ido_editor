@@ -2,8 +2,10 @@
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { PaneState, TabData } from '@/types';
+import { useEditorStore } from '@/store/editorStore';
 import FileExplorer from '@/components/explorer/FileExplorer';
 import SearchPanel from '@/components/search/SearchPanel';
+import GitPanel from '@/components/git/GitPanel';
 import MultiFileAnalysis from '@/components/analysis/MultiFileAnalysis';
 import DataAnalysis from '@/components/analysis/DataAnalysis';
 import Editor from '@/components/editor/Editor';
@@ -11,6 +13,9 @@ import MarkdownPreview from '@/components/preview/MarkdownPreview';
 import DataPreview from '@/components/preview/DataPreview';
 import HtmlPreview from '@/components/preview/HtmlPreview';
 import MermaidPreview from '@/components/preview/MermaidPreview';
+import ActivityBar from '@/components/layout/ActivityBar';
+import GitHistoryView from '@/components/git/GitHistoryView';
+import GitDiffView from '@/components/git/GitDiffView';
 
 interface WorkspaceProps {
   paneState: PaneState;
@@ -29,9 +34,40 @@ const Workspace: React.FC<WorkspaceProps> = ({
   multiFileAnalysisEnabled,
   onCloseMultiFileAnalysis,
 }) => {
+  const updatePaneState = useEditorStore((state) => state.updatePaneState);
   const editorRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const [isScrollSyncEnabled, setIsScrollSyncEnabled] = useState(false);
+
+  const activeSidebar = useMemo(() => {
+    if (paneState.activeSidebar !== undefined && paneState.activeSidebar !== null) {
+      return paneState.activeSidebar;
+    }
+    if (paneState.isExplorerVisible) {
+      return 'explorer';
+    }
+    if (paneState.isGitVisible) {
+      return 'git';
+    }
+    return null;
+  }, [paneState.activeSidebar, paneState.isExplorerVisible, paneState.isGitVisible]);
+
+  const showExplorer = activeSidebar === 'explorer';
+  const showGitSidebar = activeSidebar === 'git';
+
+  const handleSidebarSelect = useCallback(
+    (sidebar: 'explorer' | 'git') => {
+      const isActive = activeSidebar === sidebar;
+      updatePaneState({
+        activeSidebar: isActive ? null : sidebar,
+        isExplorerVisible: sidebar === 'explorer' ? !isActive : false,
+        isGitVisible: sidebar === 'git' ? !isActive : false,
+      });
+    },
+    [activeSidebar, updatePaneState]
+  );
+
+  const showSearchPanel = paneState.isSearchVisible;
 
   const {
     isMarkdown,
@@ -111,6 +147,11 @@ const Workspace: React.FC<WorkspaceProps> = ({
               <SearchPanel />
             </div>
           )}
+          {paneState.isGitVisible && (
+            <div className="w-96 flex-shrink-0">
+              <GitPanel />
+            </div>
+          )}
           <div className="w-full h-full overflow-hidden">
             <MultiFileAnalysis onClose={onCloseMultiFileAnalysis} />
           </div>
@@ -127,10 +168,22 @@ const Workspace: React.FC<WorkspaceProps> = ({
             <FileExplorer />
           </div>
         )}
-        <div className="flex-1 flex items-center justify-center text-gray-500">
-          <div className="text-center">
-            <p className="mb-4">ファイルが開かれていません</p>
-            <p className="text-sm">エクスプローラからファイルを選択してください</p>
+        <div className="flex-1 flex overflow-hidden">
+          {paneState.isSearchVisible && (
+            <div className="w-80 flex-shrink-0">
+              <SearchPanel />
+            </div>
+          )}
+          {paneState.isGitVisible && (
+            <div className="w-96 flex-shrink-0">
+              <GitPanel />
+            </div>
+          )}
+          <div className="flex-1 flex items-center justify-center text-gray-500">
+            <div className="text-center">
+              <p className="mb-4">ファイルが開かれていません</p>
+              <p className="text-sm">エクスプローラからファイルを選択してください</p>
+            </div>
           </div>
         </div>
       </div>
@@ -149,6 +202,11 @@ const Workspace: React.FC<WorkspaceProps> = ({
           {paneState.isSearchVisible && (
             <div className="w-80 flex-shrink-0">
               <SearchPanel />
+            </div>
+          )}
+          {paneState.isGitVisible && (
+            <div className="w-96 flex-shrink-0">
+              <GitPanel />
             </div>
           )}
           <div className="w-full h-full overflow-hidden">
@@ -278,21 +336,66 @@ const Workspace: React.FC<WorkspaceProps> = ({
     );
   };
 
+  const renderMainContent = () => {
+    if (multiFileAnalysisEnabled) {
+      return (
+        <div className="w-full h-full overflow-hidden">
+          <MultiFileAnalysis onClose={onCloseMultiFileAnalysis} />
+        </div>
+      );
+    }
+
+    if (!activeTabId || !activeTab) {
+      return (
+        <div className="flex h-full items-center justify-center text-gray-500">
+          <div className="text-center">
+            <p className="mb-4">ファイルが開かれていません</p>
+            <p className="text-sm">エクスプローラからファイルを選択してください</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (activeTab.type === 'git-history') {
+      return <GitHistoryView tab={activeTab} />;
+    }
+
+    if (activeTab.type === 'git-diff') {
+      return <GitDiffView tab={activeTab} />;
+    }
+
+    if (isDataAnalyzable && paneState.isAnalysisVisible) {
+      return (
+        <div className="w-full h-full overflow-hidden">
+          <DataAnalysis tabId={activeTabId} />
+        </div>
+      );
+    }
+
+    return renderContent();
+  };
+
   return (
     <div className="flex flex-1 overflow-hidden bg-white dark:bg-gray-900">
-      {paneState.isExplorerVisible && (
-        <div className="w-64 flex-shrink-0">
+      <ActivityBar activeItem={activeSidebar} onSelect={handleSidebarSelect} />
+      {showExplorer && (
+        <div className="w-64 flex-shrink-0 border-r border-gray-200 dark:border-gray-800">
           <FileExplorer />
         </div>
       )}
+      {showGitSidebar && (
+        <div className="w-96 flex-shrink-0 border-r border-gray-200 dark:border-gray-800">
+          <GitPanel />
+        </div>
+      )}
       <div className="flex-1 flex overflow-hidden">
-        {paneState.isSearchVisible && (
-          <div className="w-80 flex-shrink-0">
+        {showSearchPanel && (
+          <div className="w-80 flex-shrink-0 border-r border-gray-200 dark:border-gray-800">
             <SearchPanel />
           </div>
         )}
-        <div className="w-full h-full overflow-hidden">
-          {renderContent()}
+        <div className="flex-1 h-full overflow-hidden">
+          {renderMainContent()}
         </div>
       </div>
     </div>

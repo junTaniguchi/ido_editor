@@ -197,12 +197,14 @@ export const useEditorStore = create<EditorStore>()(
       
       // パネル表示状態
       paneState: {
+        activeSidebar: 'explorer',
         isExplorerVisible: true,
         isEditorVisible: true,
         isPreviewVisible: true,
         isTocVisible: true,
         isSearchVisible: false,
         isAnalysisVisible: false,
+        isGitVisible: false,
       },
       updatePaneState: (state) => set((prevState) => ({
         paneState: { ...prevState.paneState, ...state }
@@ -398,6 +400,30 @@ export const useEditorStore = create<EditorStore>()(
           }
           if (!state.sqlNotebookMeta) {
             state.sqlNotebookMeta = {};
+          }
+          if (!state.paneState) {
+            state.paneState = {
+              activeSidebar: 'explorer',
+              isExplorerVisible: true,
+              isEditorVisible: true,
+              isPreviewVisible: true,
+              isTocVisible: true,
+              isSearchVisible: false,
+              isAnalysisVisible: false,
+              isGitVisible: false,
+            };
+          } else {
+            if (typeof state.paneState.activeSidebar === 'undefined') {
+              const inferredSidebar = state.paneState.isExplorerVisible
+                ? 'explorer'
+                : state.paneState.isGitVisible
+                  ? 'git'
+                  : null;
+              state.paneState = { ...state.paneState, activeSidebar: inferredSidebar };
+            }
+            if (typeof state.paneState.isGitVisible !== 'boolean') {
+              state.paneState = { ...state.paneState, isGitVisible: false };
+            }
           }
         }
       }
