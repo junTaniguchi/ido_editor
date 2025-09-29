@@ -168,6 +168,7 @@ const GitHistoryView: React.FC<GitHistoryViewProps> = ({ tab }) => {
           comparisonLabel: '作業ツリー',
           commit,
           diff,
+          historyTabId: tab.id,
         };
         const serialized = JSON.stringify(payload);
         const tabId = `git-diff:${historyData.filePath}:${commit.oid}`;
@@ -209,6 +210,7 @@ const GitHistoryView: React.FC<GitHistoryViewProps> = ({ tab }) => {
       historyData.filePath,
       isBusy,
       setActiveTabId,
+      tab.id,
       updateTab,
     ]
   );
@@ -233,6 +235,7 @@ const GitHistoryView: React.FC<GitHistoryViewProps> = ({ tab }) => {
         comparisonLabel: null as string | null,
         commit: selectedPair.target,
         diff,
+        historyTabId: tab.id,
       };
       const serialized = JSON.stringify(payload);
       const tabId = `git-diff:${historyData.filePath}:${selectedPair.base.oid}:${selectedPair.target.oid}`;
@@ -273,6 +276,7 @@ const GitHistoryView: React.FC<GitHistoryViewProps> = ({ tab }) => {
     isBusy,
     selectedPair,
     setActiveTabId,
+    tab.id,
     updateTab,
   ]);
 
