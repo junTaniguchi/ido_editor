@@ -43,6 +43,7 @@ interface GitStoreState {
   commit: (message: string) => Promise<void>;
   checkoutBranch: (branch: string) => Promise<void>;
   createBranch: (branch: string, checkout?: boolean) => Promise<void>;
+  pullRepository: () => Promise<void>;
   setAuthorName: (name: string) => void;
   setAuthorEmail: (email: string) => void;
   getFileHistory: (filepath: string) => Promise<GitCommitEntry[]>;
@@ -95,11 +96,21 @@ type GitModule = typeof import('isomorphic-git');
 
 let gitModule: GitModule | null = null;
 
+let gitHttpClient: any | null = null;
+
 const loadGit = async (): Promise<GitModule> => {
   if (!gitModule) {
     gitModule = await import('isomorphic-git');
   }
   return gitModule;
+};
+
+const loadGitHttpClient = async () => {
+  if (!gitHttpClient) {
+    const httpModule = await import('isomorphic-git/http/web');
+    gitHttpClient = (httpModule as { default?: any }).default ?? httpModule;
+  }
+  return gitHttpClient;
 };
 
 export const useGitStore = create<GitStoreState>((set, get) => ({
@@ -380,6 +391,43 @@ export const useGitStore = create<GitStoreState>((set, get) => ({
     });
   },
 
+  pullRepository: async () => {
+    const state = get();
+    await withFs(state, async ({ fs }) => {
+      set({ loading: true, error: null });
+      try {
+        const git = await loadGit();
+        const http = await loadGitHttpClient();
+
+        const remotes = await git.listRemotes({ fs, dir: '/' });
+        if (!remotes || remotes.length === 0) {
+          throw new Error('リモートリポジトリが設定されていません。');
+        }
+
+        const defaultRemote = remotes.find((remote) => remote.remote === 'origin') ?? remotes[0];
+        const currentBranch =
+          state.currentBranch ?? (await git.currentBranch({ fs, dir: '/', fullname: false })) ?? 'main';
+
+        await git.pull({
+          fs,
+          http,
+          dir: '/',
+          remote: defaultRemote.remote,
+          ref: currentBranch,
+          singleBranch: true,
+          corsProxy: 'https://cors.isomorphic-git.org',
+        });
+
+        await get().refreshRepository();
+      } catch (error) {
+        set({
+          loading: false,
+          error: error instanceof Error ? error.message : 'リモートからの取得に失敗しました',
+        });
+      }
+    });
+  },
+
   getFileHistory: async (filepath) => {
     const state = get();
     return withFs(state, async ({ fs }) => {
@@ -547,8 +595,7 @@ export const useGitStore = create<GitStoreState>((set, get) => ({
       const adapter = new FileSystemAccessFs(repoHandle);
       const fs = adapter.getFs();
       const git = await loadGit();
-      const httpModule = await import('isomorphic-git/http/web');
-      const http = (httpModule as { default?: any }).default ?? httpModule;
+      const http = await loadGitHttpClient();
 
       await git.clone({
         fs,

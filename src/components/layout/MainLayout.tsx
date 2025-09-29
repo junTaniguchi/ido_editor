@@ -20,6 +20,7 @@ import { getMermaidTemplate } from '@/lib/mermaid/diagramDefinitions';
 import { TabData } from '@/types';
 import type { MermaidDiagramType } from '@/lib/mermaid/types';
 import GitCloneDialog from '@/components/git/GitCloneDialog';
+import LoadingOverlay from '@/components/layout/LoadingOverlay';
 
 const MainLayout = () => {
   const {
@@ -55,6 +56,7 @@ const MainLayout = () => {
   } | null>(null);
 
   const cloneRepository = useGitStore((state) => state.cloneRepository);
+  const gitLoading = useGitStore((state) => state.loading);
 
   const activeTab = activeTabId ? tabs.get(activeTabId) : null;
   const activeTabViewMode = activeTabId ? getViewMode(activeTabId) : 'editor';
@@ -281,6 +283,16 @@ const MainLayout = () => {
     [addTab, addTempTab, pendingMermaidFile],
   );
 
+  const loadingMessage = useMemo(() => {
+    if (isCloningRepo) {
+      return 'Gitリポジトリをクローンしています…';
+    }
+    if (gitLoading) {
+      return 'Gitリポジトリを更新しています…';
+    }
+    return undefined;
+  }, [gitLoading, isCloningRepo]);
+
   const canToggleViewMode = useMemo(() => {
     return Boolean(activeTab && (fileTypeFlags.isPreviewableSpecialType || fileTypeFlags.isDataPreviewable));
   }, [activeTab, fileTypeFlags.isDataPreviewable, fileTypeFlags.isPreviewableSpecialType]);
@@ -490,6 +502,8 @@ const MainLayout = () => {
           errorMessage={gitCloneError ?? undefined}
         />
       )}
+
+      <LoadingOverlay visible={gitLoading || isCloningRepo} message={loadingMessage} />
     </div>
   );
 };
