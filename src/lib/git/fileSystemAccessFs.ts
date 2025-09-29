@@ -73,6 +73,9 @@ const isNotFoundError = (error: unknown): boolean =>
 const isTypeMismatchError = (error: unknown): boolean =>
   isDomException(error) && error.name === 'TypeMismatchError';
 
+const isInvalidStateError = (error: unknown): boolean =>
+  isDomException(error) && error.name === 'InvalidStateError';
+
 const throwNotFound = (path: string, syscall: string, error: unknown): never => {
   throw createFsError('ENOENT', path, syscall, error);
 };
@@ -119,17 +122,25 @@ export class FileSystemAccessFs {
     syscall: string,
     action: () => Promise<T>
   ): Promise<T> {
-    try {
-      return await action();
-    } catch (error) {
-      if (isNotFoundError(error)) {
-        throwNotFound(path, syscall, error);
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        return await action();
+      } catch (error) {
+        lastError = error;
+        if (!isInvalidStateError(error)) {
+          break;
+        }
       }
-      if (error instanceof Error) {
-        throw error;
-      }
-      throw new Error(String(error));
     }
+
+    if (isNotFoundError(lastError)) {
+      throwNotFound(path, syscall, lastError);
+    }
+    if (lastError instanceof Error) {
+      throw lastError;
+    }
+    throw new Error(String(lastError));
   }
 
   private split(path: string): string[] {
