@@ -13,6 +13,12 @@ const nextConfig: NextConfig = {
       stream: false,
     };
 
+    // PDF.js workerを静的アセットとして扱う
+    config.module.rules.push({
+      test: /pdf\.worker\.(min\.)?m?js$/,
+      type: 'asset/resource',
+    });
+
     // Mermaidの最適化設定
     if (!isServer) {
       config.optimization = {
