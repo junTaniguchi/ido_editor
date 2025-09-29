@@ -22,7 +22,8 @@ export interface TabData {
     | 'pdf'
     | 'ipynb'
     | 'git-history'
-    | 'git-diff';
+    | 'git-diff'
+    | 'git-commit-diff';
   isReadOnly: boolean;
   file?: FileSystemFileHandle | File;
 }

@@ -49,6 +49,11 @@ interface GitStoreState {
   getFileHistory: (filepath: string) => Promise<GitCommitEntry[]>;
   getDiffAgainstWorkingTree: (filepath: string, oid: string) => Promise<string>;
   getDiffBetweenCommits: (filepath: string, baseOid: string, targetOid: string) => Promise<string>;
+  getCommitDiff: (oid: string) => Promise<{
+    commit: GitCommitEntry | null;
+    parentCommit: GitCommitEntry | null;
+    files: { filePath: string; diff: string }[];
+  }>;
   restoreFileToCommit: (filepath: string, oid: string) => Promise<string | null>;
   cloneRepository: (options: {
     url: string;
@@ -512,6 +517,85 @@ export const useGitStore = create<GitStoreState>((set, get) => ({
         );
       } catch (error) {
         throw error instanceof Error ? error : new Error('差分の取得に失敗しました');
+      }
+    });
+  },
+
+  getCommitDiff: async (oid) => {
+    const state = get();
+    return withFs(state, async ({ fs }) => {
+      try {
+        const git = await loadGit();
+        const commitResult = await git.readCommit({ fs, dir: '/', oid });
+        const commitEntry = formatCommits([commitResult])[0] ?? null;
+        let parentCommitEntry: GitCommitEntry | null = null;
+        let parentOid = commitResult.commit.parent?.[0] ?? null;
+
+        if (parentOid) {
+          try {
+            const parentResult = await git.readCommit({ fs, dir: '/', oid: parentOid });
+            parentCommitEntry = formatCommits([parentResult])[0] ?? null;
+          } catch (error) {
+            if ((error as any)?.code === 'NotFoundError') {
+              parentOid = null;
+            } else {
+              throw error;
+            }
+          }
+        }
+
+        const fileSet = new Set<string>();
+        const currentFiles = await git.listFiles({ fs, dir: '/', ref: oid }).catch(() => [] as string[]);
+        currentFiles.forEach((file) => fileSet.add(file));
+
+        if (parentOid) {
+          const parentFiles = await git.listFiles({ fs, dir: '/', ref: parentOid }).catch(() => [] as string[]);
+          parentFiles.forEach((file) => fileSet.add(file));
+        }
+
+        const readBlobSafely = async (targetOid: string | null, filepath: string): Promise<string> => {
+          if (!targetOid) {
+            return '';
+          }
+          try {
+            const { blob } = await git.readBlob({ fs, dir: '/', oid: targetOid, filepath });
+            return textDecoder.decode(blob);
+          } catch (error) {
+            if ((error as any)?.code === 'NotFoundError') {
+              return '';
+            }
+            throw error;
+          }
+        };
+
+        const files: { filePath: string; diff: string }[] = [];
+        const sortedFiles = Array.from(fileSet).sort((a, b) => a.localeCompare(b));
+
+        for (const filePath of sortedFiles) {
+          const [baseContent, targetContent] = await Promise.all([
+            readBlobSafely(parentOid, filePath),
+            readBlobSafely(oid, filePath),
+          ]);
+
+          if (baseContent === targetContent) {
+            continue;
+          }
+
+          const baseLabel = parentOid
+            ? `${filePath}@${parentOid.slice(0, 7)}`
+            : `${filePath}@初期状態`;
+          const targetLabel = `${filePath}@${oid.slice(0, 7)}`;
+          const diff = createTwoFilesPatch(baseLabel, targetLabel, baseContent, targetContent);
+          files.push({ filePath, diff });
+        }
+
+        return {
+          commit: commitEntry,
+          parentCommit: parentCommitEntry,
+          files,
+        };
+      } catch (error) {
+        throw error instanceof Error ? error : new Error('コミット差分の取得に失敗しました');
       }
     });
   },

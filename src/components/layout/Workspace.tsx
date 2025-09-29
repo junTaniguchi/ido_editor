@@ -16,6 +16,7 @@ import MermaidPreview from '@/components/preview/MermaidPreview';
 import ActivityBar from '@/components/layout/ActivityBar';
 import GitHistoryView from '@/components/git/GitHistoryView';
 import GitDiffView from '@/components/git/GitDiffView';
+import GitCommitDiffView from '@/components/git/GitCommitDiffView';
 
 interface WorkspaceProps {
   paneState: PaneState;
@@ -278,6 +279,10 @@ const Workspace: React.FC<WorkspaceProps> = ({
 
     if (activeTab.type === 'git-diff') {
       return <GitDiffView tab={activeTab} />;
+    }
+
+    if (activeTab.type === 'git-commit-diff') {
+      return <GitCommitDiffView tab={activeTab} />;
     }
 
     if (isDataAnalyzable && paneState.isAnalysisVisible) {

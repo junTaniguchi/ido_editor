@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   IoGitBranchOutline,
   IoGitCommitOutline,
@@ -10,7 +10,8 @@ import {
   IoWarningOutline,
   IoCheckmarkCircle,
 } from 'react-icons/io5';
-import { useGitStore } from '@/store/gitStore';
+import { useGitStore, type GitCommitEntry } from '@/store/gitStore';
+import { useEditorStore } from '@/store/editorStore';
 
 const statusLabel = (status: string) => {
   switch (status) {
@@ -49,9 +50,16 @@ const GitPanel: React.FC = () => {
     checkoutBranch,
     createBranch,
     pullRepository,
+    getCommitDiff,
   } = useGitStore();
   const [commitMessage, setCommitMessage] = useState('');
   const [newBranchName, setNewBranchName] = useState('');
+  const [commitDiffLoadingOid, setCommitDiffLoadingOid] = useState<string | null>(null);
+
+  const addTab = useEditorStore((state) => state.addTab);
+  const updateTab = useEditorStore((state) => state.updateTab);
+  const getTab = useEditorStore((state) => state.getTab);
+  const setActiveTabId = useEditorStore((state) => state.setActiveTabId);
 
   const stagedEntries = useMemo(() => status.filter((entry) => entry.isStaged), [status]);
   const workingEntries = useMemo(
@@ -76,6 +84,48 @@ const GitPanel: React.FC = () => {
     await createBranch(newBranchName, true);
     setNewBranchName('');
   };
+
+  const handleOpenCommitDiff = useCallback(
+    async (commitEntry: GitCommitEntry) => {
+      if (commitDiffLoadingOid) {
+        return;
+      }
+      setCommitDiffLoadingOid(commitEntry.oid);
+      try {
+        const diff = await getCommitDiff(commitEntry.oid);
+        const payload = JSON.stringify(diff);
+        const tabId = `git-commit-diff:${commitEntry.oid}`;
+        const tabName = `コミット ${commitEntry.oid.slice(0, 7)}`;
+        const existing = getTab(tabId);
+        if (existing) {
+          updateTab(tabId, {
+            content: payload,
+            originalContent: payload,
+            isDirty: false,
+            type: 'git-commit-diff',
+            isReadOnly: true,
+          });
+          setActiveTabId(tabId);
+        } else {
+          addTab({
+            id: tabId,
+            name: tabName,
+            content: payload,
+            originalContent: payload,
+            isDirty: false,
+            type: 'git-commit-diff',
+            isReadOnly: true,
+          });
+        }
+      } catch (error) {
+        console.error('Failed to open commit diff:', error);
+        alert(`コミット差分の取得に失敗しました: ${error instanceof Error ? error.message : '不明なエラー'}`);
+      } finally {
+        setCommitDiffLoadingOid(null);
+      }
+    },
+    [addTab, commitDiffLoadingOid, getCommitDiff, getTab, setActiveTabId, updateTab],
+  );
 
   return (
     <div className="h-full flex flex-col overflow-hidden bg-white dark:bg-gray-900 border-l border-gray-300 dark:border-gray-700">
@@ -304,14 +354,40 @@ const GitPanel: React.FC = () => {
               <p className="text-xs text-gray-500">コミット履歴はありません。</p>
             ) : (
               <ul className="space-y-2">
-                {commits.map((commitEntry) => (
-                  <li key={commitEntry.oid} className="border border-gray-200 dark:border-gray-700 rounded px-3 py-2 bg-white dark:bg-gray-900">
-                    <p className="font-semibold text-sm break-words">{commitEntry.message}</p>
-                    <p className="text-xs text-gray-500 break-words">{commitEntry.author}</p>
-                    <p className="text-xs text-gray-500">{commitEntry.date}</p>
-                    <p className="text-[10px] text-gray-400 break-all mt-1">{commitEntry.oid}</p>
-                  </li>
-                ))}
+                {commits.map((commitEntry) => {
+                  const isLoading = commitDiffLoadingOid === commitEntry.oid;
+                  return (
+                    <li key={commitEntry.oid}>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenCommitDiff(commitEntry)}
+                        disabled={Boolean(commitDiffLoadingOid)}
+                        className={`w-full rounded border px-3 py-2 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                          isLoading
+                            ? 'border-blue-400 bg-blue-50/80 dark:border-blue-500 dark:bg-blue-950/40'
+                            : 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/60 dark:border-gray-700 dark:bg-gray-900 dark:hover:border-blue-600/70 dark:hover:bg-blue-900/30'
+                        }`}
+                        aria-busy={isLoading}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-semibold text-sm break-words text-gray-800 dark:text-gray-100">
+                              {commitEntry.message}
+                            </p>
+                            <p className="text-xs text-gray-500 break-words dark:text-gray-400">{commitEntry.author}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">{commitEntry.date}</p>
+                            <p className="text-[10px] text-gray-400 break-all mt-1 font-mono dark:text-gray-500">
+                              {commitEntry.oid}
+                            </p>
+                          </div>
+                          <span className="mt-1 whitespace-nowrap text-[11px] font-medium text-blue-600 dark:text-blue-300">
+                            {isLoading ? '読込中…' : '差分を表示'}
+                          </span>
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
