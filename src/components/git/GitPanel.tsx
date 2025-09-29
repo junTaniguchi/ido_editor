@@ -5,6 +5,7 @@ import {
   IoGitBranchOutline,
   IoGitCommitOutline,
   IoGitCompareOutline,
+  IoCloudDownloadOutline,
   IoRefresh,
   IoWarningOutline,
   IoCheckmarkCircle,
@@ -47,6 +48,7 @@ const GitPanel: React.FC = () => {
     commit,
     checkoutBranch,
     createBranch,
+    pullRepository,
   } = useGitStore();
   const [commitMessage, setCommitMessage] = useState('');
   const [newBranchName, setNewBranchName] = useState('');
@@ -83,6 +85,15 @@ const GitPanel: React.FC = () => {
           <span className="font-semibold text-sm">ソース管理</span>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={() => pullRepository()}
+            title="リモートから最新を取得"
+            disabled={!repoInitialized || loading}
+            aria-label="Pull Latest Changes"
+          >
+            <IoCloudDownloadOutline size={18} />
+          </button>
           <button
             className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-800"
             onClick={() => refreshRepository()}
