@@ -47,6 +47,7 @@ interface GitStoreState {
   setAuthorEmail: (email: string) => void;
   getFileHistory: (filepath: string) => Promise<GitCommitEntry[]>;
   getDiffAgainstWorkingTree: (filepath: string, oid: string) => Promise<string>;
+  getDiffBetweenCommits: (filepath: string, baseOid: string, targetOid: string) => Promise<string>;
   restoreFileToCommit: (filepath: string, oid: string) => Promise<string | null>;
   cloneRepository: (options: {
     url: string;
@@ -422,6 +423,44 @@ export const useGitStore = create<GitStoreState>((set, get) => ({
           `${filepath}@作業ツリー`,
           commitContent,
           workingContent,
+        );
+      } catch (error) {
+        throw error instanceof Error ? error : new Error('差分の取得に失敗しました');
+      }
+    });
+  },
+
+  getDiffBetweenCommits: async (filepath, baseOid, targetOid) => {
+    const state = get();
+    return withFs(state, async ({ fs }) => {
+      try {
+        const git = await loadGit();
+
+        const readBlobSafely = async (oid: string): Promise<string> => {
+          if (!oid) {
+            return '';
+          }
+          try {
+            const { blob } = await git.readBlob({ fs, dir: '/', oid, filepath });
+            return textDecoder.decode(blob);
+          } catch (error) {
+            if ((error as any)?.code === 'NotFoundError') {
+              return '';
+            }
+            throw error;
+          }
+        };
+
+        const [baseContent, targetContent] = await Promise.all([
+          readBlobSafely(baseOid),
+          readBlobSafely(targetOid),
+        ]);
+
+        return createTwoFilesPatch(
+          `${filepath}@${baseOid.slice(0, 7) || 'ベース'}`,
+          `${filepath}@${targetOid.slice(0, 7) || '比較先'}`,
+          baseContent,
+          targetContent,
         );
       } catch (error) {
         throw error instanceof Error ? error : new Error('差分の取得に失敗しました');
