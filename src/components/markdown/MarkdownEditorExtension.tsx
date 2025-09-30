@@ -10,22 +10,45 @@
  */
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import type { EditorView } from '@codemirror/view';
 import { useEditorStore } from '@/store/editorStore';
 import {
   IoText, IoList, IoListOutline, IoLink, IoCode, IoAlbumsOutline,
   IoHelpCircleOutline, IoGridOutline, IoGridSharp, IoCheckbox,
   IoCheckmarkDoneSharp, IoChevronForward, IoChevronBack, IoRemoveOutline,
-  IoResize, IoResizeOutline, IoMove, IoCropOutline
+  IoResize, IoResizeOutline, IoMove, IoCropOutline, IoSparkles,
+  IoLanguage, IoCreateOutline, IoArrowUndo, IoArrowRedo, IoClose
 } from 'react-icons/io5';
 import useMarkdownShortcuts from '@/hooks/useMarkdownShortcuts';
 import MarkdownHelpDialog from './MarkdownHelpDialog';
 import TableWizard from './TableWizard';
 import { readDirectoryContents } from '@/lib/fileSystemUtils';
-import type { TabData } from '@/types';
+import { DEFAULT_TRANSLATION_TARGET, requestPairWritingPreview } from '@/lib/llm/chatClient';
+import type { PairWritingUsage } from '@/lib/llm/chatClient';
+import type { PairWritingHistoryEntry, PairWritingPurpose, TabData } from '@/types';
 
 type TableAlignment = 'left' | 'center' | 'right' | null;
+
+interface SelectionRange {
+  from: number;
+  to: number;
+  text: string;
+}
+
+interface PairWritingSnapshot extends SelectionRange {
+  content: string;
+  purpose: PairWritingPurpose;
+  targetLanguage?: string;
+  instruction?: string;
+}
+
+interface ContextMenuState {
+  visible: boolean;
+  x: number;
+  y: number;
+  selection: SelectionRange | null;
+}
 
 const sanitizeMarkdownCell = (value: string) => {
   return value
@@ -270,12 +293,329 @@ interface MarkdownEditorExtensionProps {
  * @param editorRef エディタ参照
  */
 const MarkdownEditorExtension: React.FC<MarkdownEditorExtensionProps> = ({ tabId, editorRef }) => {
-  const { tabs, editorSettings, updateEditorSettings } = useEditorStore();
+  const tabs = useEditorStore((state) => state.tabs);
+  const editorSettings = useEditorStore((state) => state.editorSettings);
+  const updateEditorSettings = useEditorStore((state) => state.updateEditorSettings);
+  const updateTab = useEditorStore((state) => state.updateTab);
+  const recordPairWritingEntry = useEditorStore((state) => state.recordPairWritingEntry);
+  const undoPairWriting = useEditorStore((state) => state.undoPairWriting);
+  const redoPairWriting = useEditorStore((state) => state.redoPairWriting);
+  const pairWritingHistory = useEditorStore((state) => state.pairWritingHistory[tabId] ?? []);
+  const pairWritingHistoryIndex = useEditorStore((state) => {
+    const history = state.pairWritingHistory[tabId];
+    if (!history) {
+      return -1;
+    }
+    const index = state.pairWritingHistoryIndex[tabId];
+    return typeof index === 'number' ? index : history.length - 1;
+  });
   const [showHelpDialog, setShowHelpDialog] = useState(false);
   const [showTableWizard, setShowTableWizard] = useState(false);
   const [showBulkMenu, setShowBulkMenu] = useState(false);
+  const [pairPanelOpen, setPairPanelOpen] = useState(false);
+  const [pairPurpose, setPairPurpose] = useState<PairWritingPurpose>('rewrite');
+  const [pairTargetLanguage, setPairTargetLanguage] = useState(DEFAULT_TRANSLATION_TARGET);
+  const [pairInstruction, setPairInstruction] = useState('');
+  const [pairPreview, setPairPreview] = useState('');
+  const [pairError, setPairError] = useState<string | null>(null);
+  const [pairLoading, setPairLoading] = useState(false);
+  const [pairUsage, setPairUsage] = useState<PairWritingUsage | null>(null);
+  const [pairSnapshot, setPairSnapshot] = useState<PairWritingSnapshot | null>(null);
+  const [contextMenuState, setContextMenuState] = useState<ContextMenuState>({
+    visible: false,
+    x: 0,
+    y: 0,
+    selection: null,
+  });
 
   const currentTab = tabs.get(tabId);
+
+  const getSelectionRange = useCallback((): SelectionRange | null => {
+    const editor = editorRef.current;
+    if (!editor) {
+      return null;
+    }
+    const { from, to } = editor.state.selection.main;
+    if (from === to) {
+      return null;
+    }
+    const text = editor.state.sliceDoc(from, to);
+    return { from, to, text };
+  }, [editorRef]);
+
+  const hideContextMenu = useCallback(() => {
+    setContextMenuState({ visible: false, x: 0, y: 0, selection: null });
+  }, []);
+
+  const contextSelection = contextMenuState.selection;
+
+  const runPairWriting = useCallback(async (purpose: PairWritingPurpose, selection: SelectionRange) => {
+    if (pairLoading) {
+      return;
+    }
+    if (!currentTab) {
+      setPairPanelOpen(true);
+      setPairError('タブ情報を取得できませんでした。');
+      return;
+    }
+
+    const normalizedText = selection.text.trim();
+    if (!normalizedText) {
+      setPairPanelOpen(true);
+      setPairError('空のテキストは処理できません。');
+      return;
+    }
+
+    hideContextMenu();
+
+    const targetLanguage = purpose === 'translate'
+      ? (pairTargetLanguage && pairTargetLanguage.trim().length > 0
+        ? pairTargetLanguage.trim()
+        : DEFAULT_TRANSLATION_TARGET)
+      : undefined;
+    const instruction = purpose === 'rewrite'
+      ? (pairInstruction && pairInstruction.trim().length > 0
+        ? pairInstruction.trim()
+        : undefined)
+      : undefined;
+
+    if (purpose === 'translate' && (!pairTargetLanguage || pairTargetLanguage.trim().length === 0)) {
+      setPairTargetLanguage(DEFAULT_TRANSLATION_TARGET);
+    }
+
+    setPairPanelOpen(true);
+    setPairPurpose(purpose);
+    setPairLoading(true);
+    setPairError(null);
+    setPairUsage(null);
+    setPairPreview('');
+
+    const snapshot: PairWritingSnapshot = {
+      from: selection.from,
+      to: selection.to,
+      text: selection.text,
+      content: currentTab.content,
+      purpose,
+      targetLanguage,
+      instruction,
+    };
+    setPairSnapshot(snapshot);
+
+    try {
+      const response = await requestPairWritingPreview({
+        purpose,
+        text: selection.text,
+        targetLanguage,
+        rewriteInstruction: instruction,
+      });
+      setPairPreview(response.output);
+      setPairUsage(response.usage ?? null);
+      setPairSnapshot(prev => (prev ? {
+        ...prev,
+        purpose: response.purpose,
+        targetLanguage: response.targetLanguage ?? prev.targetLanguage,
+        instruction: response.rewriteInstruction ?? prev.instruction,
+      } : prev));
+      if (response.purpose === 'translate' && response.targetLanguage) {
+        setPairTargetLanguage(response.targetLanguage);
+      }
+      if (response.purpose === 'rewrite' && response.rewriteInstruction) {
+        setPairInstruction(response.rewriteInstruction);
+      }
+    } catch (error) {
+      setPairError(error instanceof Error ? error.message : 'プレビューの生成に失敗しました。');
+    } finally {
+      setPairLoading(false);
+    }
+  }, [currentTab, hideContextMenu, pairInstruction, pairLoading, pairTargetLanguage]);
+
+  const handleGeneratePreview = useCallback(() => {
+    const selection = getSelectionRange();
+    if (!selection) {
+      setPairPanelOpen(true);
+      setPairError('プレビュー対象のテキストを選択してください。');
+      return;
+    }
+    void runPairWriting(pairPurpose, selection);
+  }, [getSelectionRange, pairPurpose, runPairWriting]);
+
+  const handleContextAction = useCallback((purpose: PairWritingPurpose) => {
+    hideContextMenu();
+    const selection = contextSelection ?? getSelectionRange();
+    if (!selection) {
+      setPairPanelOpen(true);
+      setPairError('テキストを選択してください。');
+      return;
+    }
+    void runPairWriting(purpose, selection);
+  }, [contextSelection, getSelectionRange, hideContextMenu, runPairWriting]);
+
+  const handleApplyPreview = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) {
+      setPairError('エディタが初期化されていません。');
+      return;
+    }
+    const snapshot = pairSnapshot;
+    if (!snapshot) {
+      setPairError('適用可能なプレビューがありません。');
+      return;
+    }
+    const tab = tabs.get(tabId);
+    if (!tab) {
+      setPairError('タブ情報を取得できませんでした。');
+      return;
+    }
+    if (tab.content !== snapshot.content) {
+      setPairError('エディタ内容が更新されています。最新の選択範囲で再度プレビューを生成してください。');
+      return;
+    }
+    const editorContent = editor.state.doc.toString();
+    if (editorContent !== snapshot.content) {
+      setPairError('エディタの内容とストアの状態が一致していません。再度お試しください。');
+      return;
+    }
+
+    const { from, to } = snapshot;
+    editor.dispatch({
+      changes: { from, to, insert: pairPreview },
+      selection: { anchor: from, head: from + pairPreview.length },
+      scrollIntoView: true,
+    });
+    editor.focus();
+
+    const newContent = editor.state.doc.toString();
+    updateTab(tabId, {
+      content: newContent,
+      isDirty: newContent !== tab.originalContent,
+    });
+
+    const entry: PairWritingHistoryEntry = {
+      id: `pair-${Date.now()}`,
+      tabId,
+      purpose: snapshot.purpose,
+      originalText: snapshot.text,
+      transformedText: pairPreview,
+      beforeContent: snapshot.content,
+      afterContent: newContent,
+      rangeFrom: snapshot.from,
+      rangeTo: snapshot.from + pairPreview.length,
+      targetLanguage: snapshot.targetLanguage ?? null,
+      rewriteInstruction: snapshot.instruction ?? null,
+      createdAt: new Date().toISOString(),
+    };
+    recordPairWritingEntry(tabId, entry);
+
+    setPairSnapshot({
+      ...snapshot,
+      text: pairPreview,
+      content: newContent,
+      to: snapshot.from + pairPreview.length,
+    });
+    setPairError(null);
+  }, [editorRef, pairPreview, pairSnapshot, recordPairWritingEntry, tabId, tabs, updateTab]);
+
+  const handleUndoClick = useCallback(() => {
+    const entry = undoPairWriting(tabId);
+    if (!entry) {
+      setPairError('これ以上元に戻すことはできません。');
+      return;
+    }
+    setPairPanelOpen(true);
+    setPairError(null);
+    setPairUsage(null);
+    setPairPurpose(entry.purpose);
+    if (entry.purpose === 'translate') {
+      setPairTargetLanguage(entry.targetLanguage ?? DEFAULT_TRANSLATION_TARGET);
+    } else {
+      setPairInstruction(entry.rewriteInstruction ?? '');
+    }
+    const originalLength = entry.originalText.length;
+    setPairPreview(entry.originalText);
+    setPairSnapshot({
+      from: entry.rangeFrom,
+      to: entry.rangeFrom + originalLength,
+      text: entry.originalText,
+      content: entry.beforeContent,
+      purpose: entry.purpose,
+      targetLanguage: entry.targetLanguage ?? undefined,
+      instruction: entry.rewriteInstruction ?? undefined,
+    });
+    editorRef.current?.focus();
+  }, [editorRef, tabId, undoPairWriting]);
+
+  const handleRedoClick = useCallback(() => {
+    const entry = redoPairWriting(tabId);
+    if (!entry) {
+      setPairError('やり直す履歴がありません。');
+      return;
+    }
+    setPairPanelOpen(true);
+    setPairError(null);
+    setPairUsage(null);
+    setPairPurpose(entry.purpose);
+    if (entry.purpose === 'translate') {
+      setPairTargetLanguage(entry.targetLanguage ?? DEFAULT_TRANSLATION_TARGET);
+    } else {
+      setPairInstruction(entry.rewriteInstruction ?? '');
+    }
+    const transformedLength = entry.transformedText.length;
+    setPairPreview(entry.transformedText);
+    setPairSnapshot({
+      from: entry.rangeFrom,
+      to: entry.rangeFrom + transformedLength,
+      text: entry.transformedText,
+      content: entry.afterContent,
+      purpose: entry.purpose,
+      targetLanguage: entry.targetLanguage ?? undefined,
+      instruction: entry.rewriteInstruction ?? undefined,
+    });
+    editorRef.current?.focus();
+  }, [editorRef, redoPairWriting, tabId]);
+
+  useEffect(() => {
+    const handleContextMenu = (event: MouseEvent) => {
+      const editor = editorRef.current;
+      if (!editor) {
+        return;
+      }
+      if (!editor.dom.contains(event.target as Node)) {
+        return;
+      }
+      const selection = getSelectionRange();
+      if (!selection || selection.text.trim().length === 0) {
+        hideContextMenu();
+        return;
+      }
+      event.preventDefault();
+      setContextMenuState({
+        visible: true,
+        x: event.clientX,
+        y: event.clientY,
+        selection,
+      });
+    };
+
+    const handleClick = () => {
+      setContextMenuState(prev => (prev.visible ? { ...prev, visible: false, selection: null } : prev));
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        hideContextMenu();
+      }
+    };
+
+    document.addEventListener('contextmenu', handleContextMenu);
+    document.addEventListener('click', handleClick);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('contextmenu', handleContextMenu);
+      document.removeEventListener('click', handleClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [editorRef, getSelectionRange, hideContextMenu]);
 
   useEffect(() => {
     let disposed = false;
@@ -449,6 +789,22 @@ const MarkdownEditorExtension: React.FC<MarkdownEditorExtensionProps> = ({ tabId
   };
 
   if (!currentTab) return null;
+
+  const historyCount = pairWritingHistory.length;
+  const canUndo = historyCount > 0 && pairWritingHistoryIndex >= 0;
+  const canRedo = historyCount > 0 && pairWritingHistoryIndex + 1 < historyCount;
+  const lastAppliedEntry: PairWritingHistoryEntry | null = pairWritingHistoryIndex >= 0
+    ? pairWritingHistory[pairWritingHistoryIndex]
+    : null;
+  const previewCharCount = pairPreview.length;
+  const originalCharCount = pairSnapshot?.text.length ?? 0;
+  const pendingPurposeLabel = pairPurpose === 'translate' ? '翻訳' : 'リライト';
+  const contextMenuPosition = contextMenuState.visible && typeof window !== 'undefined'
+    ? {
+        top: Math.min(contextMenuState.y, window.innerHeight - 120),
+        left: Math.min(contextMenuState.x, window.innerWidth - 220),
+      }
+    : { top: contextMenuState.y, left: contextMenuState.x };
 
   return (
     <>
@@ -658,6 +1014,36 @@ const MarkdownEditorExtension: React.FC<MarkdownEditorExtensionProps> = ({ tabId
           )}
         </div>
 
+        <div className="flex space-x-1 mr-3">
+          <button
+            className={`p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 tooltip ${
+              pairPanelOpen ? 'bg-blue-100 dark:bg-blue-900' : ''
+            }`}
+            onClick={() => {
+              setPairPanelOpen(prev => !prev);
+              setPairError(null);
+              hideContextMenu();
+            }}
+            title="AIペアライティングパネルを表示"
+          >
+            <IoSparkles size={18} />
+          </button>
+          <button
+            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 tooltip"
+            onClick={() => handleContextAction('translate')}
+            title={`選択範囲を翻訳してプレビュー (${pairTargetLanguage || DEFAULT_TRANSLATION_TARGET})`}
+          >
+            <IoLanguage size={18} />
+          </button>
+          <button
+            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 tooltip"
+            onClick={() => handleContextAction('rewrite')}
+            title="選択範囲をリライトしてプレビュー"
+          >
+            <IoCreateOutline size={18} />
+          </button>
+        </div>
+
         <div className="flex space-x-1">
           <button
             className={`p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 tooltip ${
@@ -686,6 +1072,174 @@ const MarkdownEditorExtension: React.FC<MarkdownEditorExtensionProps> = ({ tabId
           </button>
         </div>
       </div>
+
+      {pairPanelOpen && (
+        <div className="mt-2 border border-gray-300 dark:border-gray-700 rounded-md bg-white dark:bg-gray-900 p-3 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <IoSparkles className="text-blue-500" size={18} />
+              <span>AIペアライティング</span>
+              <span className="text-xs font-normal text-gray-500 dark:text-gray-400">現在: {pendingPurposeLabel}</span>
+            </div>
+            <button
+              className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-800"
+              onClick={() => {
+                setPairPanelOpen(false);
+                setPairError(null);
+              }}
+              title="パネルを閉じる"
+            >
+              <IoClose size={18} />
+            </button>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2 text-sm">
+            <button
+              className={`px-3 py-1 rounded border ${
+                pairPurpose === 'translate'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800'
+              }`}
+              onClick={() => {
+                setPairPurpose('translate');
+                setPairError(null);
+                setPairUsage(null);
+              }}
+            >
+              翻訳
+            </button>
+            <button
+              className={`px-3 py-1 rounded border ${
+                pairPurpose === 'rewrite'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800'
+              }`}
+              onClick={() => {
+                setPairPurpose('rewrite');
+                setPairError(null);
+                setPairUsage(null);
+              }}
+            >
+              リライト
+            </button>
+          </div>
+
+          {pairPurpose === 'translate' ? (
+            <div className="mt-3">
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-300">翻訳先言語</label>
+              <input
+                className="mt-1 w-full rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-950 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={pairTargetLanguage}
+                onChange={(event) => setPairTargetLanguage(event.target.value)}
+                placeholder="例: 日本語"
+              />
+            </div>
+          ) : (
+            <div className="mt-3">
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-300">リライト指示 (任意)</label>
+              <input
+                className="mt-1 w-full rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-950 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={pairInstruction}
+                onChange={(event) => setPairInstruction(event.target.value)}
+                placeholder="例: 簡潔に、敬体で"
+              />
+            </div>
+          )}
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-blue-300 text-sm"
+              onClick={handleGeneratePreview}
+              disabled={pairLoading}
+            >
+              {pairLoading ? '生成中…' : 'プレビュー生成'}
+            </button>
+            <button
+              className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-green-300 text-sm"
+              onClick={handleApplyPreview}
+              disabled={!pairSnapshot || pairLoading}
+            >
+              選択範囲を置換
+            </button>
+            <button
+              className="px-2 py-1 text-sm rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-1 disabled:opacity-50"
+              onClick={handleUndoClick}
+              disabled={!canUndo}
+            >
+              <IoArrowUndo size={14} /> 元に戻す
+            </button>
+            <button
+              className="px-2 py-1 text-sm rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-1 disabled:opacity-50"
+              onClick={handleRedoClick}
+              disabled={!canRedo}
+            >
+              <IoArrowRedo size={14} /> やり直す
+            </button>
+            {typeof pairUsage?.totalTokens === 'number' && (
+              <span className="text-[10px] text-gray-500 dark:text-gray-400">
+                Tokens: {pairUsage.totalTokens}
+              </span>
+            )}
+          </div>
+
+          {pairError && (
+            <div className="mt-2 text-sm text-red-600 dark:text-red-400">{pairError}</div>
+          )}
+
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <div>
+              <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400">
+                <span className="font-semibold">元のテキスト</span>
+                <span>{originalCharCount} 文字</span>
+              </div>
+              <div className="mt-1 max-h-40 overflow-auto rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-950 p-2 text-xs whitespace-pre-wrap">
+                {pairSnapshot ? pairSnapshot.text : '選択されたテキストがここに表示されます。'}
+              </div>
+            </div>
+            <div>
+              <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400">
+                <span className="font-semibold">プレビュー</span>
+                <span>{previewCharCount} 文字</span>
+              </div>
+              <textarea
+                className="mt-1 w-full min-h-[160px] rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-950 px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={pairPreview}
+                onChange={(event) => setPairPreview(event.target.value)}
+                placeholder="プレビュー結果がここに表示されます"
+              />
+            </div>
+          </div>
+
+          <div className="mt-3 text-xs text-gray-500 dark:text-gray-400 flex flex-wrap gap-3">
+            <span>履歴: {historyCount} 件</span>
+            {lastAppliedEntry && (
+              <span>
+                最新: {lastAppliedEntry.purpose === 'translate' ? '翻訳' : 'リライト'} / {lastAppliedEntry.createdAt}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {contextMenuState.visible && (
+        <div
+          className="fixed z-[70] w-52 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 shadow-lg"
+          style={contextMenuPosition}
+        >
+          <button
+            className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+            onClick={() => handleContextAction('translate')}
+          >
+            <IoLanguage size={16} /> 選択を翻訳
+          </button>
+          <button
+            className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+            onClick={() => handleContextAction('rewrite')}
+          >
+            <IoCreateOutline size={16} /> 選択をリライト
+          </button>
+        </div>
+      )}
 
       {showHelpDialog && (
         <MarkdownHelpDialog onClose={() => setShowHelpDialog(false)} />
