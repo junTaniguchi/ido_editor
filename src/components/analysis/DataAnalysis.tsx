@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useEditorStore } from '@/store/editorStore';
 import { parseCSV, parseJSON, parseYAML, parseParquet, parseExcel, flattenNestedObjects } from '@/lib/dataPreviewUtils';
 import { executeQuery, calculateStatistics, aggregateData, prepareChartData, calculateInfo, downloadData } from '@/lib/dataAnalysisUtils';
@@ -37,6 +39,7 @@ import ChartDataLabels from 'chartjs-plugin-datalabels';
 const RelationshipGraph = dynamic(() => import('./RelationshipGraph'), { ssr: false });
 import { SqlNotebookCell } from '@/types';
 import { WorkflowGeneratedCell } from '@/lib/llm/workflowPrompt';
+import { buildAnalysisSummary, LlmReportResponse } from '@/lib/llm/analysisSummarizer';
 
 // Chart.jsコンポーネントを登録
 ChartJS.register(
@@ -109,7 +112,12 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
   const [isQueryEditing, setIsQueryEditing] = useState(false);
   const [editedQueryResult, setEditedQueryResult] = useState<any[] | null>(null);
   const [notebookSnapshotMeta, setNotebookSnapshotMeta] = useState<{ name: string; exportedAt?: string } | null>(null);
-  
+  const [insightPreview, setInsightPreview] = useState<LlmReportResponse | null>(null);
+  const [insightLoading, setInsightLoading] = useState(false);
+  const [insightError, setInsightError] = useState<string | null>(null);
+  const [isInsightPanelOpen, setIsInsightPanelOpen] = useState(false);
+  const [isSaveMenuOpen, setIsSaveMenuOpen] = useState(false);
+
   // 現在のテーマを取得する
   const [currentTheme, setCurrentTheme] = useState<string>('light');
   
@@ -131,9 +139,33 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
     mediaQuery.addEventListener('change', handleChange);
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, []);
-  
+
+  useEffect(() => {
+    if (!isSaveMenuOpen) {
+      return;
+    }
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (saveMenuRef.current && !saveMenuRef.current.contains(event.target as Node)) {
+        setIsSaveMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isSaveMenuOpen]);
+
+  useEffect(() => {
+    if (!insightPreview) {
+      setIsSaveMenuOpen(false);
+    }
+  }, [insightPreview]);
+
   // グラフコンテナのためのref
   const graphContainerRef = useRef<HTMLDivElement | null>(null);
+  const saveMenuRef = useRef<HTMLDivElement | null>(null);
   
   // 関係グラフのサイズを更新するためのステート
   const [graphSize, setGraphSize] = useState({ width: 800, height: 600 });
@@ -1053,7 +1085,245 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
 
     downloadData(JSON.stringify(payload, null, 2), `${baseName}.sqlnb.json`, 'application/json');
   }, [notebookCells, tabId, tabs]);
-  
+
+  const handleGenerateInsights = useCallback(async () => {
+    if (insightLoading) {
+      return;
+    }
+
+    const hasDataset = Array.isArray(parsedData) && parsedData.length > 0;
+    const hasNotebookResult = notebookCells.some(
+      (cell) =>
+        (Array.isArray(cell.result) && cell.result.length > 0) ||
+        (Array.isArray(cell.originalResult) && cell.originalResult.length > 0),
+    );
+    const hasQueryResult = Array.isArray(queryResult) && queryResult.length > 0;
+    const hasStats = statisticsResult && Object.keys(statisticsResult).length > 0;
+    const hasInfo = infoResult && Object.keys(infoResult).length > 0;
+    const hasChartData = chartData && typeof chartData === 'object';
+
+    if (!hasDataset && !hasNotebookResult && !hasQueryResult && !hasStats && !hasInfo && !hasChartData) {
+      setInsightError('インサイトを生成するためのデータがありません。');
+      setInsightPreview(null);
+      setIsInsightPanelOpen(true);
+      return;
+    }
+
+    try {
+      setInsightLoading(true);
+      setInsightError(null);
+      setIsInsightPanelOpen(true);
+      setInsightPreview(null);
+      setIsSaveMenuOpen(false);
+
+      const activeTab = tabs.get(tabId);
+      const queryColumns = Array.isArray(queryResult) && queryResult.length > 0 && typeof queryResult[0] === 'object'
+        ? Object.keys(queryResult[0] as Record<string, unknown>)
+        : [];
+
+      const summary = buildAnalysisSummary({
+        datasetName: activeTab?.name || 'データセット',
+        datasetType: activeTab?.type || null,
+        columns,
+        rows: parsedData || [],
+        infoSummary: infoResult,
+        statistics: statisticsResult,
+        notebookCells,
+        chartSettings,
+        chartData,
+        analysisContext: workflowRequest && workflowRequest.trim().length > 0 ? workflowRequest : null,
+        latestQuery: sqlQuery && sqlQuery.trim().length > 0 ? sqlQuery : null,
+        latestQueryResult: Array.isArray(queryResult)
+          ? { columns: queryColumns, rows: queryResult }
+          : null,
+      });
+
+      const response = await fetch('/api/llm/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summary }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'インサイトの生成に失敗しました。');
+      }
+
+      const data = await response.json();
+      setInsightPreview(data as LlmReportResponse);
+      setInsightError(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'インサイトの生成に失敗しました。';
+      setInsightError(message);
+      setInsightPreview(null);
+    } finally {
+      setInsightLoading(false);
+    }
+  }, [
+    insightLoading,
+    parsedData,
+    notebookCells,
+    queryResult,
+    statisticsResult,
+    infoResult,
+    chartData,
+    tabs,
+    tabId,
+    columns,
+    chartSettings,
+    workflowRequest,
+    sqlQuery,
+  ]);
+
+  const handleSaveMarkdown = useCallback(() => {
+    if (!insightPreview) {
+      setInsightError('保存するインサイトがありません。');
+      setIsInsightPanelOpen(true);
+      setIsSaveMenuOpen(false);
+      return;
+    }
+
+    const activeTab = tabs.get(tabId);
+    const baseName = activeTab?.name?.replace(/\.[^/.]+$/, '') || 'analysis';
+    downloadData(insightPreview.markdown, `${baseName}-insight.md`, 'text/markdown');
+    setInsightError(null);
+    setIsSaveMenuOpen(false);
+  }, [insightPreview, tabId, tabs]);
+
+  const handleSaveWord = useCallback(async () => {
+    if (!insightPreview?.word) {
+      setInsightError('Word出力に必要なデータがありません。');
+      setIsInsightPanelOpen(true);
+      setIsSaveMenuOpen(false);
+      return;
+    }
+
+    try {
+      const {
+        Document,
+        Packer,
+        Paragraph,
+        HeadingLevel,
+        TextRun,
+        Table,
+        TableRow,
+        TableCell,
+        WidthType,
+      } = await import('docx');
+
+      const elements: any[] = [];
+      const headingMap: Record<number, HeadingLevel> = {
+        1: HeadingLevel.HEADING_1,
+        2: HeadingLevel.HEADING_2,
+        3: HeadingLevel.HEADING_3,
+      };
+
+      elements.push(new Paragraph({ text: insightPreview.word.title, heading: HeadingLevel.HEADING_1 }));
+
+      insightPreview.word.sections.forEach((section) => {
+        const headingLevel = section.level ? headingMap[section.level] : HeadingLevel.HEADING_2;
+        elements.push(new Paragraph({ text: section.heading, heading: headingLevel }));
+
+        if (section.paragraphs) {
+          section.paragraphs.forEach((paragraph) => {
+            const lines = paragraph
+              .split(/\n+/)
+              .map((line) => line.trim())
+              .filter((line) => line.length > 0);
+            if (lines.length === 0) {
+              elements.push(new Paragraph({ text: '' }));
+            } else {
+              lines.forEach((line) => {
+                elements.push(new Paragraph({ text: line }));
+              });
+            }
+          });
+        }
+
+        if (section.bullets) {
+          section.bullets.forEach((bullet) => {
+            bullet
+              .split(/\n+/)
+              .map((line) => line.trim())
+              .filter((line) => line.length > 0)
+              .forEach((line) => {
+                elements.push(new Paragraph({ text: line, bullet: { level: 0 } }));
+              });
+          });
+        }
+
+        if (section.table) {
+          if (section.table.caption) {
+            elements.push(
+              new Paragraph({
+                children: [new TextRun({ text: section.table.caption, italics: true })],
+              }),
+            );
+          }
+
+          const headerRow = new TableRow({
+            children: section.table.headers.map(
+              (header) =>
+                new TableCell({
+                  children: [
+                    new Paragraph({
+                      children: [new TextRun({ text: header, bold: true })],
+                    }),
+                  ],
+                }),
+            ),
+          });
+
+          const dataRows = section.table.rows.map(
+            (row) =>
+              new TableRow({
+                children: row.map(
+                  (cell) =>
+                    new TableCell({
+                      children: [new Paragraph({ text: cell })],
+                    }),
+                ),
+              }),
+          );
+
+          elements.push(
+            new Table({
+              width: { size: 100, type: WidthType.PERCENTAGE },
+              rows: [headerRow, ...dataRows],
+            }),
+          );
+        }
+
+        elements.push(new Paragraph({ text: '' }));
+      });
+
+      const doc = new Document({
+        sections: [
+          {
+            properties: {},
+            children: elements,
+          },
+        ],
+      });
+
+      const blob = await Packer.toBlob(doc);
+      const activeTab = tabs.get(tabId);
+      const baseName = activeTab?.name?.replace(/\.[^/.]+$/, '') || 'analysis';
+      downloadData(
+        blob,
+        `${baseName}-insight.docx`,
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      );
+      setInsightError(null);
+    } catch (error) {
+      console.error('Word export error:', error);
+      setInsightError('Wordエクスポート中にエラーが発生しました。');
+      setIsInsightPanelOpen(true);
+    } finally {
+      setIsSaveMenuOpen(false);
+    }
+  }, [insightPreview, tabId, tabs]);
+
   // チャートを更新
   const updateChart = () => {
     // チャート設定の詳細なデバッグ出力
@@ -3860,38 +4130,176 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
           </div>
         </button>
         <div className="flex-1"></div>
-        <button
-          className="px-3 py-2 flex items-center text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
-          onClick={toggleDisplayMode}
-          title={editorSettings.dataDisplayMode === 'flat' ? "階層表示に切替" : "フラット表示に切替"}
-        >
-          <IoLayersOutline className="mr-1" size={18} />
-          <span className="text-sm">
-            {editorSettings.dataDisplayMode === 'flat' ? '階層表示' : 'フラット表示'}
-          </span>
-        </button>
-        <button
-          className="px-3 py-2 flex items-center text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
-          onClick={toggleViewMode}
-          title="エディタ/プレビュー切替"
-        >
-          {getViewMode(tabId) === 'editor' ? (
-            <IoEye className="mr-1" size={18} />
-          ) : (
-            <IoCodeSlash className="mr-1" size={18} />
-          )}
-          <span className="text-sm">{getViewMode(tabId) === 'editor' ? 'プレビュー' : 'エディタ'}</span>
-        </button>
-        <button
-          className="px-3 py-2 flex items-center text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
-          onClick={toggleAnalysisMode}
-          title="分析モード切替"
-        >
-          <IoAnalyticsOutline className="mr-1" size={18} />
-          <span className="text-sm">分析モード終了</span>
-        </button>
+        <div className="flex items-center gap-2 pr-2">
+          <button
+            className="px-3 py-2 bg-blue-600 text-white rounded flex items-center gap-2 text-sm shadow-sm hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+            onClick={handleGenerateInsights}
+            disabled={insightLoading}
+          >
+            {insightLoading ? (
+              <>
+                <span className="inline-block h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin"></span>
+                生成中...
+              </>
+            ) : (
+              <>
+                <IoSparkles size={16} />
+                インサイト生成
+              </>
+            )}
+          </button>
+          <div ref={saveMenuRef} className="relative">
+            <button
+              className={`px-3 py-2 rounded flex items-center gap-2 text-sm shadow-sm transition-colors ${
+                insightPreview && !insightLoading
+                  ? 'bg-purple-600 text-white hover:bg-purple-700'
+                  : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+              }`}
+              onClick={() => insightPreview && !insightLoading && setIsSaveMenuOpen((prev) => !prev)}
+              disabled={!insightPreview || insightLoading}
+              title={insightPreview ? '生成したインサイトを保存' : 'インサイト生成後に利用できます'}
+            >
+              <IoSave size={16} />
+              Markdown/Word として保存
+            </button>
+            {isSaveMenuOpen && insightPreview && (
+              <div className="absolute right-0 mt-2 w-48 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg z-20">
+                <button
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                  onClick={() => {
+                    handleSaveMarkdown();
+                  }}
+                >
+                  <IoDownloadOutline size={16} /> Markdown (.md)
+                </button>
+                <button
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                  onClick={() => {
+                    void handleSaveWord();
+                  }}
+                >
+                  <IoDownloadOutline size={16} /> Word (.docx)
+                </button>
+              </div>
+            )}
+          </div>
+          <button
+            className="px-3 py-2 flex items-center text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
+            onClick={toggleDisplayMode}
+            title={editorSettings.dataDisplayMode === 'flat' ? "階層表示に切替" : "フラット表示に切替"}
+          >
+            <IoLayersOutline className="mr-1" size={18} />
+            <span className="text-sm">
+              {editorSettings.dataDisplayMode === 'flat' ? '階層表示' : 'フラット表示'}
+            </span>
+          </button>
+          <button
+            className="px-3 py-2 flex items-center text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
+            onClick={toggleViewMode}
+            title="エディタ/プレビュー切替"
+          >
+            {getViewMode(tabId) === 'editor' ? (
+              <IoEye className="mr-1" size={18} />
+            ) : (
+              <IoCodeSlash className="mr-1" size={18} />
+            )}
+            <span className="text-sm">{getViewMode(tabId) === 'editor' ? 'プレビュー' : 'エディタ'}</span>
+          </button>
+          <button
+            className="px-3 py-2 flex items-center text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
+            onClick={toggleAnalysisMode}
+            title="分析モード切替"
+          >
+            <IoAnalyticsOutline className="mr-1" size={18} />
+            <span className="text-sm">分析モード終了</span>
+          </button>
+        </div>
       </div>
       
+      {isInsightPanelOpen && (
+        <div className="border-b border-blue-200 dark:border-blue-800 bg-blue-50/40 dark:bg-blue-900/10">
+          <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-sm font-semibold text-blue-700 dark:text-blue-300">
+              <IoSparkles size={16} />
+              <span>インサイトプレビュー</span>
+              {insightLoading && (
+                <span className="flex items-center gap-1 text-xs">
+                  <span className="inline-block h-2 w-2 rounded-full bg-blue-500 animate-ping"></span>
+                  生成中...
+                </span>
+              )}
+            </div>
+            <button
+              className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              onClick={() => setIsInsightPanelOpen(false)}
+            >
+              閉じる
+            </button>
+          </div>
+          <div className="px-4 pb-4">
+            {insightLoading && !insightPreview ? (
+              <div className="flex items-center gap-2 text-sm text-blue-700 dark:text-blue-300">
+                <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-blue-500"></div>
+                インサイトを生成しています...
+              </div>
+            ) : insightPreview ? (
+              <div className="grid gap-6 md:grid-cols-2">
+                <div className="space-y-2">
+                  <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200">要点</h4>
+                  <ul className="list-disc pl-5 space-y-1 text-sm text-gray-700 dark:text-gray-300">
+                    {insightPreview.bulletSummary.map((item, index) => (
+                      <li key={`insight-bullet-${index}`}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="space-y-2">
+                  <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Markdownプレビュー</h4>
+                  <div className="border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900 p-3 max-h-72 overflow-auto">
+                    <ReactMarkdown
+                      className="text-sm leading-relaxed text-gray-800 dark:text-gray-100"
+                      remarkPlugins={[remarkGfm]}
+                    >
+                      {insightPreview.markdown}
+                    </ReactMarkdown>
+                  </div>
+                </div>
+                <div className="md:col-span-2">
+                  <details className="group border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900">
+                    <summary className="cursor-pointer select-none px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200">
+                      Word出力構造
+                    </summary>
+                    <div className="px-4 pb-4 pt-2 space-y-3 text-sm text-gray-700 dark:text-gray-300">
+                      {insightPreview.word.sections.map((section, index) => (
+                        <div
+                          key={`${section.heading}-${index}`}
+                          className="border border-gray-200 dark:border-gray-700 rounded p-3 bg-gray-50 dark:bg-gray-800/60"
+                        >
+                          <div className="font-semibold text-gray-800 dark:text-gray-100">{section.heading}</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            レベル: {section.level ?? 2} / 段落: {section.paragraphs?.length ?? 0} / 箇条書き: {section.bullets?.length ?? 0}
+                            {section.table ? ` / 表: ${section.table.headers.length}列 × ${section.table.rows.length}行` : ''}
+                          </div>
+                        </div>
+                      ))}
+                      {insightPreview.word.sections.length === 0 && (
+                        <div className="text-xs text-gray-500 dark:text-gray-400">セクション情報がありません。</div>
+                      )}
+                    </div>
+                  </details>
+                </div>
+                {insightError && (
+                  <div className="md:col-span-2 text-sm text-red-600 dark:text-red-300">{insightError}</div>
+                )}
+              </div>
+            ) : insightError ? (
+              <div className="text-sm text-red-600 dark:text-red-300">{insightError}</div>
+            ) : (
+              <div className="text-sm text-gray-600 dark:text-gray-300">インサイトを生成すると結果がここに表示されます。</div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* 設定パネル */}
       <div className="border-b border-gray-200 bg-gray-50 dark:bg-gray-800">
         {/* 設定パネルヘッダー */}
