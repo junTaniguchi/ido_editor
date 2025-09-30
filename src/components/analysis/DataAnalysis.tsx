@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useEditorStore } from '@/store/editorStore';
 import { parseCSV, parseJSON, parseYAML, parseParquet, parseExcel, flattenNestedObjects } from '@/lib/dataPreviewUtils';
 import { executeQuery, calculateStatistics, aggregateData, prepareChartData, calculateInfo, downloadData } from '@/lib/dataAnalysisUtils';
-import { IoAlertCircleOutline, IoAnalyticsOutline, IoBarChartOutline, IoStatsChartOutline, IoCodeSlash, IoEye, IoLayersOutline, IoCreate, IoSave, IoGitNetwork, IoChevronUpOutline, IoChevronDownOutline, IoBookOutline, IoAddOutline, IoPlay, IoPlayForward, IoTrashOutline, IoDownloadOutline } from 'react-icons/io5';
+import { IoAlertCircleOutline, IoAnalyticsOutline, IoBarChartOutline, IoStatsChartOutline, IoCodeSlash, IoEye, IoLayersOutline, IoCreate, IoSave, IoGitNetwork, IoChevronUpOutline, IoChevronDownOutline, IoBookOutline, IoAddOutline, IoPlay, IoPlayForward, IoTrashOutline, IoDownloadOutline, IoSparkles } from 'react-icons/io5';
 import QueryResultTable from './QueryResultTable';
 import InfoResultTable from './InfoResultTable';
 import EditableQueryResultTable from './EditableQueryResultTable';
@@ -36,6 +36,7 @@ import ChartDataLabels from 'chartjs-plugin-datalabels';
 // 関係グラフコンポーネントを動的インポート（SSR回避）
 const RelationshipGraph = dynamic(() => import('./RelationshipGraph'), { ssr: false });
 import { SqlNotebookCell } from '@/types';
+import { WorkflowGeneratedCell } from '@/lib/llm/workflowPrompt';
 
 // Chart.jsコンポーネントを登録
 ChartJS.register(
@@ -142,6 +143,11 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
   const [cellViewModes, setCellViewModes] = useState<Record<string, 'table' | 'chart'>>({});
   const notebookCells = useMemo(() => sqlNotebook[tabId] || [], [sqlNotebook, tabId]);
   const hasNotebookCells = notebookCells.length > 0;
+  const [workflowRequest, setWorkflowRequest] = useState('');
+  const [workflowGenerating, setWorkflowGenerating] = useState(false);
+  const [workflowGenerationError, setWorkflowGenerationError] = useState<string | null>(null);
+  const [workflowGenerationInfo, setWorkflowGenerationInfo] = useState<string | null>(null);
+  const llmSampleRows = useMemo(() => (parsedData ? parsedData.slice(0, 5) : []), [parsedData]);
 
   const generateCellId = useCallback(() => {
     if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -889,6 +895,133 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
       setRunAllInProgress(false);
     }
   }, [executeNotebookCell, notebookCells]);
+
+  const generateNotebookFromRequest = useCallback(async () => {
+    if (workflowGenerating) {
+      return;
+    }
+
+    const trimmedRequest = workflowRequest.trim();
+
+    if (!trimmedRequest) {
+      setWorkflowGenerationError('自然言語リクエストを入力してください。');
+      return;
+    }
+
+    if (!parsedData || parsedData.length === 0) {
+      setWorkflowGenerationError('データが読み込まれていません。');
+      return;
+    }
+
+    setWorkflowGenerating(true);
+    setWorkflowGenerationError(null);
+    setWorkflowGenerationInfo(null);
+
+    try {
+      const response = await fetch('/api/llm/workflow', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          request: trimmedRequest,
+          columns,
+          sampleRows: llmSampleRows,
+        }),
+      });
+
+      if (!response.ok) {
+        let message = `ワークフローの生成に失敗しました。（${response.status}）`;
+        try {
+          const errorPayload = await response.json();
+          if (errorPayload && typeof errorPayload.error === 'string') {
+            message = errorPayload.error;
+          }
+        } catch {
+          // ignore JSON parse errors
+        }
+        setWorkflowGenerationError(message);
+        return;
+      }
+
+      const payload = await response.json();
+      const generatedCellsRaw = Array.isArray(payload?.cells)
+        ? (payload.cells as WorkflowGeneratedCell[])
+        : [];
+
+      if (generatedCellsRaw.length === 0) {
+        setWorkflowGenerationError('生成されたセルがありませんでした。');
+        return;
+      }
+
+      const timestamp = new Date().toISOString();
+      const baseIndex = notebookCells.length;
+
+      const newCells: SqlNotebookCell[] = generatedCellsRaw.map((cell, index) => ({
+        id: generateCellId(),
+        title: cell.title && cell.title.length > 0 ? cell.title : `セル ${baseIndex + index + 1}`,
+        query: cell.sql,
+        status: 'idle',
+        error: null,
+        result: null,
+        originalResult: null,
+        columns: [],
+        executedAt: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }));
+
+      if (newCells.some((cell) => !cell.query || cell.query.trim().length === 0)) {
+        setWorkflowGenerationError('生成結果にSQLが含まれていませんでした。');
+        return;
+      }
+
+      updateNotebookCells((cells) => {
+        const merged = [...cells, ...newCells];
+        return merged.map((cell, idx) => ({
+          ...cell,
+          title: cell.title && cell.title.trim().length > 0 ? cell.title : `セル ${idx + 1}`,
+        }));
+      });
+
+      setWorkflowRequest('');
+
+      const rationale = typeof payload?.rationale === 'string' && payload.rationale.trim().length > 0
+        ? payload.rationale.trim()
+        : null;
+
+      let executedCount = 0;
+      for (const cell of newCells) {
+        const success = await executeNotebookCell(cell.id);
+        if (!success) {
+          setWorkflowGenerationError(`セル「${cell.title || `セル ${baseIndex + executedCount + 1}`}」の実行に失敗しました。`);
+          break;
+        }
+        executedCount += 1;
+      }
+
+      if (executedCount === newCells.length) {
+        setWorkflowGenerationInfo(rationale || `${executedCount}件のセルを生成して実行しました。`);
+      } else if (executedCount > 0) {
+        setWorkflowGenerationInfo(`${executedCount}件のセルを実行しましたが、一部でエラーが発生しました。`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'ワークフローの生成に失敗しました。';
+      setWorkflowGenerationError(message);
+    } finally {
+      setWorkflowGenerating(false);
+    }
+  }, [
+    workflowGenerating,
+    workflowRequest,
+    parsedData,
+    columns,
+    llmSampleRows,
+    notebookCells.length,
+    generateCellId,
+    updateNotebookCells,
+    executeNotebookCell,
+  ]);
 
   const exportNotebook = useCallback(() => {
     if (!notebookCells || notebookCells.length === 0) {
@@ -3873,6 +4006,51 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                       </div>
                       <div className="text-xs text-gray-500 dark:text-gray-400">
                         テーブルは ?（クエスチョンマーク）で参照できます。各セル単位でSQLを編集・実行して結果を確認できます。
+                      </div>
+                      <div className="rounded-md border border-blue-200 dark:border-blue-700 bg-white dark:bg-gray-900/40 p-4 space-y-3">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-blue-700 dark:text-blue-300">
+                          <IoSparkles size={16} />
+                          <span>自然言語リクエスト</span>
+                        </div>
+                        <textarea
+                          value={workflowRequest}
+                          onChange={(e) => setWorkflowRequest(e.target.value)}
+                          className="w-full min-h-[96px] p-2 border border-blue-200 dark:border-blue-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 text-sm"
+                          placeholder="例: 地域ごとの売上トップ5を確認したい"
+                          disabled={workflowGenerating}
+                        />
+                        {workflowGenerationError && (
+                          <div className="text-xs text-red-600 dark:text-red-300 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded p-2">
+                            {workflowGenerationError}
+                          </div>
+                        )}
+                        {workflowGenerationInfo && !workflowGenerationError && (
+                          <div className="text-xs text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded p-2">
+                            {workflowGenerationInfo}
+                          </div>
+                        )}
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 dark:text-gray-400">
+                          <span>
+                            利用列 {columns.length} 件・サンプル行 {llmSampleRows.length} 件を送信します。
+                          </span>
+                          <button
+                            className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-60 flex items-center text-sm"
+                            onClick={generateNotebookFromRequest}
+                            disabled={workflowGenerating}
+                          >
+                            {workflowGenerating ? (
+                              <>
+                                <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
+                                生成中...
+                              </>
+                            ) : (
+                              <>
+                                <IoSparkles className="mr-1" />
+                                SQLを生成して実行
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
