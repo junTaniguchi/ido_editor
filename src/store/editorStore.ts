@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { TabData, FileTreeItem, EditorSettings, PaneState, ContextMenuTarget, SearchSettings, AnalysisData, SqlResult, ChartSettings, SearchResult, SqlNotebookCell, SqlNotebookSnapshotMeta } from '@/types';
+import { TabData, FileTreeItem, EditorSettings, PaneState, ContextMenuTarget, SearchSettings, AnalysisData, SqlResult, ChartSettings, SearchResult, SqlNotebookCell, SqlNotebookSnapshotMeta, PairWritingHistoryEntry } from '@/types';
 
 interface EditorStore {
   // タブ管理
@@ -15,6 +15,7 @@ interface EditorStore {
   updateTab: (id: string, updates: Partial<TabData>) => void;
   removeTab: (id: string) => void;
   getTab: (id: string) => TabData | undefined;
+  reorderTabs: (newOrder: string[]) => void;
   
   // 表示モード（'editor', 'preview', または 'split'）
   viewModes: Map<string, 'editor' | 'preview' | 'data-preview' | 'split'>;
@@ -76,6 +77,14 @@ interface EditorStore {
   clearSelectedFiles: () => void;
   multiFileAnalysisEnabled: boolean;
   setMultiFileAnalysisEnabled: (enabled: boolean) => void;
+
+  // ペアライティング履歴
+  pairWritingHistory: Record<string, PairWritingHistoryEntry[]>;
+  pairWritingHistoryIndex: Record<string, number>;
+  recordPairWritingEntry: (tabId: string, entry: PairWritingHistoryEntry) => void;
+  undoPairWriting: (tabId: string) => PairWritingHistoryEntry | null;
+  redoPairWriting: (tabId: string) => PairWritingHistoryEntry | null;
+  clearPairWritingHistory: (tabId: string) => void;
 }
 
 export const useEditorStore = create<EditorStore>()(
@@ -299,6 +308,98 @@ export const useEditorStore = create<EditorStore>()(
         });
         return { tabs: newTabs };
       }),
+
+      // ペアライティング履歴
+      pairWritingHistory: {},
+      pairWritingHistoryIndex: {},
+      recordPairWritingEntry: (tabId, entry) => set((state) => {
+        const history = state.pairWritingHistory[tabId] ?? [];
+        const currentIndex = state.pairWritingHistoryIndex[tabId];
+        const effectiveIndex = typeof currentIndex === 'number' ? currentIndex : history.length - 1;
+        const trimmedHistory = history.slice(0, Math.max(effectiveIndex + 1, 0));
+        const nextHistory = [...trimmedHistory, entry];
+        return {
+          pairWritingHistory: { ...state.pairWritingHistory, [tabId]: nextHistory },
+          pairWritingHistoryIndex: { ...state.pairWritingHistoryIndex, [tabId]: nextHistory.length - 1 },
+        };
+      }),
+      undoPairWriting: (tabId) => {
+        const state = get();
+        const history = state.pairWritingHistory[tabId] ?? [];
+        const currentIndex = state.pairWritingHistoryIndex[tabId];
+        const effectiveIndex = typeof currentIndex === 'number' ? currentIndex : history.length - 1;
+        if (effectiveIndex < 0 || effectiveIndex >= history.length) {
+          return null;
+        }
+
+        const entry = history[effectiveIndex];
+        set((storeState) => {
+          const newTabs = new Map(storeState.tabs);
+          const tab = newTabs.get(tabId);
+          if (tab) {
+            const newContent = entry.beforeContent;
+            newTabs.set(tabId, {
+              ...tab,
+              content: newContent,
+              isDirty: newContent !== tab.originalContent,
+            });
+          }
+          return {
+            tabs: newTabs,
+            pairWritingHistoryIndex: {
+              ...storeState.pairWritingHistoryIndex,
+              [tabId]: effectiveIndex - 1,
+            },
+          };
+        });
+
+        return entry;
+      },
+      redoPairWriting: (tabId) => {
+        const state = get();
+        const history = state.pairWritingHistory[tabId] ?? [];
+        const currentIndex = state.pairWritingHistoryIndex[tabId];
+        const nextIndex = (typeof currentIndex === 'number' ? currentIndex : history.length - 1) + 1;
+        if (nextIndex < 0 || nextIndex >= history.length) {
+          return null;
+        }
+
+        const entry = history[nextIndex];
+        set((storeState) => {
+          const newTabs = new Map(storeState.tabs);
+          const tab = newTabs.get(tabId);
+          if (tab) {
+            const newContent = entry.afterContent;
+            newTabs.set(tabId, {
+              ...tab,
+              content: newContent,
+              isDirty: newContent !== tab.originalContent,
+            });
+          }
+          return {
+            tabs: newTabs,
+            pairWritingHistoryIndex: {
+              ...storeState.pairWritingHistoryIndex,
+              [tabId]: nextIndex,
+            },
+          };
+        });
+
+        return entry;
+      },
+      clearPairWritingHistory: (tabId) => set((state) => {
+        if (!state.pairWritingHistory[tabId]) {
+          return {};
+        }
+        const nextHistory = { ...state.pairWritingHistory };
+        const nextIndex = { ...state.pairWritingHistoryIndex };
+        delete nextHistory[tabId];
+        delete nextIndex[tabId];
+        return {
+          pairWritingHistory: nextHistory,
+          pairWritingHistoryIndex: nextIndex,
+        };
+      }),
     }),
     {
       name: 'editor-storage',
@@ -400,6 +501,12 @@ export const useEditorStore = create<EditorStore>()(
           }
           if (!state.sqlNotebookMeta) {
             state.sqlNotebookMeta = {};
+          }
+          if (!state.pairWritingHistory) {
+            state.pairWritingHistory = {};
+          }
+          if (!state.pairWritingHistoryIndex) {
+            state.pairWritingHistoryIndex = {};
           }
           if (!state.paneState) {
             state.paneState = {

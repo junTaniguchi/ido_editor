@@ -28,6 +28,23 @@ export interface TabData {
   file?: FileSystemFileHandle | File;
 }
 
+export type PairWritingPurpose = 'translate' | 'rewrite';
+
+export interface PairWritingHistoryEntry {
+  id: string;
+  tabId: string;
+  purpose: PairWritingPurpose;
+  originalText: string;
+  transformedText: string;
+  beforeContent: string;
+  afterContent: string;
+  rangeFrom: number;
+  rangeTo: number;
+  targetLanguage?: string | null;
+  rewriteInstruction?: string | null;
+  createdAt: string;
+}
+
 // ファイルツリーに関する型定義
 export interface FileTreeItem {
   name: string;
