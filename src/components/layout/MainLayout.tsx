@@ -239,10 +239,10 @@ const MainLayout = () => {
   }, []);
 
   const handleMermaidTemplateConfirm = useCallback(
-    async (diagramType: MermaidDiagramType) => {
+    async (diagramType: MermaidDiagramType, generatedCode?: string) => {
       if (!pendingMermaidFile) return;
 
-      const template = getMermaidTemplate(diagramType);
+      const template = generatedCode ?? getMermaidTemplate(diagramType);
 
       try {
         if (pendingMermaidFile.directoryHandle) {
@@ -488,6 +488,8 @@ const MainLayout = () => {
       {showMermaidTemplateDialog && pendingMermaidFile && (
         <MermaidTemplateDialog
           isOpen={showMermaidTemplateDialog}
+          fileName={pendingMermaidFile.fileName}
+          historyKey={pendingMermaidFile.fileName}
           onCancel={handleMermaidTemplateCancel}
           onConfirm={handleMermaidTemplateConfirm}
         />

@@ -640,7 +640,12 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
                 <HtmlPreview tabId={tabId} />
               </div>
             ) : isMermaidTab ? (
-              <MermaidPreview content={currentTab.content} fileName={currentTab.name} />
+              <MermaidPreview
+                content={currentTab.content}
+                fileName={currentTab.name}
+                tabId={tabId}
+                enableAiActions
+              />
             ) : (
               <div className="h-full">
                 <DataPreview tabId={tabId} />

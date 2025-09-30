@@ -149,7 +149,12 @@ const Workspace: React.FC<WorkspaceProps> = ({
           {isMarkdown ? (
             <MarkdownPreview tabId={activeTabId} />
           ) : isMermaid ? (
-            <MermaidPreview content={activeTab.content} fileName={activeTab.name} />
+            <MermaidPreview
+              content={activeTab.content}
+              fileName={activeTab.name}
+              tabId={activeTabId}
+              enableAiActions={Boolean(activeTabId && isMermaid)}
+            />
           ) : isHtml ? (
             <HtmlPreview tabId={activeTabId} />
           ) : (
@@ -195,7 +200,12 @@ const Workspace: React.FC<WorkspaceProps> = ({
           {isMarkdown ? (
             <MarkdownPreview tabId={activeTabId} onScroll={handlePreviewScroll} />
           ) : isMermaid ? (
-            <MermaidPreview content={activeTab.content} fileName={activeTab.name} />
+            <MermaidPreview
+              content={activeTab.content}
+              fileName={activeTab.name}
+              tabId={activeTabId}
+              enableAiActions={Boolean(activeTabId && isMermaid)}
+            />
           ) : isHtml ? (
             <HtmlPreview tabId={activeTabId} onScroll={handlePreviewScroll} />
           ) : (

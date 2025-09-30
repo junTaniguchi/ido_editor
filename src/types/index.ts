@@ -1,3 +1,5 @@
+import type { MermaidDiagramType } from '@/lib/mermaid/types';
+
 // タブに関する型定義
 export interface TabData {
   id: string;
@@ -43,6 +45,16 @@ export interface PairWritingHistoryEntry {
   targetLanguage?: string | null;
   rewriteInstruction?: string | null;
   createdAt: string;
+}
+
+export interface MermaidGenerationHistoryEntry {
+  id: string;
+  diagramType: MermaidDiagramType;
+  prompt: string;
+  mermaidCode: string;
+  summary?: string;
+  createdAt: string;
+  appliedAt?: string | null;
 }
 
 // ファイルツリーに関する型定義

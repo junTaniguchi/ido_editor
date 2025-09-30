@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { TabData, FileTreeItem, EditorSettings, PaneState, ContextMenuTarget, SearchSettings, AnalysisData, SqlResult, ChartSettings, SearchResult, SqlNotebookCell, SqlNotebookSnapshotMeta, PairWritingHistoryEntry } from '@/types';
+import { TabData, FileTreeItem, EditorSettings, PaneState, ContextMenuTarget, SearchSettings, AnalysisData, SqlResult, ChartSettings, SearchResult, SqlNotebookCell, SqlNotebookSnapshotMeta, PairWritingHistoryEntry, MermaidGenerationHistoryEntry } from '@/types';
 
 interface EditorStore {
   // タブ管理
@@ -85,6 +85,16 @@ interface EditorStore {
   undoPairWriting: (tabId: string) => PairWritingHistoryEntry | null;
   redoPairWriting: (tabId: string) => PairWritingHistoryEntry | null;
   clearPairWritingHistory: (tabId: string) => void;
+
+  // Mermaid生成履歴
+  mermaidGenerationHistory: Record<string, MermaidGenerationHistoryEntry[]>;
+  addMermaidGenerationEntry: (key: string, entry: MermaidGenerationHistoryEntry) => void;
+  updateMermaidGenerationEntry: (
+    key: string,
+    entryId: string,
+    updates: Partial<MermaidGenerationHistoryEntry>,
+  ) => void;
+  clearMermaidGenerationHistory: (key: string) => void;
 }
 
 export const useEditorStore = create<EditorStore>()(
@@ -309,6 +319,47 @@ export const useEditorStore = create<EditorStore>()(
         return { tabs: newTabs };
       }),
 
+      // Mermaid生成履歴
+      mermaidGenerationHistory: {},
+      addMermaidGenerationEntry: (key, entry) => set((state) => {
+        if (!key) {
+          return state;
+        }
+        const history = state.mermaidGenerationHistory[key] ?? [];
+        return {
+          mermaidGenerationHistory: {
+            ...state.mermaidGenerationHistory,
+            [key]: [...history, entry],
+          },
+        };
+      }),
+      updateMermaidGenerationEntry: (key, entryId, updates) => set((state) => {
+        const history = state.mermaidGenerationHistory[key];
+        if (!history) {
+          return state;
+        }
+        const index = history.findIndex((item) => item.id === entryId);
+        if (index === -1) {
+          return state;
+        }
+        const nextHistory = history.slice();
+        nextHistory[index] = { ...nextHistory[index], ...updates };
+        return {
+          mermaidGenerationHistory: {
+            ...state.mermaidGenerationHistory,
+            [key]: nextHistory,
+          },
+        };
+      }),
+      clearMermaidGenerationHistory: (key) => set((state) => {
+        if (!state.mermaidGenerationHistory[key]) {
+          return state;
+        }
+        const nextHistory = { ...state.mermaidGenerationHistory };
+        delete nextHistory[key];
+        return { mermaidGenerationHistory: nextHistory };
+      }),
+
       // ペアライティング履歴
       pairWritingHistory: {},
       pairWritingHistoryIndex: {},
@@ -439,6 +490,7 @@ export const useEditorStore = create<EditorStore>()(
             return acc;
           }, {}),
           sqlNotebookMeta: state.sqlNotebookMeta,
+          mermaidGenerationHistory: state.mermaidGenerationHistory,
         };
       },
       // デシリアライズ時にMapに戻す処理
@@ -507,6 +559,9 @@ export const useEditorStore = create<EditorStore>()(
           }
           if (!state.pairWritingHistoryIndex) {
             state.pairWritingHistoryIndex = {};
+          }
+          if (!state.mermaidGenerationHistory) {
+            state.mermaidGenerationHistory = {};
           }
           if (!state.paneState) {
             state.paneState = {

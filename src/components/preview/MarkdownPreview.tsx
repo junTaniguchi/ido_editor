@@ -457,7 +457,11 @@ const MarkdownPreview = forwardRef<HTMLDivElement, MarkdownPreviewProps>(({ tabI
                   if (match?.[1] === 'mermaid') {
                     const fileName = tabs.get(tabId)?.name || 'mermaid-diagram.mmd';
                     // MermaidPreviewを描画
-                    return <div className="my-4"><MermaidPreview content={trimmedCode} fileName={fileName} /></div>;
+                    return (
+                      <div className="my-4">
+                        <MermaidPreview content={trimmedCode} fileName={fileName} enableAiActions={false} />
+                      </div>
+                    );
                   }
                   // 通常配色（枠線なし）
                   const preClass = 'rounded px-5 py-3 my-4 bg-gray-100 text-gray-900 whitespace-pre-line';

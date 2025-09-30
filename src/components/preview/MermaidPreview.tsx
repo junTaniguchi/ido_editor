@@ -1,38 +1,20 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { IoDownload, IoCopy, IoAdd, IoRemove, IoExpand } from 'react-icons/io5';
+import { LuSparkles } from 'react-icons/lu';
 import { initializeMermaid } from '@/lib/mermaid/mermaidClient';
+import { normalizeMermaidSource } from '@/lib/mermaid/normalize';
+import { diagramList } from '@/lib/mermaid/diagramDefinitions';
+import type { MermaidDiagramType } from '@/lib/mermaid/types';
+import { detectDiagramType } from '@/lib/mermaid/parser';
+import { requestMermaidGeneration } from '@/lib/llm/mermaidGenerator';
+import { createId } from '@/lib/utils/id';
+import { useEditorStore } from '@/store/editorStore';
+import MermaidCodePreview from '@/components/mermaid/MermaidCodePreview';
+import type { MermaidGenerationHistoryEntry } from '@/types';
 
-const normalizeMermaidSource = (value: string): string => {
-  if (!value) return '';
-
-  // 改行コードを統一し、Mermaidが解釈しやすい形に整形する
-  const unified = value
-    .replace(/\r\n?/g, '\n')
-    .replace(/[\u2028\u2029]/g, '\n')
-    .trim();
-
-  if (!unified) return '';
-
-  const lines = unified.split('\n');
-  const headerPattern = /^\s*(flowchart|graph)\s+([A-Za-z]{2})(.*)$/i;
-  const headerMatch = lines[0].match(headerPattern);
-
-  if (headerMatch) {
-    const [, keyword, orientation, rest] = headerMatch;
-    lines[0] = `${keyword} ${orientation.toUpperCase()}`;
-    if (rest && rest.trim().length > 0) {
-      lines.splice(1, 0, rest.trim());
-    }
-  } else {
-    lines[0] = lines[0].trim();
-  }
-
-  return lines
-    .map((line, index) => (index === 0 ? line : line.replace(/\s+$/g, '')))
-    .join('\n');
-};
+const EMPTY_HISTORY: MermaidGenerationHistoryEntry[] = [];
 
 // SVGにパディングを追加して描画範囲を広げる関数
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
@@ -103,9 +85,18 @@ const addPaddingToSvg = (svgString: string): string => {
 interface MermaidPreviewProps {
   content: string;
   fileName: string;
+  tabId?: string | null;
+  enableAiActions?: boolean;
+  historyKey?: string;
 }
 
-const MermaidPreview: React.FC<MermaidPreviewProps> = ({ content, fileName }) => {
+const MermaidPreview: React.FC<MermaidPreviewProps> = ({
+  content,
+  fileName,
+  tabId,
+  enableAiActions = false,
+  historyKey,
+}) => {
   const [svg, setSvg] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [isRendering, setIsRendering] = useState<boolean>(false);
@@ -115,6 +106,67 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({ content, fileName }) =>
   const [isLoadingMermaid, setIsLoadingMermaid] = useState<boolean>(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const renderCounter = useRef<number>(0);
+
+  const defaultDiagramType = useMemo<MermaidDiagramType>(() => {
+    try {
+      return detectDiagramType(content || '');
+    } catch {
+      return 'flowchart';
+    }
+  }, [content]);
+
+  const [isAiPanelOpen, setIsAiPanelOpen] = useState<boolean>(false);
+  const [aiPrompt, setAiPrompt] = useState<string>('');
+  const [aiDiagramType, setAiDiagramType] = useState<MermaidDiagramType>(defaultDiagramType);
+  const [aiGeneratedCode, setAiGeneratedCode] = useState<string>('');
+  const [aiSummary, setAiSummary] = useState<string>('');
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [isGeneratingAi, setIsGeneratingAi] = useState<boolean>(false);
+  const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isAiPanelOpen) {
+      setAiDiagramType(defaultDiagramType);
+    }
+  }, [defaultDiagramType, isAiPanelOpen]);
+
+  const effectiveHistoryKey = useMemo(() => historyKey ?? (tabId ?? fileName), [historyKey, tabId, fileName]);
+
+  const mermaidHistory = useEditorStore((state) => {
+    if (!enableAiActions || !effectiveHistoryKey) {
+      return EMPTY_HISTORY;
+    }
+    return state.mermaidGenerationHistory[effectiveHistoryKey] ?? EMPTY_HISTORY;
+  });
+  const addHistoryEntry = useEditorStore((state) => state.addMermaidGenerationEntry);
+  const updateHistoryEntry = useEditorStore((state) => state.updateMermaidGenerationEntry);
+  const updateTabContent = useEditorStore((state) => state.updateTab);
+  const getTab = useEditorStore((state) => state.getTab);
+
+  const selectedHistoryEntry = useMemo<MermaidGenerationHistoryEntry | null>(() => {
+    if (!selectedHistoryId) return null;
+    return mermaidHistory.find((entry) => entry.id === selectedHistoryId) ?? null;
+  }, [mermaidHistory, selectedHistoryId]);
+
+  useEffect(() => {
+    if (!isAiPanelOpen) {
+      setAiPrompt('');
+      setAiGeneratedCode('');
+      setAiSummary('');
+      setAiError(null);
+      setSelectedHistoryId(null);
+    }
+  }, [isAiPanelOpen]);
+
+  useEffect(() => {
+    if (selectedHistoryEntry) {
+      setAiPrompt(selectedHistoryEntry.prompt);
+      setAiDiagramType(selectedHistoryEntry.diagramType);
+      setAiGeneratedCode(selectedHistoryEntry.mermaidCode);
+      setAiSummary(selectedHistoryEntry.summary ?? '');
+      setAiError(null);
+    }
+  }, [selectedHistoryEntry]);
 
   useEffect(() => {
     renderDiagram();
@@ -230,7 +282,7 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({ content, fileName }) =>
 
   const handleCopy = async () => {
     if (!svg) return;
-    
+
     try {
       await navigator.clipboard.writeText(svg);
       showToastMessage('SVGコードをクリップボードにコピーしました');
@@ -239,6 +291,91 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({ content, fileName }) =>
       showToastMessage('コピーに失敗しました');
     }
   };
+
+  const handleGenerateAi = useCallback(async () => {
+    if (!enableAiActions) {
+      return;
+    }
+
+    const trimmedPrompt = aiPrompt.trim();
+    if (!trimmedPrompt) {
+      setAiError('生成する内容を入力してください。');
+      return;
+    }
+
+    setIsGeneratingAi(true);
+    setAiError(null);
+
+    try {
+      const response = await requestMermaidGeneration({
+        prompt: trimmedPrompt,
+        diagramType: aiDiagramType,
+        existingCode: content,
+      });
+
+      const generatedCode = response.mermaidCode;
+      if (!generatedCode) {
+        throw new Error('生成結果が空でした。');
+      }
+
+      setAiGeneratedCode(generatedCode);
+      setAiSummary(response.summary ?? '');
+
+      if (enableAiActions && effectiveHistoryKey) {
+        const entry: MermaidGenerationHistoryEntry = {
+          id: createId('mermaid_ai'),
+          diagramType: response.diagramType ?? aiDiagramType,
+          prompt: trimmedPrompt,
+          mermaidCode: generatedCode,
+          summary: response.summary ?? '',
+          createdAt: new Date().toISOString(),
+        };
+        addHistoryEntry(effectiveHistoryKey, entry);
+        setSelectedHistoryId(entry.id);
+      }
+
+      showToastMessage('Mermaidコードを生成しました');
+    } catch (error) {
+      console.error('Mermaid generation error:', error);
+      const message = error instanceof Error ? error.message : 'AI生成に失敗しました。';
+      setAiError(message);
+    } finally {
+      setIsGeneratingAi(false);
+    }
+  }, [addHistoryEntry, aiDiagramType, aiPrompt, content, effectiveHistoryKey, enableAiActions]);
+
+  const handleApplyGeneratedCode = useCallback(() => {
+    if (!enableAiActions || !aiGeneratedCode || !tabId) {
+      return;
+    }
+
+    const tab = getTab(tabId);
+    updateTabContent(tabId, {
+      content: aiGeneratedCode,
+      isDirty: aiGeneratedCode !== (tab?.originalContent ?? ''),
+    });
+    showToastMessage('AI生成結果を適用しました');
+    if (effectiveHistoryKey && selectedHistoryId) {
+      updateHistoryEntry(effectiveHistoryKey, selectedHistoryId, {
+        appliedAt: new Date().toISOString(),
+      });
+    }
+    setIsAiPanelOpen(false);
+  }, [aiGeneratedCode, enableAiActions, effectiveHistoryKey, getTab, selectedHistoryId, tabId, updateHistoryEntry, updateTabContent]);
+
+  const handleDiscardGeneratedCode = useCallback(() => {
+    setAiGeneratedCode('');
+    setAiSummary('');
+    setSelectedHistoryId(null);
+    setAiError(null);
+  }, []);
+
+  const handleSelectHistory = useCallback((entryId: string) => {
+    setSelectedHistoryId(entryId || null);
+  }, []);
+
+  const canApplyGeneratedCode = enableAiActions && Boolean(aiGeneratedCode && tabId);
+  const hasHistory = enableAiActions && mermaidHistory.length > 0;
 
   const showToastMessage = (message: string) => {
     setToastMessage(message);
@@ -292,7 +429,21 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({ content, fileName }) =>
               <IoExpand size={16} />
             </button>
           </div>
-          
+
+          {enableAiActions && (
+            <button
+              onClick={() => setIsAiPanelOpen((prev) => !prev)}
+              className={`px-3 py-2 rounded flex items-center gap-1 transition-colors ${
+                isAiPanelOpen
+                  ? 'bg-purple-600 text-white hover:bg-purple-700'
+                  : 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/40 dark:text-purple-200 dark:hover:bg-purple-900'
+              }`}
+            >
+              <LuSparkles size={16} />
+              AI生成
+            </button>
+          )}
+
           {/* アクションボタン */}
           <button
             onClick={handleCopy}
@@ -312,6 +463,115 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({ content, fileName }) =>
           </button>
         </div>
       </div>
+
+      {enableAiActions && isAiPanelOpen && (
+        <div className="flex-shrink-0 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-950 p-4 space-y-4">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">
+                自然言語説明
+              </label>
+              <textarea
+                className="w-full h-28 border border-gray-300 dark:border-gray-600 rounded-md p-2 text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                value={aiPrompt}
+                onChange={(event) => setAiPrompt(event.target.value)}
+                placeholder="例: 営業チームのワークフローをフローチャートで整理し、重要な判断ポイントを強調"
+              />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleGenerateAi}
+                  disabled={isGeneratingAi}
+                  className="px-4 py-2 text-sm rounded-md bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-60"
+                >
+                  {isGeneratingAi ? '生成中…' : 'AI生成'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleApplyGeneratedCode}
+                  disabled={!canApplyGeneratedCode}
+                  className="px-4 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
+                >
+                  結果を適用
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDiscardGeneratedCode}
+                  disabled={!aiGeneratedCode}
+                  className="px-4 py-2 text-sm rounded-md bg-gray-200 text-gray-700 hover:bg-gray-300 disabled:opacity-60 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                >
+                  破棄
+                </button>
+              </div>
+              {aiError && <p className="text-xs text-red-500">{aiError}</p>}
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">図の種類</label>
+                <select
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-md p-2 text-sm bg-white dark:bg-gray-800"
+                  value={aiDiagramType}
+                  onChange={(event) => setAiDiagramType(event.target.value as MermaidDiagramType)}
+                >
+                  {diagramList.map((item) => (
+                    <option key={item.type} value={item.type}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {hasHistory && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">生成履歴</label>
+                  <select
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-md p-2 text-sm bg-white dark:bg-gray-800"
+                    value={selectedHistoryId ?? ''}
+                    onChange={(event) => handleSelectHistory(event.target.value)}
+                  >
+                    <option value="">履歴を選択…</option>
+                    {mermaidHistory.map((entry) => {
+                      const createdAt = new Date(entry.createdAt);
+                      const timestamp = Number.isNaN(createdAt.getTime())
+                        ? entry.createdAt
+                        : createdAt.toLocaleString();
+                      return (
+                        <option key={entry.id} value={entry.id}>
+                          {`${timestamp}｜${entry.diagramType}`}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    過去のプロンプトと生成結果を呼び出して再利用できます。
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {aiSummary && (
+            <div className="text-sm text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-md p-3">
+              {aiSummary}
+            </div>
+          )}
+
+          {aiGeneratedCode && (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="border border-gray-200 dark:border-gray-700 rounded-md p-3 bg-white dark:bg-gray-900">
+                <MermaidCodePreview code={aiGeneratedCode} />
+              </div>
+              <div className="space-y-2">
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">
+                  生成されたMermaidコード
+                </label>
+                <pre className="w-full h-48 overflow-auto border border-gray-200 dark:border-gray-700 rounded-md bg-gray-50 dark:bg-gray-900 p-3 text-xs whitespace-pre-wrap">
+                  {aiGeneratedCode}
+                </pre>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* コンテンツ */}
       <div
