@@ -521,7 +521,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
         }
 
         case 'kml': {
-          const kmlResult = parseKmlContent((content as string) ?? '');
+          const kmlResult = await parseKmlContent((content as string) ?? '');
           applyGisResult(kmlResult);
           break;
         }
@@ -529,7 +529,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
         case 'kmz': {
           try {
             const buffer = await loadBinaryFromTab();
-            const kmzResult = parseKmzContent(buffer);
+            const kmzResult = await parseKmzContent(buffer);
             if (!applyGisResult(kmzResult)) {
               setLoading(false);
               return;
