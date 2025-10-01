@@ -17,6 +17,7 @@ import ActivityBar from '@/components/layout/ActivityBar';
 import GitHistoryView from '@/components/git/GitHistoryView';
 import GitDiffView from '@/components/git/GitDiffView';
 import GitCommitDiffView from '@/components/git/GitCommitDiffView';
+import HelpSidebar from '@/components/help/HelpSidebar';
 
 interface WorkspaceProps {
   paneState: PaneState;
@@ -50,19 +51,24 @@ const Workspace: React.FC<WorkspaceProps> = ({
     if (paneState.isGitVisible) {
       return 'git';
     }
+    if (paneState.isHelpVisible) {
+      return 'help';
+    }
     return null;
-  }, [paneState.activeSidebar, paneState.isExplorerVisible, paneState.isGitVisible]);
+  }, [paneState.activeSidebar, paneState.isExplorerVisible, paneState.isGitVisible, paneState.isHelpVisible]);
 
   const showExplorer = activeSidebar === 'explorer';
   const showGitSidebar = activeSidebar === 'git';
+  const showHelpSidebar = activeSidebar === 'help';
 
   const handleSidebarSelect = useCallback(
-    (sidebar: 'explorer' | 'git') => {
+    (sidebar: 'explorer' | 'git' | 'help') => {
       const isActive = activeSidebar === sidebar;
       updatePaneState({
         activeSidebar: isActive ? null : sidebar,
         isExplorerVisible: sidebar === 'explorer' ? !isActive : false,
         isGitVisible: sidebar === 'git' ? !isActive : false,
+        isHelpVisible: sidebar === 'help' ? !isActive : false,
       });
     },
     [activeSidebar, updatePaneState]
@@ -317,6 +323,11 @@ const Workspace: React.FC<WorkspaceProps> = ({
       {showGitSidebar && (
         <div className="w-96 flex-shrink-0 border-r border-gray-200 dark:border-gray-800 overflow-hidden">
           <GitPanel />
+        </div>
+      )}
+      {showHelpSidebar && (
+        <div className="w-96 flex-shrink-0 border-r border-gray-200 dark:border-gray-800 overflow-hidden">
+          <HelpSidebar />
         </div>
       )}
       <div className="flex-1 flex overflow-hidden">

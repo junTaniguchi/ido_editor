@@ -2,7 +2,27 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { TabData, FileTreeItem, EditorSettings, PaneState, ContextMenuTarget, SearchSettings, AnalysisData, SqlResult, ChartSettings, SearchResult, SqlNotebookCell, SqlNotebookSnapshotMeta, PairWritingHistoryEntry, MermaidGenerationHistoryEntry } from '@/types';
+import { createId } from '@/lib/utils/id';
+import {
+  TabData,
+  FileTreeItem,
+  EditorSettings,
+  PaneState,
+  ContextMenuTarget,
+  SearchSettings,
+  AnalysisData,
+  SqlResult,
+  ChartSettings,
+  SearchResult,
+  SqlNotebookCell,
+  SqlNotebookSnapshotMeta,
+  PairWritingHistoryEntry,
+  MermaidGenerationHistoryEntry,
+  HelpThread,
+  HelpMessage,
+  HelpSettings,
+  HelpUserRole,
+} from '@/types';
 
 interface EditorStore {
   // タブ管理
@@ -95,6 +115,22 @@ interface EditorStore {
     updates: Partial<MermaidGenerationHistoryEntry>,
   ) => void;
   clearMermaidGenerationHistory: (key: string) => void;
+
+  // ヘルプチャット
+  helpThreads: Record<string, HelpThread>;
+  helpThreadOrder: string[];
+  activeHelpThreadId: string | null;
+  setActiveHelpThread: (threadId: string | null) => void;
+  createHelpThread: (payload?: { title?: string; documentId?: string; knowledgeBaseUrl?: string }) => HelpThread;
+  updateHelpThread: (
+    threadId: string,
+    updates: Partial<Omit<HelpThread, 'id' | 'messages'>> & { messages?: HelpMessage[] },
+  ) => void;
+  addHelpMessage: (threadId: string, message: HelpMessage) => void;
+  removeHelpThread: (threadId: string) => void;
+  clearHelpThreads: () => void;
+  helpSettings: HelpSettings;
+  updateHelpSettings: (updates: Partial<HelpSettings>) => void;
 }
 
 export const useEditorStore = create<EditorStore>()(
@@ -224,6 +260,7 @@ export const useEditorStore = create<EditorStore>()(
         isSearchVisible: false,
         isAnalysisVisible: false,
         isGitVisible: false,
+        isHelpVisible: false,
       },
       updatePaneState: (state) => set((prevState) => ({
         paneState: { ...prevState.paneState, ...state }
@@ -451,6 +488,117 @@ export const useEditorStore = create<EditorStore>()(
           pairWritingHistoryIndex: nextIndex,
         };
       }),
+
+      // ヘルプチャット
+      helpThreads: {},
+      helpThreadOrder: [],
+      activeHelpThreadId: null,
+      setActiveHelpThread: (threadId) =>
+        set((state) => {
+          if (threadId && !state.helpThreads[threadId]) {
+            return state;
+          }
+          return { activeHelpThreadId: threadId };
+        }),
+      createHelpThread: (payload) => {
+        const id = createId('help');
+        const now = new Date().toISOString();
+        const baseTitle = payload?.title?.trim() || '新しい問い合わせ';
+        const state = get();
+        const documentId = payload?.documentId ?? state.helpSettings.defaultDocumentId ?? '';
+        const knowledgeBaseUrl = payload?.knowledgeBaseUrl ?? state.helpSettings.defaultKnowledgeBaseUrl ?? '';
+        const thread: HelpThread = {
+          id,
+          title: baseTitle,
+          createdAt: now,
+          updatedAt: now,
+          messages: [],
+          documentId,
+          knowledgeBaseUrl,
+        };
+        set((storeState) => ({
+          helpThreads: { ...storeState.helpThreads, [id]: thread },
+          helpThreadOrder: [id, ...storeState.helpThreadOrder.filter((existing) => existing !== id)],
+          activeHelpThreadId: id,
+        }));
+        return thread;
+      },
+      updateHelpThread: (threadId, updates) =>
+        set((state) => {
+          const thread = state.helpThreads[threadId];
+          if (!thread) {
+            return state;
+          }
+          const nextMessages = updates.messages ? updates.messages.slice() : thread.messages;
+          const nextThread: HelpThread = {
+            ...thread,
+            ...updates,
+            messages: nextMessages,
+            updatedAt: updates.updatedAt ?? new Date().toISOString(),
+          };
+          return {
+            helpThreads: { ...state.helpThreads, [threadId]: nextThread },
+          };
+        }),
+      addHelpMessage: (threadId, message) =>
+        set((state) => {
+          const thread = state.helpThreads[threadId];
+          if (!thread) {
+            return state;
+          }
+          const nextMessages = [...thread.messages, message];
+          return {
+            helpThreads: {
+              ...state.helpThreads,
+              [threadId]: {
+                ...thread,
+                messages: nextMessages,
+                updatedAt: message.createdAt || new Date().toISOString(),
+              },
+            },
+            helpThreadOrder: [threadId, ...state.helpThreadOrder.filter((id) => id !== threadId)],
+            activeHelpThreadId: threadId,
+          };
+        }),
+      removeHelpThread: (threadId) =>
+        set((state) => {
+          if (!state.helpThreads[threadId]) {
+            return state;
+          }
+          const { [threadId]: _removed, ...rest } = state.helpThreads;
+          const nextOrder = state.helpThreadOrder.filter((id) => id !== threadId);
+          const nextActive = state.activeHelpThreadId === threadId ? nextOrder[0] ?? null : state.activeHelpThreadId;
+          return {
+            helpThreads: rest,
+            helpThreadOrder: nextOrder,
+            activeHelpThreadId: nextActive,
+          };
+        }),
+      clearHelpThreads: () => set({ helpThreads: {}, helpThreadOrder: [], activeHelpThreadId: null }),
+      helpSettings: {
+        currentRole: 'editor',
+        allowedRoles: {
+          viewer: false,
+          editor: true,
+          admin: true,
+        },
+        maskFileContent: true,
+        defaultDocumentId: '',
+        defaultKnowledgeBaseUrl: '',
+      },
+      updateHelpSettings: (updates) =>
+        set((state) => {
+          const nextAllowedRoles = updates.allowedRoles
+            ? { ...state.helpSettings.allowedRoles, ...updates.allowedRoles }
+            : state.helpSettings.allowedRoles;
+          return {
+            helpSettings: {
+              ...state.helpSettings,
+              ...updates,
+              allowedRoles: nextAllowedRoles,
+            },
+          };
+        }),
     }),
     {
       name: 'editor-storage',
@@ -491,6 +639,10 @@ export const useEditorStore = create<EditorStore>()(
           }, {}),
           sqlNotebookMeta: state.sqlNotebookMeta,
           mermaidGenerationHistory: state.mermaidGenerationHistory,
+          helpThreads: state.helpThreads,
+          helpThreadOrder: state.helpThreadOrder,
+          activeHelpThreadId: state.activeHelpThreadId,
+          helpSettings: state.helpSettings,
         };
       },
       // デシリアライズ時にMapに戻す処理
@@ -573,6 +725,7 @@ export const useEditorStore = create<EditorStore>()(
               isSearchVisible: false,
               isAnalysisVisible: false,
               isGitVisible: false,
+              isHelpVisible: false,
             };
           } else {
             if (typeof state.paneState.activeSidebar === 'undefined') {
@@ -586,6 +739,46 @@ export const useEditorStore = create<EditorStore>()(
             if (typeof state.paneState.isGitVisible !== 'boolean') {
               state.paneState = { ...state.paneState, isGitVisible: false };
             }
+            if (typeof state.paneState.isHelpVisible !== 'boolean') {
+              state.paneState = { ...state.paneState, isHelpVisible: false };
+            }
+          }
+
+          if (!state.helpThreads) {
+            state.helpThreads = {};
+          }
+          if (!Array.isArray(state.helpThreadOrder)) {
+            state.helpThreadOrder = [];
+          }
+          if (typeof state.activeHelpThreadId === 'undefined') {
+            state.activeHelpThreadId = null;
+          }
+          const defaultHelpSettings: HelpSettings = {
+            currentRole: 'editor',
+            allowedRoles: {
+              viewer: false,
+              editor: true,
+              admin: true,
+            },
+            maskFileContent: true,
+            defaultDocumentId: '',
+            defaultKnowledgeBaseUrl: '',
+          };
+          if (!state.helpSettings) {
+            state.helpSettings = defaultHelpSettings;
+          } else {
+            state.helpSettings = {
+              ...defaultHelpSettings,
+              ...state.helpSettings,
+              allowedRoles: {
+                ...defaultHelpSettings.allowedRoles,
+                ...(state.helpSettings.allowedRoles ?? {}),
+              },
+              maskFileContent:
+                typeof state.helpSettings.maskFileContent === 'boolean'
+                  ? state.helpSettings.maskFileContent
+                  : defaultHelpSettings.maskFileContent,
+            };
           }
         }
       }

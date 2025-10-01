@@ -1,9 +1,9 @@
 'use client';
 
 import React from 'react';
-import { IoFolderOpenOutline, IoGitBranchOutline } from 'react-icons/io5';
+import { IoFolderOpenOutline, IoGitBranchOutline, IoChatbubblesOutline } from 'react-icons/io5';
 
-type ActivityItem = 'explorer' | 'git';
+type ActivityItem = 'explorer' | 'git' | 'help';
 
 interface ActivityBarProps {
   activeItem: ActivityItem | null;
@@ -35,6 +35,15 @@ const ActivityBar: React.FC<ActivityBarProps> = ({ activeItem, onSelect }) => {
         aria-pressed={activeItem === 'git'}
       >
         <IoGitBranchOutline size={20} />
+      </button>
+      <button
+        type="button"
+        className={`${baseButton} mt-2 ${activeItem === 'help' ? activeClass : inactiveClass}`}
+        onClick={() => onSelect('help')}
+        title="ヘルプ"
+        aria-pressed={activeItem === 'help'}
+      >
+        <IoChatbubblesOutline size={20} />
       </button>
     </nav>
   );
