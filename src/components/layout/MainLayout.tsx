@@ -85,7 +85,12 @@ const MainLayout = () => {
 
   const togglePane = useCallback(
     (pane: keyof typeof paneState) => {
-      if (pane === 'isExplorerVisible' || pane === 'isGitVisible' || pane === 'activeSidebar') {
+      if (
+        pane === 'isExplorerVisible' ||
+        pane === 'isGitVisible' ||
+        pane === 'isHelpVisible' ||
+        pane === 'activeSidebar'
+      ) {
         return;
       }
       updatePaneState({ [pane]: !paneState[pane] });
@@ -99,6 +104,7 @@ const MainLayout = () => {
       activeSidebar: isActive ? null : 'explorer',
       isExplorerVisible: !isActive,
       isGitVisible: false,
+      isHelpVisible: false,
     });
   }, [paneState.activeSidebar, updatePaneState]);
 
@@ -108,6 +114,17 @@ const MainLayout = () => {
       activeSidebar: isActive ? null : 'git',
       isGitVisible: !isActive,
       isExplorerVisible: false,
+      isHelpVisible: false,
+    });
+  }, [paneState.activeSidebar, updatePaneState]);
+
+  const handleToggleHelpPane = useCallback(() => {
+    const isActive = paneState.activeSidebar === 'help';
+    updatePaneState({
+      activeSidebar: isActive ? null : 'help',
+      isHelpVisible: !isActive,
+      isExplorerVisible: false,
+      isGitVisible: false,
     });
   }, [paneState.activeSidebar, updatePaneState]);
 
@@ -434,8 +451,10 @@ const MainLayout = () => {
         onToggleMultiFileAnalysis={handleToggleMultiFile}
         selectedFileCount={selectedFiles.size}
         onToggleGit={handleToggleGitPane}
-        isGitPaneVisible={paneState.activeSidebar === 'git'}
+        isGitPaneVisible={paneState.isGitVisible}
         onCloneRepository={handleOpenGitCloneDialog}
+        onToggleHelp={handleToggleHelpPane}
+        isHelpPaneVisible={paneState.isHelpVisible}
       />
 
       <TabBarDnD />

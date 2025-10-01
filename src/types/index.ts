@@ -79,7 +79,7 @@ export interface EditorSettings {
 
 // パネル表示状態に関する型定義
 export interface PaneState {
-  activeSidebar: 'explorer' | 'git' | null;
+  activeSidebar: 'explorer' | 'git' | 'help' | null;
   isExplorerVisible: boolean;
   isEditorVisible: boolean;
   isPreviewVisible: boolean;
@@ -87,6 +87,7 @@ export interface PaneState {
   isSearchVisible: boolean;
   isAnalysisVisible: boolean;
   isGitVisible: boolean;
+  isHelpVisible: boolean;
 }
 
 // コンテキストメニューに関する型定義
@@ -186,4 +187,39 @@ export interface SqlNotebookCell {
   executedAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type HelpMessageRole = 'user' | 'assistant';
+
+export interface HelpMessageMetadata {
+  maskedFiles?: { path: string; reason: string }[];
+  maskedPatterns?: string[];
+}
+
+export interface HelpMessage {
+  id: string;
+  role: HelpMessageRole;
+  content: string;
+  createdAt: string;
+  metadata?: HelpMessageMetadata;
+}
+
+export interface HelpThread {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: HelpMessage[];
+  documentId?: string;
+  knowledgeBaseUrl?: string;
+}
+
+export type HelpUserRole = 'viewer' | 'editor' | 'admin';
+
+export interface HelpSettings {
+  currentRole: HelpUserRole;
+  allowedRoles: Record<HelpUserRole, boolean>;
+  maskFileContent: boolean;
+  defaultDocumentId: string;
+  defaultKnowledgeBaseUrl: string;
 }

@@ -10,6 +10,7 @@ import {
   IoGitMergeOutline,
   IoGitBranchOutline,
   IoDownloadOutline,
+  IoHelpCircleOutline,
 } from 'react-icons/io5';
 
 interface MainHeaderProps {
@@ -27,6 +28,8 @@ interface MainHeaderProps {
   onToggleGit: () => void;
   isGitPaneVisible: boolean;
   onCloneRepository: () => void;
+  onToggleHelp: () => void;
+  isHelpPaneVisible: boolean;
 }
 
 const MainHeader: React.FC<MainHeaderProps> = ({
@@ -44,6 +47,8 @@ const MainHeader: React.FC<MainHeaderProps> = ({
   onToggleGit,
   isGitPaneVisible,
   onCloneRepository,
+  onToggleHelp,
+  isHelpPaneVisible,
 }) => {
   const isDark = theme === 'dark';
 
@@ -105,6 +110,16 @@ const MainHeader: React.FC<MainHeaderProps> = ({
         aria-label="Toggle Search"
       >
         <IoSearch size={20} />
+      </button>
+      <button
+        className={`p-1 rounded ml-2 ${
+          isHelpPaneVisible ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-200 dark:hover:bg-gray-800'
+        }`}
+        onClick={onToggleHelp}
+        aria-label="Toggle Help"
+        title={`ヘルプパネル ${isHelpPaneVisible ? '表示中' : '非表示'}`}
+      >
+        <IoHelpCircleOutline size={20} />
       </button>
       <button
         className={`p-1 rounded ml-2 ${
