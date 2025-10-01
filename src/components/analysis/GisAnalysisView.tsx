@@ -2,8 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FeatureCollection, Geometry } from 'geojson';
-import L, { CircleMarker, GeoJSON as LeafletGeoJSON, Path } from 'leaflet';
-import 'leaflet/dist/leaflet.css';
+import type { CircleMarker, GeoJSON as LeafletGeoJSON, Map as LeafletMap, Path } from 'leaflet';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { IoSparkles, IoWarningOutline } from 'react-icons/io5';
@@ -23,6 +22,9 @@ import {
 import type { GisFileType } from '@/lib/gisFileTypes';
 import { GIS_FILE_TYPES } from '@/lib/gisFileTypes';
 import { buildAnalysisSummary, type LlmReportResponse } from '@/lib/llm/analysisSummarizer';
+import { loadLeaflet } from '@/lib/loadLeaflet';
+
+type LeafletModule = Awaited<ReturnType<typeof loadLeaflet>>;
 
 interface GisFileEntry {
   path: string;
@@ -228,8 +230,11 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
   const [aiAnalysisResult, setAiAnalysisResult] = useState<LlmReportResponse | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
-  const mapInstanceRef = useRef<L.Map | null>(null);
+  const mapInstanceRef = useRef<LeafletMap | null>(null);
   const geoJsonLayerRef = useRef<LeafletGeoJSON | null>(null);
+  const [leafletLib, setLeafletLib] = useState<LeafletModule | null>(null);
+  const [leafletLoading, setLeafletLoading] = useState(false);
+  const [leafletError, setLeafletError] = useState<string | null>(null);
 
   const columns = useMemo(() => {
     if (!selectedFilePath) {
@@ -559,28 +564,65 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
     };
   }, []);
 
-  const initialiseMap = useCallback(() => {
-    if (!mapContainerRef.current || mapInstanceRef.current) {
+  useEffect(() => {
+    if (typeof window === 'undefined') {
       return;
     }
 
-    const map = L.map(mapContainerRef.current, {
+    let cancelled = false;
+    setLeafletLoading(true);
+    setLeafletError(null);
+
+    loadLeaflet()
+      .then((library) => {
+        if (cancelled) {
+          return;
+        }
+        setLeafletLib(library);
+      })
+      .catch((loadError) => {
+        if (cancelled) {
+          return;
+        }
+        const message = loadError instanceof Error
+          ? loadError.message
+          : 'Leafletライブラリの読み込みに失敗しました。';
+        setLeafletLib(null);
+        setLeafletError(message);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLeafletLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const initialiseMap = useCallback(() => {
+    if (!mapContainerRef.current || mapInstanceRef.current || !leafletLib) {
+      return;
+    }
+
+    const map = leafletLib.map(mapContainerRef.current, {
       center: [35.681236, 139.767125],
       zoom: 5,
       zoomControl: true,
       attributionControl: true,
     });
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    leafletLib.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       maxZoom: 19,
     }).addTo(map);
 
     mapInstanceRef.current = map;
-  }, []);
+  }, [leafletLib]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
+    if (typeof window === 'undefined' || !leafletLib) {
       return;
     }
     initialiseMap();
@@ -590,7 +632,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
         mapInstanceRef.current = null;
       }
     };
-  }, [initialiseMap]);
+  }, [initialiseMap, leafletLib]);
 
   const numericStats = useMemo(() => {
     if (!selectedColumn) {
@@ -654,7 +696,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
 
   const updateGeoJsonLayerStyle = useCallback(() => {
     const layer = geoJsonLayerRef.current;
-    if (!layer) {
+    if (!layer || !leafletLib) {
       return;
     }
 
@@ -670,7 +712,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       const value = selectedColumn && row ? row[selectedColumn] : undefined;
       const color = computeColor(value);
 
-      if (leafletLayer instanceof CircleMarker) {
+      if (leafletLayer instanceof leafletLib.CircleMarker) {
         leafletLayer.setStyle({
           color,
           fillColor: color,
@@ -679,7 +721,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
           weight: 1,
         });
         leafletLayer.setRadius(styleSettings.pointRadius);
-      } else if (leafletLayer instanceof Path) {
+      } else if (leafletLayer instanceof leafletLib.Path) {
         leafletLayer.setStyle({
           color,
           weight: styleSettings.lineWeight,
@@ -708,7 +750,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
         leafletLayer.bindPopup(`<div class="text-sm space-y-1">${popupLines.join('')}</div>`);
       }
     });
-  }, [columns, computeColor, rows, selectedColumn, styleSettings.fillOpacity, styleSettings.lineWeight, styleSettings.pointRadius]);
+  }, [columns, computeColor, leafletLib, rows, selectedColumn, styleSettings.fillOpacity, styleSettings.lineWeight, styleSettings.pointRadius]);
 
   const buildEnrichedFeatureCollection = useCallback((collection: FeatureCollection | null) => {
     if (!collection) {
@@ -738,7 +780,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
 
   useEffect(() => {
     const mapInstance = mapInstanceRef.current;
-    if (!mapInstance) {
+    if (!mapInstance || !leafletLib) {
       return;
     }
 
@@ -752,7 +794,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       return;
     }
 
-    const layer = L.geoJSON(enriched, {
+    const layer = leafletLib.geoJSON(enriched, {
       pointToLayer: (feature, latlng) => {
         const index = typeof feature.properties === 'object'
           ? Number((feature.properties as Record<string, unknown>).__feature_index)
@@ -760,7 +802,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
         const row = Number.isFinite(index) ? rows[index] : undefined;
         const value = selectedColumn && row ? row[selectedColumn] : undefined;
         const color = computeColor(value);
-        return L.circleMarker(latlng, {
+        return leafletLib.circleMarker(latlng, {
           radius: styleSettings.pointRadius,
           color,
           fillColor: color,
@@ -780,7 +822,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
     }
 
     updateGeoJsonLayerStyle();
-  }, [buildEnrichedFeatureCollection, computeColor, featureCollection, rows, selectedColumn, styleSettings.fillOpacity, styleSettings.pointRadius, updateGeoJsonLayerStyle]);
+  }, [buildEnrichedFeatureCollection, computeColor, featureCollection, leafletLib, rows, selectedColumn, styleSettings.fillOpacity, styleSettings.pointRadius, updateGeoJsonLayerStyle]);
 
   useEffect(() => {
     updateGeoJsonLayerStyle();
@@ -991,13 +1033,23 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
   }, [activeTab, gisFileMap, selectedFilePath, setSelectedFile, tabId]);
 
   const renderMapPlaceholder = () => {
-    if (error) {
+    const displayError = leafletError ?? error;
+    if (displayError) {
+      const heading = leafletError ? '地図表示の初期化に失敗しました' : 'GISデータの読み込みに失敗しました';
       return (
         <div className="flex h-full items-center justify-center">
           <div className="max-w-md rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/60 dark:bg-red-900/40 dark:text-red-200">
-            <div className="font-medium">GISデータの読み込みに失敗しました</div>
-            <div className="mt-1 whitespace-pre-line leading-relaxed">{error}</div>
+            <div className="font-medium">{heading}</div>
+            <div className="mt-1 whitespace-pre-line leading-relaxed">{displayError}</div>
           </div>
+        </div>
+      );
+    }
+
+    if (leafletLoading || !leafletLib || !mapInstanceRef.current) {
+      return (
+        <div className="flex h-full items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+          OpenStreetMapを初期化しています…
         </div>
       );
     }
