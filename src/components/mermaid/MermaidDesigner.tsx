@@ -3085,7 +3085,12 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
             </div>
           )}
           <div className="border border-gray-200 dark:border-gray-800 rounded overflow-hidden">
-            <MermaidPreview content={generatedCode} fileName={fileName} enableAiActions={false} />
+            <MermaidPreview
+              content={generatedCode}
+              fileName={fileName}
+              tabId={tabId}
+              enableAiActions
+            />
           </div>
         </div>
       </aside>
