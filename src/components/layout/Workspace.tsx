@@ -8,6 +8,8 @@ import SearchPanel from '@/components/search/SearchPanel';
 import GitPanel from '@/components/git/GitPanel';
 import MultiFileAnalysis from '@/components/analysis/MultiFileAnalysis';
 import DataAnalysis from '@/components/analysis/DataAnalysis';
+import GisAnalysisView from '@/components/analysis/GisAnalysisView';
+import GisSidebar from '@/components/analysis/GisSidebar';
 import Editor from '@/components/editor/Editor';
 import MarkdownPreview from '@/components/preview/MarkdownPreview';
 import DataPreview from '@/components/preview/DataPreview';
@@ -23,7 +25,7 @@ interface WorkspaceProps {
   paneState: PaneState;
   activeTab: TabData | null;
   activeTabId: string | null;
-  activeTabViewMode: 'editor' | 'preview' | 'data-preview' | 'split';
+  activeTabViewMode: 'editor' | 'preview' | 'data-preview' | 'split' | 'gis-analysis';
   multiFileAnalysisEnabled: boolean;
   onCloseMultiFileAnalysis: () => void;
 }
@@ -51,27 +53,32 @@ const Workspace: React.FC<WorkspaceProps> = ({
     if (paneState.isGitVisible) {
       return 'git';
     }
+    if (paneState.isGisVisible) {
+      return 'gis';
+    }
     if (paneState.isHelpVisible) {
       return 'help';
     }
     return null;
-  }, [paneState.activeSidebar, paneState.isExplorerVisible, paneState.isGitVisible, paneState.isHelpVisible]);
+  }, [paneState.activeSidebar, paneState.isExplorerVisible, paneState.isGitVisible, paneState.isGisVisible, paneState.isHelpVisible]);
 
   const showExplorer = activeSidebar === 'explorer';
   const showGitSidebar = activeSidebar === 'git';
+  const showGisSidebar = activeSidebar === 'gis';
   const showHelpSidebar = activeSidebar === 'help';
 
   const handleSidebarSelect = useCallback(
-    (sidebar: 'explorer' | 'git' | 'help') => {
+    (sidebar: 'explorer' | 'gis' | 'git' | 'help') => {
       const isActive = activeSidebar === sidebar;
       updatePaneState({
         activeSidebar: isActive ? null : sidebar,
         isExplorerVisible: sidebar === 'explorer' ? !isActive : false,
+        isGisVisible: sidebar === 'gis' ? !isActive : false,
         isGitVisible: sidebar === 'git' ? !isActive : false,
         isHelpVisible: sidebar === 'help' ? !isActive : false,
       });
     },
-    [activeSidebar, updatePaneState]
+  [activeSidebar, updatePaneState]
   );
 
   const showSearchPanel = paneState.isSearchVisible;
@@ -83,6 +90,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
     isPreviewableSpecialType,
     isDataPreviewable,
     isDataAnalyzable,
+    isGisData,
   } = useMemo(() => {
     const fileType = activeTab?.type?.toLowerCase();
     const markdown = fileType === 'markdown' || fileType === 'md';
@@ -99,6 +107,11 @@ const Workspace: React.FC<WorkspaceProps> = ({
       fileType === 'kml' ||
       fileType === 'kmz' ||
       fileType === 'shapefile';
+    const gisData =
+      fileType === 'geojson' ||
+      fileType === 'kml' ||
+      fileType === 'kmz' ||
+      fileType === 'shapefile';
 
     return {
       isMarkdown: markdown,
@@ -107,6 +120,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
       isPreviewableSpecialType: markdown || mermaid || html,
       isDataPreviewable: dataPreviewable,
       isDataAnalyzable: dataPreviewable,
+      isGisData: gisData,
     };
   }, [activeTab]);
 
@@ -229,6 +243,18 @@ const Workspace: React.FC<WorkspaceProps> = ({
   };
 
   const renderDataPreviewable = () => {
+    if (!activeTabId) {
+      return null;
+    }
+
+    if (activeTabViewMode === 'gis-analysis' && isGisData) {
+      return (
+        <div className="w-full h-full overflow-hidden">
+          <GisAnalysisView tabId={activeTabId} />
+        </div>
+      );
+    }
+
     if (activeTabViewMode === 'editor') {
       return (
         <div className="w-full h-full overflow-hidden">
@@ -322,6 +348,11 @@ const Workspace: React.FC<WorkspaceProps> = ({
       {showExplorer && (
         <div className="w-64 flex-shrink-0 border-r border-gray-200 dark:border-gray-800">
           <FileExplorer />
+        </div>
+      )}
+      {showGisSidebar && (
+        <div className="w-72 flex-shrink-0 border-r border-gray-200 dark:border-gray-800">
+          <GisSidebar />
         </div>
       )}
       {showGitSidebar && (

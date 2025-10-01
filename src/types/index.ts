@@ -83,8 +83,9 @@ export interface EditorSettings {
 
 // パネル表示状態に関する型定義
 export interface PaneState {
-  activeSidebar: 'explorer' | 'git' | 'help' | null;
+  activeSidebar: 'explorer' | 'gis' | 'git' | 'help' | null;
   isExplorerVisible: boolean;
+  isGisVisible: boolean;
   isEditorVisible: boolean;
   isPreviewVisible: boolean;
   isTocVisible: boolean;
