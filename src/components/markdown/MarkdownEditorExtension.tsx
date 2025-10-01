@@ -292,6 +292,8 @@ interface MarkdownEditorExtensionProps {
  * @param tabId 編集対象タブID
  * @param editorRef エディタ参照
  */
+const EMPTY_HISTORY: ReadonlyArray<PairWritingSnapshot> = [];
+
 const MarkdownEditorExtension: React.FC<MarkdownEditorExtensionProps> = ({ tabId, editorRef }) => {
   const tabs = useEditorStore((state) => state.tabs);
   const editorSettings = useEditorStore((state) => state.editorSettings);
@@ -300,15 +302,20 @@ const MarkdownEditorExtension: React.FC<MarkdownEditorExtensionProps> = ({ tabId
   const recordPairWritingEntry = useEditorStore((state) => state.recordPairWritingEntry);
   const undoPairWriting = useEditorStore((state) => state.undoPairWriting);
   const redoPairWriting = useEditorStore((state) => state.redoPairWriting);
-  const pairWritingHistory = useEditorStore((state) => state.pairWritingHistory[tabId] ?? []);
-  const pairWritingHistoryIndex = useEditorStore((state) => {
-    const history = state.pairWritingHistory[tabId];
-    if (!history) {
-      return -1;
-    }
-    const index = state.pairWritingHistoryIndex[tabId];
-    return typeof index === 'number' ? index : history.length - 1;
-  });
+  const rawPairWritingHistory = useEditorStore(
+    useCallback((state) => state.pairWritingHistory[tabId], [tabId]),
+  );
+  const pairWritingHistory = rawPairWritingHistory ?? EMPTY_HISTORY;
+  const pairWritingHistoryIndex = useEditorStore(
+    useCallback((state) => {
+      const history = state.pairWritingHistory[tabId];
+      if (!history || history.length === 0) {
+        return -1;
+      }
+      const index = state.pairWritingHistoryIndex[tabId];
+      return typeof index === 'number' ? index : history.length - 1;
+    }, [tabId]),
+  );
   const [showHelpDialog, setShowHelpDialog] = useState(false);
   const [showTableWizard, setShowTableWizard] = useState(false);
   const [showBulkMenu, setShowBulkMenu] = useState(false);
