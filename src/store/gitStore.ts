@@ -24,6 +24,17 @@ export interface GitCommitEntry {
   message: string;
   author: string;
   date: string;
+  parents: string[];
+  timestamp: number | null;
+}
+
+export interface GitFlowMermaidResult {
+  diagram: string;
+  branchAliases: Record<string, string>;
+  branchCount: number;
+  commitCount: number;
+  depth: number;
+  generatedAt: string;
 }
 
 interface GitStoreState {
@@ -59,6 +70,7 @@ interface GitStoreState {
     files: { filePath: string; diff: string }[];
   }>;
   getDiffPayload: (options?: { scope?: GitAssistDiffScope }) => Promise<GitAssistDiffPayload>;
+  generateGitFlowMermaid: (options?: { depth?: number }) => Promise<GitFlowMermaidResult>;
   restoreFileToCommit: (filepath: string, oid: string) => Promise<string | null>;
   cloneRepository: (options: {
     url: string;
@@ -91,6 +103,8 @@ const formatCommits = (entries: ReadCommitResult[]): GitCommitEntry[] =>
     date: entry.commit.author?.timestamp
       ? new Date(entry.commit.author.timestamp * 1000).toLocaleString()
       : '',
+    parents: entry.commit.parent ?? [],
+    timestamp: entry.commit.author?.timestamp ?? null,
   }));
 
 const withFs = async <T>(state: GitStoreState, fn: (params: { fs: any; adapter: FileSystemAccessFs }) => Promise<T>): Promise<T> => {
@@ -763,6 +777,280 @@ export const useGitStore = create<GitStoreState>((set, get) => ({
         files,
         skipped,
       } satisfies GitAssistDiffPayload;
+    });
+  },
+
+  generateGitFlowMermaid: async (options) => {
+    const state = get();
+    const depth = Math.max(1, Math.min(options?.depth ?? 160, 500));
+
+    return withFs(state, async ({ fs, adapter }) => {
+      const git = await loadGit();
+      const hasGitDir = await adapter.exists('.git');
+      if (!hasGitDir) {
+        throw new Error('Gitリポジトリが見つかりません。');
+      }
+
+      const timestamp = new Date().toISOString();
+      const branches = await git.listBranches({ fs, dir: '/' });
+
+      if (branches.length === 0) {
+        const lines = [
+          'gitGraph LR',
+          `  %% 生成日時: ${timestamp}`,
+          '  %% コミット履歴が見つかりません。',
+        ];
+        return {
+          diagram: lines.join('\n'),
+          branchAliases: {},
+          branchCount: 0,
+          commitCount: 0,
+          depth,
+          generatedAt: timestamp,
+        } satisfies GitFlowMermaidResult;
+      }
+
+      const branchLogs = await Promise.all(
+        branches.map(async (branch) => {
+          const log = await git
+            .log({ fs, dir: '/', ref: branch, depth })
+            .catch(() => [] as ReadCommitResult[]);
+          return { branch, log } as const;
+        }),
+      );
+
+      const commitMap = new Map<string, { entry: ReadCommitResult; branches: Set<string> }>();
+      for (const { branch, log } of branchLogs) {
+        for (const entry of log) {
+          const existing = commitMap.get(entry.oid);
+          if (existing) {
+            existing.branches.add(branch);
+          } else {
+            commitMap.set(entry.oid, { entry, branches: new Set([branch]) });
+          }
+        }
+      }
+
+      if (commitMap.size === 0) {
+        const lines = [
+          'gitGraph LR',
+          `  %% 生成日時: ${timestamp}`,
+          '  %% コミット履歴が見つかりません。',
+        ];
+        return {
+          diagram: lines.join('\n'),
+          branchAliases: {},
+          branchCount: branches.length,
+          commitCount: 0,
+          depth,
+          generatedAt: timestamp,
+        } satisfies GitFlowMermaidResult;
+      }
+
+      const branchPriority = [...new Set([state.currentBranch ?? null, ...branches])].filter(
+        (value): value is string => Boolean(value),
+      );
+      if (branchPriority.length === 0) {
+        branchPriority.push(branches[0]);
+      }
+
+      const branchLogMap = new Map<string, ReadCommitResult[]>();
+      for (const { branch, log } of branchLogs) {
+        branchLogMap.set(branch, log);
+      }
+
+      const commitBranch = new Map<string, string>();
+      for (const branch of branchPriority) {
+        const log = branchLogMap.get(branch) ?? [];
+        for (let index = log.length - 1; index >= 0; index -= 1) {
+          const entry = log[index];
+          if (!commitBranch.has(entry.oid)) {
+            commitBranch.set(entry.oid, branch);
+          }
+        }
+      }
+
+      for (const [oid, node] of commitMap.entries()) {
+        if (!commitBranch.has(oid)) {
+          const fallback = node.branches.values().next().value ?? branchPriority[0];
+          if (fallback) {
+            commitBranch.set(oid, fallback);
+          }
+        }
+      }
+
+      const visited = new Set<string>();
+      const ordered: string[] = [];
+      const dfs = (oid: string) => {
+        if (visited.has(oid)) {
+          return;
+        }
+        visited.add(oid);
+        const node = commitMap.get(oid);
+        if (!node) {
+          return;
+        }
+        const parents = node.entry.commit.parent ?? [];
+        for (const parent of parents) {
+          if (commitMap.has(parent)) {
+            dfs(parent);
+          }
+        }
+        ordered.push(oid);
+      };
+
+      const tipCandidates = branchPriority
+        .map((branch) => branchLogMap.get(branch)?.[0]?.oid)
+        .filter((oid): oid is string => Boolean(oid));
+      for (const tip of tipCandidates) {
+        dfs(tip);
+      }
+      for (const oid of commitMap.keys()) {
+        if (!visited.has(oid)) {
+          dfs(oid);
+        }
+      }
+
+      const aliasMap = new Map<string, string>();
+      const aliasLegend = new Map<string, string>();
+      const usedAliases = new Set<string>();
+
+      const registerAlias = (branch: string, alias: string) => {
+        aliasMap.set(branch, alias);
+        aliasLegend.set(alias, branch);
+        usedAliases.add(alias);
+        return alias;
+      };
+
+      const sanitizeAlias = (branch: string) => {
+        const base = branch.replace(/[^a-zA-Z0-9_]/g, '_') || 'branch';
+        let candidate = base;
+        let counter = 1;
+        while (usedAliases.has(candidate)) {
+          candidate = `${base}_${counter}`;
+          counter += 1;
+        }
+        return candidate;
+      };
+
+      const baseBranch = branchPriority[0] ?? 'main';
+      const ensureAlias = (branchName: string | null | undefined) => {
+        const key = branchName ?? baseBranch;
+        const existing = aliasMap.get(key);
+        if (existing) {
+          return existing;
+        }
+        const preferred = key === baseBranch ? 'main' : sanitizeAlias(key);
+        if (usedAliases.has(preferred)) {
+          return registerAlias(key, sanitizeAlias(key));
+        }
+        return registerAlias(key, preferred);
+      };
+
+      const baseAlias = ensureAlias(baseBranch);
+      const branchCreated = new Set<string>([baseAlias]);
+      let activeAlias = baseAlias;
+
+      const escapeMermaidString = (value: string) =>
+        value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
+      const formatCommitLabel = (oid: string, message: string | undefined) => {
+        const shortOid = oid.slice(0, 7);
+        const normalized = (message ?? '').replace(/[\r\n]+/g, ' ').trim();
+        const truncated = normalized.length > 60 ? `${normalized.slice(0, 57)}…` : normalized;
+        const rawTag = truncated ? `${shortOid} ${truncated}` : shortOid;
+        return { id: shortOid, tag: escapeMermaidString(rawTag) };
+      };
+
+      const commandLines: string[] = [];
+      const legendLines: string[] = [
+        `  %% 生成日時: ${timestamp}`,
+        `  %% ブランチ数: ${branches.length}`,
+        `  %% 表示深さ: ${depth}`,
+      ];
+
+      for (const oid of ordered) {
+        const node = commitMap.get(oid);
+        if (!node) {
+          continue;
+        }
+
+        const assignedBranch = commitBranch.get(oid) ?? baseBranch;
+        const branchAliasValue = ensureAlias(assignedBranch);
+        const parents = node.entry.commit.parent ?? [];
+        const firstParent = parents.find((parentOid) => commitMap.has(parentOid)) ?? null;
+        const parentBranchName = firstParent
+          ? commitBranch.get(firstParent) ?? assignedBranch
+          : assignedBranch;
+        const parentAlias = ensureAlias(parentBranchName);
+
+        if (!branchCreated.has(branchAliasValue)) {
+          if (branchAliasValue !== baseAlias) {
+            if (!branchCreated.has(parentAlias)) {
+              branchCreated.add(parentAlias);
+              commandLines.push(`  branch ${parentAlias}`);
+            }
+            if (activeAlias !== parentAlias) {
+              commandLines.push(`  checkout ${parentAlias}`);
+              activeAlias = parentAlias;
+            }
+            commandLines.push(`  branch ${branchAliasValue}`);
+          }
+          branchCreated.add(branchAliasValue);
+        }
+
+        if (activeAlias !== branchAliasValue) {
+          commandLines.push(`  checkout ${branchAliasValue}`);
+          activeAlias = branchAliasValue;
+        }
+
+        const { id, tag } = formatCommitLabel(oid, node.entry.commit.message);
+
+        if (parents.length > 1) {
+          const mergeParent = parents.slice(1).find((parentOid) => commitMap.has(parentOid)) ?? null;
+          if (mergeParent) {
+            const mergeBranchName = commitBranch.get(mergeParent) ?? baseBranch;
+            const mergeAlias = ensureAlias(mergeBranchName);
+            if (!branchCreated.has(mergeAlias)) {
+              branchCreated.add(mergeAlias);
+              commandLines.push(`  branch ${mergeAlias}`);
+            }
+            if (activeAlias !== branchAliasValue) {
+              commandLines.push(`  checkout ${branchAliasValue}`);
+              activeAlias = branchAliasValue;
+            }
+            commandLines.push(`  merge ${mergeAlias} id: "${id}" tag: "${tag}"`);
+
+            if (parents.length > 2) {
+              legendLines.push(
+                `  %% コミット ${id} は追加のマージ親 (${parents.length - 2} 件) を持ちます`,
+              );
+            }
+            continue;
+          }
+        }
+
+        commandLines.push(`  commit id: "${id}" tag: "${tag}"`);
+      }
+
+      aliasLegend.forEach((branchName, alias) => {
+        legendLines.push(`  %% ${alias} => ${branchName}`);
+      });
+
+      const diagramLines = ['gitGraph LR', ...legendLines, ...commandLines];
+      const branchAliasRecord: Record<string, string> = {};
+      aliasLegend.forEach((branchName, alias) => {
+        branchAliasRecord[branchName] = alias;
+      });
+
+      return {
+        diagram: diagramLines.join('\n'),
+        branchAliases: branchAliasRecord,
+        branchCount: branches.length,
+        commitCount: ordered.length,
+        depth,
+        generatedAt: timestamp,
+      } satisfies GitFlowMermaidResult;
     });
   },
 
