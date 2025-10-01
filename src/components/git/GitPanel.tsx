@@ -11,6 +11,7 @@ import {
   IoCheckmarkCircle,
   IoSparklesOutline,
   IoChatboxEllipsesOutline,
+  IoGitMergeOutline,
 } from 'react-icons/io5';
 import { useGitStore, type GitCommitEntry } from '@/store/gitStore';
 import { useEditorStore } from '@/store/editorStore';
@@ -58,6 +59,7 @@ const GitPanel: React.FC = () => {
     pullRepository,
     getCommitDiff,
     getDiffPayload,
+    generateGitFlowMermaid,
   } = useGitStore();
   const [commitMessage, setCommitMessage] = useState('');
   const [newBranchName, setNewBranchName] = useState('');
@@ -70,6 +72,8 @@ const GitPanel: React.FC = () => {
   const [commitSummaryWarnings, setCommitSummaryWarnings] = useState<string[]>([]);
   const [reviewDraft, setReviewDraft] = useState('');
   const [reviewWarnings, setReviewWarnings] = useState<string[]>([]);
+  const [gitFlowError, setGitFlowError] = useState<string | null>(null);
+  const [isGeneratingGitFlow, setIsGeneratingGitFlow] = useState(false);
 
   const addTab = useEditorStore((state) => state.addTab);
   const updateTab = useEditorStore((state) => state.updateTab);
@@ -173,6 +177,53 @@ const GitPanel: React.FC = () => {
     setReviewWarnings([]);
     setAssistError(null);
   }, []);
+
+  const handleGenerateGitFlowMermaid = useCallback(async () => {
+    if (isGeneratingGitFlow) {
+      return;
+    }
+    setGitFlowError(null);
+    setIsGeneratingGitFlow(true);
+    try {
+      const result = await generateGitFlowMermaid({ depth: 200 });
+      const payload = result.diagram;
+      const tabId = 'git-flow-mermaid';
+      const tabName = 'Gitフローダイアグラム';
+      const existing = getTab(tabId);
+      if (existing) {
+        updateTab(tabId, {
+          content: payload,
+          originalContent: payload,
+          isDirty: false,
+          type: 'mermaid',
+          isReadOnly: true,
+        });
+        setActiveTabId(tabId);
+      } else {
+        addTab({
+          id: tabId,
+          name: tabName,
+          content: payload,
+          originalContent: payload,
+          isDirty: false,
+          type: 'mermaid',
+          isReadOnly: true,
+        });
+        setActiveTabId(tabId);
+      }
+    } catch (error) {
+      setGitFlowError(error instanceof Error ? error.message : 'Gitフロー図の生成に失敗しました。');
+    } finally {
+      setIsGeneratingGitFlow(false);
+    }
+  }, [
+    addTab,
+    generateGitFlowMermaid,
+    getTab,
+    isGeneratingGitFlow,
+    setActiveTabId,
+    updateTab,
+  ]);
 
   const handleGenerateCommitSummary = useCallback(async () => {
     if (assistLoading) {
@@ -532,10 +583,26 @@ const GitPanel: React.FC = () => {
           </div>
 
           <div className="border-t border-gray-200 bg-gray-50 px-4 py-3 text-sm dark:border-gray-700 dark:bg-gray-900/40 max-h-64 overflow-y-auto">
-            <div className="flex items-center gap-2 mb-2 font-semibold">
-              <IoGitCommitOutline size={16} />
-              <span>リポジトリ履歴</span>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 font-semibold">
+                <IoGitCommitOutline size={16} />
+                <span>リポジトリ履歴</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleGenerateGitFlowMermaid}
+                disabled={loading || isGeneratingGitFlow}
+                className="flex items-center gap-1 rounded border border-gray-300 px-3 py-1 text-xs font-semibold text-gray-700 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+                title="Mermaid形式のGitフロー図を生成"
+                aria-busy={isGeneratingGitFlow}
+              >
+                <IoGitMergeOutline size={14} className={isGeneratingGitFlow ? 'animate-spin' : ''} />
+                <span>Mermaid図</span>
+              </button>
             </div>
+            {gitFlowError && (
+              <p className="mb-2 text-xs text-red-600 dark:text-red-400">{gitFlowError}</p>
+            )}
             {commits.length === 0 ? (
               <p className="text-xs text-gray-500">コミット履歴はありません。</p>
             ) : (
