@@ -5,6 +5,13 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useEditorStore } from '@/store/editorStore';
 import { parseCSV, parseJSON, parseYAML, parseParquet, parseExcel, flattenNestedObjects } from '@/lib/dataPreviewUtils';
+import {
+  buildGisDatasetFromObject,
+  parseGeoJsonContent,
+  parseKmlContent,
+  parseKmzContent,
+  parseShapefileContent,
+} from '@/lib/gisUtils';
 import { executeQuery, calculateStatistics, aggregateData, prepareChartData, calculateInfo, downloadData } from '@/lib/dataAnalysisUtils';
 import { IoAlertCircleOutline, IoAnalyticsOutline, IoBarChartOutline, IoStatsChartOutline, IoCodeSlash, IoEye, IoLayersOutline, IoCreate, IoSave, IoGitNetwork, IoChevronUpOutline, IoChevronDownOutline, IoBookOutline, IoAddOutline, IoPlay, IoPlayForward, IoTrashOutline, IoDownloadOutline, IoSparkles } from 'react-icons/io5';
 import QueryResultTable from './QueryResultTable';
@@ -406,6 +413,23 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
         }
       }
 
+      const loadBinaryContent = async (): Promise<ArrayBuffer> => {
+        if (!currentTab?.file) {
+          throw new Error('バイナリデータを読み込むためのファイルハンドルが見つかりません');
+        }
+
+        if ('getFile' in currentTab.file) {
+          const file = await currentTab.file.getFile();
+          return await file.arrayBuffer();
+        }
+
+        if (currentTab.file instanceof File) {
+          return await currentTab.file.arrayBuffer();
+        }
+
+        throw new Error('バイナリデータの読み込みに失敗しました');
+      };
+
       switch (type) {
         case 'csv':
           const csvResult = parseCSV(content);
@@ -484,10 +508,22 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
             setLoading(false);
             return;
           }
-          
+
+          const geoDataset = buildGisDatasetFromObject(jsonResult.data);
+          if (geoDataset && geoDataset.rows.length > 0) {
+            data = geoDataset.rows;
+            cols = geoDataset.columns;
+            setOriginalData(geoDataset.rows);
+            const info = calculateInfo(data);
+            if (!info.error && info.info) {
+              setInfoResult(info.info);
+            }
+            break;
+          }
+
           let jsonProcessedData: any[] = [];
           let jsonOriginalData: any[] = [];
-          
+
           if (Array.isArray(jsonResult.data)) {
             // 配列の場合は直接フラット化
             jsonProcessedData = flattenNestedObjects(jsonResult.data);
@@ -498,7 +534,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
               const item = jsonResult.data[key];
               return Array.isArray(item) && item.length > 0 && typeof item[0] === 'object';
             });
-            
+
             if (arrayKeys.length > 0) {
               const firstArrayKey = arrayKeys[0];
               const arrayData = jsonResult.data[firstArrayKey] as any[];
@@ -510,7 +546,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
               jsonOriginalData = [jsonResult.data];
             }
           }
-          
+
           if (jsonProcessedData.length > 0 && typeof jsonProcessedData[0] === 'object') {
             data = jsonProcessedData;
             setOriginalData(jsonOriginalData);
@@ -526,7 +562,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
             return;
           }
           break;
-          
+
         case 'yaml':
           const yamlResult = parseYAML(content);
           if (yamlResult.error) {
@@ -580,7 +616,73 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
             return;
           }
           break;
-          
+
+        case 'geojson': {
+          const geoResult = parseGeoJsonContent(content);
+          if (geoResult.error) {
+            setError(geoResult.error);
+            setLoading(false);
+            return;
+          }
+          data = geoResult.rows;
+          cols = geoResult.columns;
+          setOriginalData(geoResult.rows);
+          break;
+        }
+
+        case 'kml': {
+          const kmlResult = parseKmlContent(content);
+          if (kmlResult.error) {
+            setError(kmlResult.error);
+            setLoading(false);
+            return;
+          }
+          data = kmlResult.rows;
+          cols = kmlResult.columns;
+          setOriginalData(kmlResult.rows);
+          break;
+        }
+
+        case 'kmz': {
+          try {
+            const buffer = await loadBinaryContent();
+            const kmzResult = parseKmzContent(buffer);
+            if (kmzResult.error) {
+              setError(kmzResult.error);
+              setLoading(false);
+              return;
+            }
+            data = kmzResult.rows;
+            cols = kmzResult.columns;
+            setOriginalData(kmzResult.rows);
+          } catch (err) {
+            setError(err instanceof Error ? err.message : 'KMZの読み込みに失敗しました');
+            setLoading(false);
+            return;
+          }
+          break;
+        }
+
+        case 'shapefile': {
+          try {
+            const buffer = await loadBinaryContent();
+            const shapefileResult = await parseShapefileContent(buffer);
+            if (shapefileResult.error) {
+              setError(shapefileResult.error);
+              setLoading(false);
+              return;
+            }
+            data = shapefileResult.rows;
+            cols = shapefileResult.columns;
+            setOriginalData(shapefileResult.rows);
+          } catch (err) {
+            setError(err instanceof Error ? err.message : 'シェープファイルの読み込みに失敗しました');
+            setLoading(false);
+            return;
+          }
+          break;
+        }
+
         case 'parquet':
           const parquetResult = await parseParquet(content);
           if (parquetResult.error) {

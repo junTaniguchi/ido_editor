@@ -159,6 +159,19 @@ export const getFileType = (
     return 'tsv';
   } else if (lowerFileName.endsWith('.parquet') || lowerFileName.endsWith('.parq')) {
     return 'parquet';
+  } else if (lowerFileName.endsWith('.geojson') || lowerFileName.endsWith('.topojson')) {
+    return 'geojson';
+  } else if (lowerFileName.endsWith('.kml')) {
+    return 'kml';
+  } else if (lowerFileName.endsWith('.kmz')) {
+    return 'kmz';
+  } else if (
+    lowerFileName.endsWith('.shp') ||
+    lowerFileName.endsWith('.shpz') ||
+    lowerFileName.endsWith('.shz') ||
+    (lowerFileName.endsWith('.zip') && lowerFileName.includes('.shp'))
+  ) {
+    return 'shapefile';
   } else if (lowerFileName.endsWith('.mmd')) {
     return 'mermaid';
   } else if (lowerFileName.endsWith('.xlsx') || lowerFileName.endsWith('.xls')) {

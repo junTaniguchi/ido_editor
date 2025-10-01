@@ -74,7 +74,11 @@ const MainLayout = () => {
       type === 'json' ||
       type === 'yaml' ||
       type === 'parquet' ||
-      type === 'excel';
+      type === 'excel' ||
+      type === 'geojson' ||
+      type === 'kml' ||
+      type === 'kmz' ||
+      type === 'shapefile';
 
     return {
       isMarkdown,
@@ -338,6 +342,10 @@ const MainLayout = () => {
             content = '';
           } else if (fileType === 'pdf') {
             content = URL.createObjectURL(file);
+          } else if (fileType === 'shapefile') {
+            content = `# Shapefile: ${file.name}\n\nこのファイルはバイナリGISデータです。データプレビューや分析タブから属性情報を参照できます。`;
+          } else if (fileType === 'kmz') {
+            content = `# KMZ: ${file.name}\n\nKMZの内容はデータプレビューや分析タブで自動的に展開されます。`;
           } else {
             content = await file.text();
           }

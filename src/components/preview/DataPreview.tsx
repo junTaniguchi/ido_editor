@@ -32,6 +32,14 @@ import {
   parseMermaid,
 } from '@/lib/dataPreviewUtils';
 import { formatData } from '@/lib/dataFormatUtils';
+import {
+  buildGisDatasetFromObject,
+  parseGeoJsonContent,
+  parseKmlContent,
+  parseKmzContent,
+  parseShapefileContent,
+  type GisParseResult,
+} from '@/lib/gisUtils';
 import DataTable from './DataTable';
 import EditableDataTable from './EditableDataTable';
 import ObjectViewer from './ObjectViewer';
@@ -197,6 +205,34 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   // タブのコンテンツが外部（エディタなど）で変更された場合に更新
   useEffect(() => {
     const tab = tabs.get(tabId);
+
+    const loadBinaryFromTab = async (): Promise<ArrayBuffer> => {
+      if (!tab?.file) {
+        throw new Error('ファイルハンドルが見つかりません');
+      }
+
+      if ('getFile' in tab.file) {
+        const file = await tab.file.getFile();
+        return await file.arrayBuffer();
+      }
+
+      if (tab.file instanceof File) {
+        return await tab.file.arrayBuffer();
+      }
+
+      throw new Error('バイナリデータの読み込みに失敗しました');
+    };
+
+    const applyGisResult = (result: GisParseResult) => {
+      if (result.error) {
+        setError(result.error);
+        return false;
+      }
+      setParsedData(result.rows);
+      setOriginalData(result.rows);
+      setColumns(result.columns);
+      return true;
+    };
     if (!tab || tab.content === content) return;
     
     // 編集中でない場合のみコンテンツを更新
@@ -319,47 +355,52 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
           }
           break;
           
-        case 'json':
+        case 'json': {
           const jsonResult = parseJSON((content as string) ?? '');
           if (jsonResult.error) {
             setError(jsonResult.error);
-          } else {
-            // 元のデータを保存
-            setOriginalData(jsonResult.data);
-            
-            // 表示モードに応じた処理
-            if (dataDisplayMode === 'flat') {
-              // 配列の場合はテーブル表示も可能
-              if (Array.isArray(jsonResult.data) && jsonResult.data.length > 0 && typeof jsonResult.data[0] === 'object') {
-                // ネストされたオブジェクトをフラット化
-                const flattenedData = flattenNestedObjects(jsonResult.data);
-                // フラット化されたデータを使用
-                if (flattenedData.length > 0 && typeof flattenedData[0] === 'object') {
+            break;
+          }
+
+          const geoDataset = buildGisDatasetFromObject(jsonResult.data);
+          if (geoDataset && geoDataset.rows.length > 0) {
+            applyGisResult(geoDataset);
+            break;
+          }
+
+          // 元のデータを保存
+          setOriginalData(jsonResult.data);
+
+          // 表示モードに応じた処理
+          if (dataDisplayMode === 'flat') {
+            // 配列の場合はテーブル表示も可能
+            if (Array.isArray(jsonResult.data) && jsonResult.data.length > 0 && typeof jsonResult.data[0] === 'object') {
+              // ネストされたオブジェクトをフラット化
+              const flattenedData = flattenNestedObjects(jsonResult.data);
+              // フラット化されたデータを使用
+              if (flattenedData.length > 0 && typeof flattenedData[0] === 'object') {
+                setParsedData(flattenedData);
+                setColumns(Object.keys(flattenedData[0]));
+              } else {
+                setParsedData(jsonResult.data);
+                setColumns(Object.keys(jsonResult.data[0]));
+              }
+            } else if (jsonResult.data && typeof jsonResult.data === 'object') {
+              // トップレベルがオブジェクトの場合、内部の配列を探す
+              const arrayKeys = Object.keys(jsonResult.data).filter(key =>
+                Array.isArray(jsonResult.data[key]) &&
+                jsonResult.data[key].length > 0 &&
+                typeof jsonResult.data[key][0] === 'object'
+              );
+
+              if (arrayKeys.length > 0) {
+                const firstArrayKey = arrayKeys[0];
+                const arrayData = jsonResult.data[firstArrayKey];
+                const flattenedData = flattenNestedObjects(arrayData);
+
+                if (flattenedData.length > 0) {
                   setParsedData(flattenedData);
                   setColumns(Object.keys(flattenedData[0]));
-                } else {
-                  setParsedData(jsonResult.data);
-                  setColumns(Object.keys(jsonResult.data[0]));
-                }
-              } else if (jsonResult.data && typeof jsonResult.data === 'object') {
-                // トップレベルがオブジェクトの場合、内部の配列を探す
-                const arrayKeys = Object.keys(jsonResult.data).filter(key => 
-                  Array.isArray(jsonResult.data[key]) && 
-                  jsonResult.data[key].length > 0 && 
-                  typeof jsonResult.data[key][0] === 'object'
-                );
-                
-                if (arrayKeys.length > 0) {
-                  const firstArrayKey = arrayKeys[0];
-                  const arrayData = jsonResult.data[firstArrayKey];
-                  const flattenedData = flattenNestedObjects(arrayData);
-                  
-                  if (flattenedData.length > 0) {
-                    setParsedData(flattenedData);
-                    setColumns(Object.keys(flattenedData[0]));
-                  } else {
-                    setParsedData(jsonResult.data);
-                  }
                 } else {
                   setParsedData(jsonResult.data);
                 }
@@ -367,27 +408,30 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
                 setParsedData(jsonResult.data);
               }
             } else {
-              // ネスト構造保持モード
               setParsedData(jsonResult.data);
-              if (Array.isArray(jsonResult.data) && jsonResult.data.length > 0 && typeof jsonResult.data[0] === 'object') {
-                setColumns(Object.keys(jsonResult.data[0]));
-              } else if (jsonResult.data && typeof jsonResult.data === 'object') {
-                // トップレベルがオブジェクトの場合、内部の配列を探す
-                const arrayKeys = Object.keys(jsonResult.data).filter(key => 
-                  Array.isArray(jsonResult.data[key]) && 
-                  jsonResult.data[key].length > 0 && 
-                  typeof jsonResult.data[key][0] === 'object'
-                );
-                
-                if (arrayKeys.length > 0) {
-                  const firstArrayKey = arrayKeys[0];
-                  setParsedData(jsonResult.data[firstArrayKey]);
-                  setColumns(Object.keys(jsonResult.data[firstArrayKey][0]));
-                }
+            }
+          } else {
+            // ネスト構造保持モード
+            setParsedData(jsonResult.data);
+            if (Array.isArray(jsonResult.data) && jsonResult.data.length > 0 && typeof jsonResult.data[0] === 'object') {
+              setColumns(Object.keys(jsonResult.data[0]));
+            } else if (jsonResult.data && typeof jsonResult.data === 'object') {
+              // トップレベルがオブジェクトの場合、内部の配列を探す
+              const arrayKeys = Object.keys(jsonResult.data).filter(key =>
+                Array.isArray(jsonResult.data[key]) &&
+                jsonResult.data[key].length > 0 &&
+                typeof jsonResult.data[key][0] === 'object'
+              );
+
+              if (arrayKeys.length > 0) {
+                const firstArrayKey = arrayKeys[0];
+                setParsedData(jsonResult.data[firstArrayKey]);
+                setColumns(Object.keys(jsonResult.data[firstArrayKey][0]));
               }
             }
           }
           break;
+        }
           
         case 'yaml':
           const yamlResult = parseYAML((content as string) ?? '');
@@ -469,7 +513,47 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
             }
           }
           break;
-          
+
+        case 'geojson': {
+          const geoResult = parseGeoJsonContent((content as string) ?? '');
+          applyGisResult(geoResult);
+          break;
+        }
+
+        case 'kml': {
+          const kmlResult = parseKmlContent((content as string) ?? '');
+          applyGisResult(kmlResult);
+          break;
+        }
+
+        case 'kmz': {
+          try {
+            const buffer = await loadBinaryFromTab();
+            const kmzResult = parseKmzContent(buffer);
+            if (!applyGisResult(kmzResult)) {
+              setLoading(false);
+              return;
+            }
+          } catch (err) {
+            setError(err instanceof Error ? err.message : 'KMZの読み込みに失敗しました');
+          }
+          break;
+        }
+
+        case 'shapefile': {
+          try {
+            const buffer = await loadBinaryFromTab();
+            const shapefileResult = await parseShapefileContent(buffer);
+            if (!applyGisResult(shapefileResult)) {
+              setLoading(false);
+              return;
+            }
+          } catch (err) {
+            setError(err instanceof Error ? err.message : 'シェープファイルの読み込みに失敗しました');
+          }
+          break;
+        }
+
         case 'parquet':
           // Parquetのパース処理（簡易版）
           const parquetResult = await parseParquet((content as string) ?? '');
