@@ -652,7 +652,7 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
               break;
             }
             case 'kml': {
-              const kmlResult = parseKmlContent(textContent ?? '');
+              const kmlResult = await parseKmlContent(textContent ?? '');
               if (kmlResult.error) throw new Error(kmlResult.error);
               data = kmlResult.rows;
               break;
@@ -661,7 +661,7 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
               if (!binaryContent) {
                 binaryContent = await file.arrayBuffer();
               }
-              const kmzResult = parseKmzContent(binaryContent);
+              const kmzResult = await parseKmzContent(binaryContent);
               if (kmzResult.error) throw new Error(kmzResult.error);
               data = kmzResult.rows;
               break;

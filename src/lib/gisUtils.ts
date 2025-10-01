@@ -1,8 +1,25 @@
 import type { Feature, FeatureCollection } from 'geojson';
-import shp from 'shpjs';
 import { unzipSync, strFromU8 } from 'fflate';
-import { kml as convertKmlToGeoJson } from '@tmcw/togeojson';
 import { flattenNestedObjects } from './dataPreviewUtils';
+
+type ShpModule = typeof import('shpjs');
+type TogeojsonModule = typeof import('@tmcw/togeojson');
+
+let shpModulePromise: Promise<ShpModule> | null = null;
+const loadShpModule = async (): Promise<ShpModule> => {
+  if (!shpModulePromise) {
+    shpModulePromise = import('shpjs');
+  }
+  return shpModulePromise;
+};
+
+let togeojsonModulePromise: Promise<TogeojsonModule> | null = null;
+const loadTogeojsonModule = async (): Promise<TogeojsonModule> => {
+  if (!togeojsonModulePromise) {
+    togeojsonModulePromise = import('@tmcw/togeojson');
+  }
+  return togeojsonModulePromise;
+};
 
 export interface GisParseResult {
   rows: any[];
@@ -140,8 +157,9 @@ export const parseGeoJsonContent = (content: string): GisParseResult => {
   }
 };
 
-export const parseKmlContent = (content: string): GisParseResult => {
+export const parseKmlContent = async (content: string): Promise<GisParseResult> => {
   try {
+    const { kml: convertKmlToGeoJson } = await loadTogeojsonModule();
     const parser = new DOMParser();
     const doc = parser.parseFromString(content, 'application/xml');
     const geojson = convertKmlToGeoJson(doc);
@@ -155,6 +173,13 @@ export const parseKmlContent = (content: string): GisParseResult => {
     }
     return dataset;
   } catch (error) {
+    if (error instanceof Error && /Cannot find module/.test(error.message)) {
+      return {
+        rows: [],
+        columns: [],
+        error: 'KML解析用ライブラリ(@tmcw/togeojson)を読み込めませんでした。依存関係をインストールしてください。',
+      };
+    }
     return {
       rows: [],
       columns: [],
@@ -163,7 +188,7 @@ export const parseKmlContent = (content: string): GisParseResult => {
   }
 };
 
-export const parseKmzContent = (buffer: ArrayBuffer): GisParseResult => {
+export const parseKmzContent = async (buffer: ArrayBuffer): Promise<GisParseResult> => {
   try {
     const zipped = new Uint8Array(buffer);
     const files = unzipSync(zipped);
@@ -176,8 +201,15 @@ export const parseKmzContent = (buffer: ArrayBuffer): GisParseResult => {
       };
     }
     const kmlText = strFromU8(files[kmlEntry]);
-    return parseKmlContent(kmlText);
+    return await parseKmlContent(kmlText);
   } catch (error) {
+    if (error instanceof Error && /Cannot find module/.test(error.message)) {
+      return {
+        rows: [],
+        columns: [],
+        error: 'KMZ解析に必要な依存関係が読み込めませんでした。依存パッケージをインストールしてください。',
+      };
+    }
     return {
       rows: [],
       columns: [],
@@ -188,6 +220,7 @@ export const parseKmzContent = (buffer: ArrayBuffer): GisParseResult => {
 
 export const parseShapefileContent = async (buffer: ArrayBuffer): Promise<GisParseResult> => {
   try {
+    const { default: shp } = await loadShpModule();
     const result = await shp(buffer);
     const dataset = buildGisDatasetFromObject(result);
     if (!dataset) {
@@ -199,6 +232,13 @@ export const parseShapefileContent = async (buffer: ArrayBuffer): Promise<GisPar
     }
     return dataset;
   } catch (error) {
+    if (error instanceof Error && /Cannot find module/.test(error.message)) {
+      return {
+        rows: [],
+        columns: [],
+        error: 'シェープファイル解析用ライブラリ(shpjs)を読み込めませんでした。依存関係をインストールしてください。',
+      };
+    }
     return {
       rows: [],
       columns: [],
