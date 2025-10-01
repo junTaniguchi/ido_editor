@@ -17,6 +17,11 @@
 
 > ⚠️ macOS から Windows 用 EXE をクロスビルドする場合は Wine など追加依存が必要です。安定した成果物が必要な場合は該当 OS で実行するか、CI を使用してください。
 
+## OpenAI APIキー設定
+- ブラウザ版と同じく、ヘッダー右上のキーアイコンから設定ダイアログを開いて OpenAI APIキーを保存します
+- 保存先は既定で `~/.dataloom/settings.json`（`DATALOOM_CONFIG_DIR` で変更可）で、Electron 版も同じファイルを参照します
+- `OPENAI_API_KEY` を環境変数で指定するとローカル保存より優先されるため、共有端末では環境変数利用を推奨
+
 ## CI/CD（GitHub Actions）
 リポジトリ付属の `/.github/workflows/build-desktop.yml` を利用すると、Windows/macOS 用ビルドを自動化できます。
 

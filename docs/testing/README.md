@@ -29,6 +29,7 @@ npm run build         # ビルド確認（型エラー/バンドルエラー検�
    - ファイルを開く → プレビュー表示 → エクスポート
    - データ読み込み → SQL 実行 → チャート描画 → Notebook 保存
    - Markdown 編集 → Word エクスポート → Mermaid プレビュー
+4. **LLM キー永続化**：`src/lib/server/openaiKeyStore.ts` と `/api/llm/openai-key` の入出力をモックし、保存/削除/環境変数優先ロジックを検証
 
 ## モックとスタブ
 - File System Access API は `vitest-mock-extended` などで `FileSystemDirectoryHandle` / `FileSystemFileHandle` をスタブ化

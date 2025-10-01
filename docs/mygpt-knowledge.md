@@ -13,6 +13,7 @@ ChatGPT のマイGPT に DataLoom Studio の知識を組み込むための要約
   - AlasQL ベースの SQL 実行、Plotly/Chart.js によるチャート、関係グラフ描画
   - 複数ファイルの UNION/INTERSECTION/JOIN 分析
   - isomorphic-git を使った Git パネル（ステージング/コミット/ブランチ/履歴）
+  - ヘッダー右上から開く OpenAI APIキー設定ダイアログ（ローカル保存・削除・状態確認、環境変数優先）
 
 ## 2. セットアップと起動
 ```bash
@@ -33,6 +34,7 @@ npm run dev
 4. **複数ファイル分析**: ヘッダーで「マルチファイル分析」を有効化 → エクスプローラで複数ファイルを選択 → UNION/INTERSECTION/JOIN を設定 → `combined` テーブルに対して SQL/Notebook/チャートを操作
 5. **Git 管理**: ヘッダーのブランチアイコンで Git パネルを開く → 変更のステージング/コミット/履歴確認。クローンはダウンロードアイコンから実行
 6. **エクスポート**: Markdown → Word、データ → CSV/TSV/JSON/YAML/Excel/Parquet (テキスト)、チャート → PNG/SVG、Mermaid → SVG/PNG/クリップボード
+7. **OpenAI APIキーを設定**: ヘッダーのキーアイコンからダイアログを開き、`~/.dataloom/settings.json`（`DATALOOM_CONFIG_DIR` で変更可）にキーを保存。`OPENAI_API_KEY` が指定されている場合は状態確認とローカルキー管理のみ可能
 
 ````markdown
 # DataLoom Studio - MyGPT ナレッジパック (完全版)
@@ -55,6 +57,7 @@ npm run dev
 - Git 統合: isomorphic-git を用いたリポジトリ操作（ステータス/ステージ/コミット/差分/ブランチ/クローン）
 - Mermaid Designer（GUI）: ノード/エッジの編集、整列、エクスポート（SVG/PNG）
 - エクスポート: Word(.docx), CSV/TSV/JSON/YAML/Excel/Parquet(テキスト), 画像出力
+- LLM 設定: OpenAI APIキーを `/api/llm/openai-key` 経由で保存/削除し、`~/.dataloom/settings.json`（`DATALOOM_CONFIG_DIR`）に永続化。`OPENAI_API_KEY` を優先
 
 ## 2. セットアップと起動
 ```bash
@@ -134,6 +137,11 @@ npm run dev
 - データ: CSV/TSV/JSON/YAML/Excel/Parquet（テキストベース）へのエクスポート
 - ノートブック（`.sqlnb.json`）エクスポート・インポート
 - Mermaid / Chart の画像（SVG/PNG）エクスポート
+
+### 3.10 LLM 設定（src/components/modals/LlmSettingsDialog.tsx, src/lib/server/openaiKeyStore.ts）
+- ヘッダーのキーアイコンからモーダルを開き、OpenAI APIキーを入力
+- `saveLlmKey` / `deleteLlmKey` が `/api/llm/openai-key` を呼び出し、`~/.dataloom/settings.json` へ保存または削除（`DATALOOM_CONFIG_DIR` で保存先変更可）
+- 環境変数 `OPENAI_API_KEY` が設定されている場合はそれを優先し、ダイアログ上で状態を案内
 
 ## 4. ファイル形式と取り扱い（完全リスト）
 - テキスト系: .txt, .md, .markdown, .html, .json, .yaml, .yml, .sql

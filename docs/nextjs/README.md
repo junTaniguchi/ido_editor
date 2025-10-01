@@ -9,7 +9,9 @@ src/app/
 ├── layout.tsx      # メタデータとテーマ初期化
 ├── page.tsx        # ルートエントリ（MainLayout を描画）
 ├── globals.css     # Tailwind ベースの共通スタイル
-└── api/            # 現状は未使用（将来の拡張用）
+└── api/
+    └── llm/
+        └── openai-key/route.ts  # OpenAI APIキー保存/削除/参照 API（Node.js ランタイム）
 ```
 
 ## 主要設定ファイル
@@ -48,8 +50,10 @@ src/app/
 - ブラウザ版のホスティングは静的ファイルサーバーで提供可能（File System Access API は HTTPS か `localhost` が必須）
 
 ## 環境変数
-- 現状 `.env` は不要。Electron 版の DEV フラグは `ELECTRON_DEV=1 npm run dev:electron` で指定
-- 将来的に API 連携を追加する場合は `NEXT_PUBLIC_***` 系環境変数を定義
+- `OPENAI_API_KEY`: サーバー/ブラウザ双方で利用する OpenAI APIキー（設定されている場合はローカル保存より優先）
+- `DATALOOM_CONFIG_DIR`: OpenAI APIキーの保存先ディレクトリを上書き（既定は `~/.dataloom`）
+- Electron 版の DEV フラグは `ELECTRON_DEV=1 npm run dev:electron` で指定
+- `.env` ファイルは必須ではなく、その他の API を追加する場合は `NEXT_PUBLIC_***` 形式を利用
 
 ## テスト
 - Next.js 側のユニットテストは Vitest + React Testing Library を想定（`npm run test`）。現状はモック環境を利用してブラウザ API をスタブ化
