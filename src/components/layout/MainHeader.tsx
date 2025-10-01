@@ -10,6 +10,7 @@ import {
   IoGitMergeOutline,
   IoGitBranchOutline,
   IoDownloadOutline,
+  IoKeyOutline,
   IoHelpCircleOutline,
 } from 'react-icons/io5';
 
@@ -30,6 +31,7 @@ interface MainHeaderProps {
   onCloneRepository: () => void;
   onToggleHelp: () => void;
   isHelpPaneVisible: boolean;
+  onOpenLlmSettings: () => void;
 }
 
 const MainHeader: React.FC<MainHeaderProps> = ({
@@ -49,6 +51,7 @@ const MainHeader: React.FC<MainHeaderProps> = ({
   onCloneRepository,
   onToggleHelp,
   isHelpPaneVisible,
+  onOpenLlmSettings,
 }) => {
   const isDark = theme === 'dark';
 
@@ -110,6 +113,14 @@ const MainHeader: React.FC<MainHeaderProps> = ({
         aria-label="Toggle Search"
       >
         <IoSearch size={20} />
+      </button>
+      <button
+        className="p-1 rounded hover:bg-gray-200 ml-2 dark:hover:bg-gray-800"
+        onClick={onOpenLlmSettings}
+        aria-label="OpenAI APIキー設定"
+        title="OpenAI APIキー設定"
+      >
+        <IoKeyOutline size={20} />
       </button>
       <button
         className={`p-1 rounded ml-2 ${

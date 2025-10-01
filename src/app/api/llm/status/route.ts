@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
+import { getOpenAiApiKeyStatus } from '@/lib/server/openaiKeyStore';
 
 export async function GET() {
-  const hasOpenAiApiKey =
-    typeof process.env.OPENAI_API_KEY === 'string' && process.env.OPENAI_API_KEY.trim().length > 0;
+  const status = await getOpenAiApiKeyStatus();
 
   return NextResponse.json({
-    hasOpenAiApiKey,
+    hasOpenAiApiKey: status.hasKey,
+    source: status.source,
+    hasStoredKey: status.hasStoredKey,
   });
 }

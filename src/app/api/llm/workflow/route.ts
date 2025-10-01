@@ -6,6 +6,7 @@ import {
   WorkflowGeneratedCell,
   WorkflowPromptInput,
 } from '@/lib/llm/workflowPrompt';
+import { getEffectiveOpenAiApiKey } from '@/lib/server/openaiKeyStore';
 
 class WorkflowApiError extends Error {
   status: number;
@@ -122,7 +123,7 @@ async function callChatCompletion(
 
 export async function POST(request: Request) {
   try {
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = await getEffectiveOpenAiApiKey();
     if (!apiKey) {
       return NextResponse.json({ error: 'OPENAI_API_KEY が設定されていません。' }, { status: 500 });
     }
