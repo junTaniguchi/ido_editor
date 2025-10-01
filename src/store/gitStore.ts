@@ -796,7 +796,7 @@ export const useGitStore = create<GitStoreState>((set, get) => ({
 
       if (branches.length === 0) {
         const lines = [
-          'gitGraph LR',
+          'gitGraph LR:',
           `  %% 生成日時: ${timestamp}`,
           '  %% コミット履歴が見つかりません。',
         ];
@@ -833,7 +833,7 @@ export const useGitStore = create<GitStoreState>((set, get) => ({
 
       if (commitMap.size === 0) {
         const lines = [
-          'gitGraph LR',
+          'gitGraph LR:',
           `  %% 生成日時: ${timestamp}`,
           '  %% コミット履歴が見つかりません。',
         ];
@@ -1037,7 +1037,7 @@ export const useGitStore = create<GitStoreState>((set, get) => ({
         legendLines.push(`  %% ${alias} => ${branchName}`);
       });
 
-      const diagramLines = ['gitGraph LR', ...legendLines, ...commandLines];
+      const diagramLines = ['gitGraph LR:', ...legendLines, ...commandLines];
       const branchAliasRecord: Record<string, string> = {};
       aliasLegend.forEach((branchName, alias) => {
         branchAliasRecord[branchName] = alias;

@@ -3,7 +3,7 @@ import { parseMermaidSource } from '../parser';
 
 describe('parseGitGraph branch inheritance', () => {
   it('connects checkout edge from source branch commit to new branch first commit', () => {
-    const source = `gitGraph LR
+    const source = `gitGraph LR:
   commit id: "A"
   branch develop
   branch feature
@@ -35,7 +35,7 @@ describe('parseGitGraph branch inheritance', () => {
   });
 
   it('sets branch metadata on commits according to the active branch', () => {
-    const source = `gitGraph LR
+    const source = `gitGraph LR:
   commit id: "A"
   commit id: "B"
   branch "feature/login"
@@ -79,7 +79,7 @@ describe('parseGitGraph branch inheritance', () => {
   });
 
   it('links branch creation and checkout command nodes with dedicated edges', () => {
-    const source = `gitGraph LR
+    const source = `gitGraph LR:
   commit id: "A"
   branch feature
   checkout feature`;
@@ -118,7 +118,7 @@ describe('parseGitGraph branch inheritance', () => {
   });
 
   it('connects merge commands to the latest commits of participating branches', () => {
-    const source = `gitGraph LR
+    const source = `gitGraph LR:
   commit id: "A"
   branch feature
   checkout feature
