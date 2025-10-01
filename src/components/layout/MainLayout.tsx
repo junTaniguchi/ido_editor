@@ -86,6 +86,11 @@ const MainLayout = () => {
       isHtml,
       isPreviewableSpecialType: isMarkdown || isMermaid || isHtml,
       isDataPreviewable,
+      isGisData:
+        type === 'geojson' ||
+        type === 'kml' ||
+        type === 'kmz' ||
+        type === 'shapefile',
     };
   }, [activeTab]);
 
@@ -93,6 +98,7 @@ const MainLayout = () => {
     (pane: keyof typeof paneState) => {
       if (
         pane === 'isExplorerVisible' ||
+        pane === 'isGisVisible' ||
         pane === 'isGitVisible' ||
         pane === 'isHelpVisible' ||
         pane === 'activeSidebar'
@@ -109,6 +115,7 @@ const MainLayout = () => {
     updatePaneState({
       activeSidebar: isActive ? null : 'explorer',
       isExplorerVisible: !isActive,
+      isGisVisible: false,
       isGitVisible: false,
       isHelpVisible: false,
     });
@@ -120,6 +127,7 @@ const MainLayout = () => {
       activeSidebar: isActive ? null : 'git',
       isGitVisible: !isActive,
       isExplorerVisible: false,
+      isGisVisible: false,
       isHelpVisible: false,
     });
   }, [paneState.activeSidebar, updatePaneState]);
@@ -130,6 +138,7 @@ const MainLayout = () => {
       activeSidebar: isActive ? null : 'help',
       isHelpVisible: !isActive,
       isExplorerVisible: false,
+      isGisVisible: false,
       isGitVisible: false,
     });
   }, [paneState.activeSidebar, updatePaneState]);
@@ -203,17 +212,26 @@ const MainLayout = () => {
   const handleCycleViewMode = useCallback(() => {
     if (!activeTabId) return;
 
-    const nextMode =
-      activeTabViewMode === 'editor'
+    const nextMode = (() => {
+      if (fileTypeFlags.isGisData) {
+        if (activeTabViewMode === 'editor') return 'preview';
+        if (activeTabViewMode === 'preview') return 'data-preview';
+        if (activeTabViewMode === 'data-preview') return 'gis-analysis';
+        if (activeTabViewMode === 'gis-analysis') return 'split';
+        return 'editor';
+      }
+
+      return activeTabViewMode === 'editor'
         ? 'preview'
         : activeTabViewMode === 'preview'
           ? 'data-preview'
           : activeTabViewMode === 'data-preview'
             ? 'split'
             : 'editor';
+    })();
 
     setViewMode(activeTabId, nextMode);
-  }, [activeTabId, activeTabViewMode, setViewMode]);
+  }, [activeTabId, activeTabViewMode, fileTypeFlags.isGisData, setViewMode]);
 
   const handleConfirmNewFile = useCallback(
     async (fileName: string) => {
