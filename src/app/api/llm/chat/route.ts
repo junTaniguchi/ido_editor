@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { callPairWritingModel, DEFAULT_TRANSLATION_TARGET } from '@/lib/llm/chatClient';
+import { getEffectiveOpenAiApiKey } from '@/lib/server/openaiKeyStore';
 import type { PairWritingPurpose } from '@/types';
 
 interface ChatApiRequestBody {
@@ -41,7 +42,7 @@ function normalizeInstruction(value: unknown): string | undefined {
 
 export async function POST(request: Request) {
   try {
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = await getEffectiveOpenAiApiKey();
     if (!apiKey) {
       return NextResponse.json({ error: 'OPENAI_API_KEY が設定されていません。' }, { status: 500 });
     }

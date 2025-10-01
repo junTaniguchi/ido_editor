@@ -35,7 +35,13 @@ const MermaidTemplateDialog: React.FC<MermaidTemplateDialogProps> = ({
   const [summary, setSummary] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isAiAvailable, setIsAiAvailable] = useState<boolean | null>(null);
+  const [isCheckingAiAvailability, setIsCheckingAiAvailability] = useState(false);
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [apiKeySaveError, setApiKeySaveError] = useState<string | null>(null);
+  const [apiKeySaveMessage, setApiKeySaveMessage] = useState<string | null>(null);
+  const [isSavingApiKey, setIsSavingApiKey] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -50,7 +56,42 @@ const MermaidTemplateDialog: React.FC<MermaidTemplateDialogProps> = ({
       setSummary('');
       setErrorMessage(null);
       setSelectedHistoryId(null);
+      setIsAiAvailable(null);
+      setIsCheckingAiAvailability(false);
+      setApiKeyInput('');
+      setApiKeySaveError(null);
+      setApiKeySaveMessage(null);
+      setIsSavingApiKey(false);
+      return;
     }
+
+    let isMounted = true;
+    setIsCheckingAiAvailability(true);
+
+    fetch('/api/llm/status')
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error('Failed to check LLM availability');
+        }
+        return response.json();
+      })
+      .then((data) => {
+        if (!isMounted) return;
+        const hasKey = Boolean(data?.hasOpenAiApiKey);
+        setIsAiAvailable(hasKey);
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setIsAiAvailable(false);
+      })
+      .finally(() => {
+        if (!isMounted) return;
+        setIsCheckingAiAvailability(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, [isOpen]);
 
   const definition = useMemo(() => diagramDefinitions[selectedType], [selectedType]);
@@ -81,6 +122,11 @@ const MermaidTemplateDialog: React.FC<MermaidTemplateDialogProps> = ({
     const trimmedPrompt = prompt.trim();
     if (!trimmedPrompt) {
       setErrorMessage('生成する内容を入力してください。');
+      return;
+    }
+
+    if (isAiAvailable === false) {
+      setErrorMessage('AI生成機能を利用するには OPENAI_API_KEY を設定してください。');
       return;
     }
 
@@ -117,7 +163,53 @@ const MermaidTemplateDialog: React.FC<MermaidTemplateDialogProps> = ({
     } finally {
       setIsGenerating(false);
     }
-  }, [addHistoryEntry, effectiveHistoryKey, prompt, selectedType]);
+  }, [addHistoryEntry, effectiveHistoryKey, isAiAvailable, prompt, selectedType]);
+
+  const handleSaveApiKey = useCallback(async () => {
+    const trimmedKey = apiKeyInput.trim();
+    if (!trimmedKey) {
+      setApiKeySaveError('OpenAI APIキーを入力してください。');
+      setApiKeySaveMessage(null);
+      return;
+    }
+
+    setIsSavingApiKey(true);
+    setApiKeySaveError(null);
+    setApiKeySaveMessage(null);
+
+    try {
+      const response = await fetch('/api/llm/openai-key', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ apiKey: trimmedKey }),
+      });
+
+      if (!response.ok) {
+        let message = 'APIキーの保存に失敗しました。';
+        try {
+          const errorPayload = await response.json();
+          if (errorPayload && typeof errorPayload.error === 'string') {
+            message = errorPayload.error;
+          }
+        } catch {
+          // ignore JSON parse errors
+        }
+        setApiKeySaveError(message);
+        return;
+      }
+
+      setApiKeySaveMessage('OpenAI APIキーを保存しました。');
+      setApiKeyInput('');
+      setIsAiAvailable(true);
+    } catch (error) {
+      console.error('Failed to save OpenAI API key:', error);
+      setApiKeySaveError('APIキーの保存中にエラーが発生しました。');
+    } finally {
+      setIsSavingApiKey(false);
+    }
+  }, [apiKeyInput, setIsAiAvailable]);
 
   const handleApplyGeneratedCode = useCallback(() => {
     if (!generatedCode) {
@@ -197,11 +289,58 @@ const MermaidTemplateDialog: React.FC<MermaidTemplateDialogProps> = ({
                 <button
                   type="button"
                   onClick={handleGenerate}
-                  disabled={isGenerating}
+                  disabled={isGenerating || isCheckingAiAvailability || isAiAvailable === false}
                   className="px-4 py-2 text-sm rounded-md bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-60"
                 >
                   {isGenerating ? '生成中…' : 'AI生成'}
                 </button>
+                {!isCheckingAiAvailability && isAiAvailable === false ? (
+                  <div className="w-full space-y-2">
+                    <p className="text-xs text-red-600">
+                      AI生成機能を利用するには OpenAI APIキーを登録してください。
+                    </p>
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                      <input
+                        type="password"
+                        className="flex-1 min-w-0 border border-gray-300 dark:border-gray-600 rounded-md p-2 text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        placeholder="sk-..."
+                        value={apiKeyInput}
+                        onChange={(event) => {
+                          setApiKeyInput(event.target.value);
+                          setApiKeySaveError(null);
+                          setApiKeySaveMessage(null);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            void handleSaveApiKey();
+                          }
+                        }}
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void handleSaveApiKey();
+                        }}
+                        disabled={isSavingApiKey}
+                        className="px-4 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
+                      >
+                        {isSavingApiKey ? '保存中…' : 'APIキーを保存'}
+                      </button>
+                    </div>
+                    {apiKeySaveError ? (
+                      <p className="text-xs text-red-600">{apiKeySaveError}</p>
+                    ) : null}
+                    {apiKeySaveMessage ? (
+                      <p className="text-xs text-green-600">{apiKeySaveMessage}</p>
+                    ) : null}
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      入力したキーはローカル環境の設定ファイルにのみ保存され、ブラウザを再起動しても利用できます。
+                    </p>
+                  </div>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => {
@@ -216,6 +355,10 @@ const MermaidTemplateDialog: React.FC<MermaidTemplateDialogProps> = ({
                   リセット
                 </button>
               </div>
+
+              {apiKeySaveMessage && isAiAvailable === true ? (
+                <p className="text-xs text-green-600">{apiKeySaveMessage}</p>
+              ) : null}
 
               {errorMessage && <p className="text-xs text-red-500">{errorMessage}</p>}
             </div>

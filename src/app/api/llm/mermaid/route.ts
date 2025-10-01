@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { diagramDefinitions } from '@/lib/mermaid/diagramDefinitions';
 import type { MermaidDiagramType } from '@/lib/mermaid/types';
 import { callMermaidGenerationModel } from '@/lib/llm/mermaidGenerator';
+import { getEffectiveOpenAiApiKey } from '@/lib/server/openaiKeyStore';
 
 interface MermaidApiRequestBody {
   prompt?: unknown;
@@ -36,7 +37,7 @@ function normalizeExistingCode(value: unknown): string | undefined {
 
 export async function POST(request: Request) {
   try {
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = await getEffectiveOpenAiApiKey();
     if (!apiKey) {
       return NextResponse.json({ error: 'OPENAI_API_KEY が設定されていません。' }, { status: 500 });
     }

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { HelpMessageRole } from '@/types';
+import { getEffectiveOpenAiApiKey } from '@/lib/server/openaiKeyStore';
 
 const OPENAI_CHAT_COMPLETION_URL = 'https://api.openai.com/v1/chat/completions';
 const DEFAULT_HELP_MODEL = process.env.OPENAI_HELP_MODEL || 'gpt-4o-mini';
@@ -102,7 +103,7 @@ function buildMessages(params: {
 
 export async function POST(request: Request) {
   try {
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = await getEffectiveOpenAiApiKey();
     if (!apiKey) {
       return NextResponse.json({ error: 'OPENAI_API_KEY が設定されていません。' }, { status: 500 });
     }
