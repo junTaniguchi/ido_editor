@@ -24,11 +24,13 @@ import {
   HelpUserRole,
 } from '@/types';
 
+type EditorViewMode = 'editor' | 'preview' | 'data-preview' | 'split' | 'gis-analysis';
+
 interface EditorStore {
   // タブ管理
   tabs: Map<string, TabData>;
   activeTabId: string | null;
-  lastViewMode: 'editor' | 'preview' | 'data-preview' | 'split'; // グローバルな表示モード
+  lastViewMode: EditorViewMode; // グローバルな表示モード
   setActiveTabId: (id: string | null) => void;
   addTab: (tab: TabData) => void;
   addTempTab: (type: string, name?: string, initialContent?: string) => void;
@@ -38,9 +40,9 @@ interface EditorStore {
   reorderTabs: (newOrder: string[]) => void;
   
   // 表示モード（'editor', 'preview', または 'split'）
-  viewModes: Map<string, 'editor' | 'preview' | 'data-preview' | 'split'>;
-  setViewMode: (tabId: string, mode: 'editor' | 'preview' | 'data-preview' | 'split') => void;
-  getViewMode: (tabId: string) => 'editor' | 'preview' | 'data-preview' | 'split';
+  viewModes: Map<string, EditorViewMode>;
+  setViewMode: (tabId: string, mode: EditorViewMode) => void;
+  getViewMode: (tabId: string) => EditorViewMode;
   
   // ファイルエクスプローラー
   rootDirHandle: FileSystemDirectoryHandle | null;
@@ -213,7 +215,7 @@ export const useEditorStore = create<EditorStore>()(
       getTab: (id) => get().tabs.get(id),
       
       // 表示モード管理
-      viewModes: new Map<string, 'editor' | 'preview' | 'data-preview' | 'split'>(),
+      viewModes: new Map<string, EditorViewMode>(),
       setViewMode: (tabId, mode) => set((state) => {
         const newViewModes = new Map(state.viewModes);
         newViewModes.set(tabId, mode);
@@ -254,6 +256,7 @@ export const useEditorStore = create<EditorStore>()(
       paneState: {
         activeSidebar: 'explorer',
         isExplorerVisible: true,
+        isGisVisible: false,
         isEditorVisible: true,
         isPreviewVisible: true,
         isTocVisible: true,
@@ -610,7 +613,7 @@ export const useEditorStore = create<EditorStore>()(
           tabsObject[key] = value;
         });
         // 表示モードのMapをシリアライズするためオブジェクトに変換
-        const viewModesObject: Record<string, 'editor' | 'preview' | 'data-preview' | 'split'> = {};
+        const viewModesObject: Record<string, EditorViewMode> = {};
         state.viewModes.forEach((value, key) => {
           viewModesObject[key] = value;
         });
@@ -674,8 +677,8 @@ export const useEditorStore = create<EditorStore>()(
           }
 
           // 表示モードオブジェクトをMapに変換
-          const viewModesMap = new Map<string, 'editor' | 'preview' | 'data-preview' | 'split'>();
-          const viewModesObj = state.viewModes as unknown as Record<string, 'editor' | 'preview' | 'data-preview' | 'split'>;
+          const viewModesMap = new Map<string, EditorViewMode>();
+          const viewModesObj = state.viewModes as unknown as Record<string, EditorViewMode>;
 
           if (viewModesObj) {
             Object.keys(viewModesObj).forEach(key => {
@@ -719,6 +722,7 @@ export const useEditorStore = create<EditorStore>()(
             state.paneState = {
               activeSidebar: 'explorer',
               isExplorerVisible: true,
+              isGisVisible: false,
               isEditorVisible: true,
               isPreviewVisible: true,
               isTocVisible: true,
@@ -731,10 +735,15 @@ export const useEditorStore = create<EditorStore>()(
             if (typeof state.paneState.activeSidebar === 'undefined') {
               const inferredSidebar = state.paneState.isExplorerVisible
                 ? 'explorer'
+                : state.paneState.isGisVisible
+                  ? 'gis'
                 : state.paneState.isGitVisible
                   ? 'git'
                   : null;
               state.paneState = { ...state.paneState, activeSidebar: inferredSidebar };
+            }
+            if (typeof state.paneState.isGisVisible !== 'boolean') {
+              state.paneState = { ...state.paneState, isGisVisible: false };
             }
             if (typeof state.paneState.isGitVisible !== 'boolean') {
               state.paneState = { ...state.paneState, isGitVisible: false };
