@@ -1,9 +1,9 @@
 'use client';
 
 import React from 'react';
-import { IoFolderOpenOutline, IoGitBranchOutline, IoChatbubblesOutline } from 'react-icons/io5';
+import { IoFolderOpenOutline, IoGlobeOutline, IoGitBranchOutline, IoChatbubblesOutline } from 'react-icons/io5';
 
-type ActivityItem = 'explorer' | 'git' | 'help';
+type ActivityItem = 'explorer' | 'gis' | 'git' | 'help';
 
 interface ActivityBarProps {
   activeItem: ActivityItem | null;
@@ -26,6 +26,15 @@ const ActivityBar: React.FC<ActivityBarProps> = ({ activeItem, onSelect }) => {
         aria-pressed={activeItem === 'explorer'}
       >
         <IoFolderOpenOutline size={20} />
+      </button>
+      <button
+        type="button"
+        className={`${baseButton} mt-2 ${activeItem === 'gis' ? activeClass : inactiveClass}`}
+        onClick={() => onSelect('gis')}
+        title="GIS分析"
+        aria-pressed={activeItem === 'gis'}
+      >
+        <IoGlobeOutline size={20} />
       </button>
       <button
         type="button"
