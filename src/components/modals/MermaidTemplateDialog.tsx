@@ -35,6 +35,8 @@ const MermaidTemplateDialog: React.FC<MermaidTemplateDialogProps> = ({
   const [summary, setSummary] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isAiAvailable, setIsAiAvailable] = useState<boolean | null>(null);
+  const [isCheckingAiAvailability, setIsCheckingAiAvailability] = useState(false);
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -50,7 +52,38 @@ const MermaidTemplateDialog: React.FC<MermaidTemplateDialogProps> = ({
       setSummary('');
       setErrorMessage(null);
       setSelectedHistoryId(null);
+      setIsAiAvailable(null);
+      setIsCheckingAiAvailability(false);
+      return;
     }
+
+    let isMounted = true;
+    setIsCheckingAiAvailability(true);
+
+    fetch('/api/llm/status')
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error('Failed to check LLM availability');
+        }
+        return response.json();
+      })
+      .then((data) => {
+        if (!isMounted) return;
+        const hasKey = Boolean(data?.hasOpenAiApiKey);
+        setIsAiAvailable(hasKey);
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setIsAiAvailable(false);
+      })
+      .finally(() => {
+        if (!isMounted) return;
+        setIsCheckingAiAvailability(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, [isOpen]);
 
   const definition = useMemo(() => diagramDefinitions[selectedType], [selectedType]);
@@ -81,6 +114,11 @@ const MermaidTemplateDialog: React.FC<MermaidTemplateDialogProps> = ({
     const trimmedPrompt = prompt.trim();
     if (!trimmedPrompt) {
       setErrorMessage('生成する内容を入力してください。');
+      return;
+    }
+
+    if (isAiAvailable === false) {
+      setErrorMessage('AI生成機能を利用するには OPENAI_API_KEY を設定してください。');
       return;
     }
 
@@ -117,7 +155,7 @@ const MermaidTemplateDialog: React.FC<MermaidTemplateDialogProps> = ({
     } finally {
       setIsGenerating(false);
     }
-  }, [addHistoryEntry, effectiveHistoryKey, prompt, selectedType]);
+  }, [addHistoryEntry, effectiveHistoryKey, isAiAvailable, prompt, selectedType]);
 
   const handleApplyGeneratedCode = useCallback(() => {
     if (!generatedCode) {
@@ -197,11 +235,16 @@ const MermaidTemplateDialog: React.FC<MermaidTemplateDialogProps> = ({
                 <button
                   type="button"
                   onClick={handleGenerate}
-                  disabled={isGenerating}
+                  disabled={isGenerating || isCheckingAiAvailability || isAiAvailable === false}
                   className="px-4 py-2 text-sm rounded-md bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-60"
                 >
                   {isGenerating ? '生成中…' : 'AI生成'}
                 </button>
+                {!isCheckingAiAvailability && isAiAvailable === false ? (
+                  <p className="text-xs text-red-600">
+                    環境変数 <code className="font-mono">OPENAI_API_KEY</code> を設定すると AI 生成が利用できます。
+                  </p>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => {
