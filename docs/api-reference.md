@@ -44,6 +44,23 @@ DataLoom Studio のユーティリティ層は、ファイル I/O・データ変
 | `convertDataToFormat(data, format, options)` | CSV/TSV/JSON/YAML/Excel/Parquet テキストへの変換 |
 | `downloadData(blob, filename)` | ブラウザダウンロードをトリガー（エクスポート UI で使用） |
 
+## 🔑 `src/lib/server/openaiKeyStore.ts` / `src/lib/llm/llmKeyClient.ts`
+| 関数 | 役割 |
+| ---- | ---- |
+| `getOpenAiApiKeyStatus()` | 環境変数 `OPENAI_API_KEY` とローカル設定を判定し、利用元（env/stored/none）を返却 |
+| `setStoredOpenAiApiKey(apiKey)` | `~/.dataloom/settings.json`（`DATALOOM_CONFIG_DIR` で変更可）にキーを保存（パーミッション 600） |
+| `deleteStoredOpenAiApiKey()` | 設定ファイルからキーを削除し、キャッシュもクリア |
+| `getEffectiveOpenAiApiKey()` | 環境変数優先で有効なキーを取得（なければ保存済みキー） |
+| `fetchLlmKeyStatus()` | クライアント側から `/api/llm/openai-key` へ GET し、UI 表示用ステータスを取得 |
+| `saveLlmKey(apiKey)` / `deleteLlmKey()` | API 経由でキーを保存/削除し、最新ステータスを返却 |
+
+### Next.js API ルート
+- `src/app/api/llm/openai-key/route.ts`
+  - `GET`: 現在のキー状態を返す
+  - `POST`: 入力されたキーを検証し保存
+  - `DELETE`: 保存済みキーを削除
+- ランタイムは Node.js 固定（`runtime = 'nodejs'`）、レスポンスは `LlmKeyStatus` 互換オブジェクト
+
 ## 🔐 `src/lib/git/fileSystemAccessFs.ts`
 - File System Access API を isomorphic-git が扱えるようにラップした `FileSystemAccessFs` クラスを提供
 - 読み書き/ディレクトリ列挙/メタ情報取得を isomorphic-git の FS インターフェースに合わせて実装

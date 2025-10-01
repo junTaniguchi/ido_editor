@@ -26,6 +26,9 @@ DataLoom Studio の技術仕様・設計・開発運用に関するドキュメ�
 
 ## 🔄 更新履歴
 
+### 2025 年 10 月
+- OpenAI APIキーをローカル設定として保存できる永続化機能を追加し、各ドキュメントを更新
+
 ### 2025 年 1 月
 - プロジェクト名称を **DataLoom Studio** に改称し UI/ビルド設定を更新
 - マイGPT 連携用ナレッジベース ([docs/mygpt-knowledge.md](./mygpt-knowledge.md)) を追加

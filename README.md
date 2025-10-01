@@ -44,6 +44,12 @@ DataLoom Studio は、ファイル管理・エディタ・プレビュー・デ�
  - `npm run build` / `npm run start`
  - Electron パッケージング: `npm run dist`（mac/windows 用スクリプトあり）
 
+## OpenAI APIキーの設定
+- 画面右上のキーアイコンを押すと「OpenAI APIキー設定」ダイアログが開きます
+- キーを保存すると `~/.dataloom/settings.json`（環境変数 `DATALOOM_CONFIG_DIR` で変更可）に平文で書き込まれ、ブラウザ版/Electron 版の両方で再利用できます
+- `OPENAI_API_KEY` が設定されている場合はそちらが優先され、ダイアログからも状態を確認できます
+- 保存済みのキーは同ダイアログから削除・再読込が可能です
+
  ## 主要機能（実装済み） — 完全網羅
  以下はソースコード（src/components, src/lib, src/store）をもとに整理した実装済み機能の完全一覧です。MyGPT に取り込む際は、このまま要点を納めてください。
 
@@ -51,6 +57,7 @@ DataLoom Studio は、ファイル管理・エディタ・プレビュー・デ�
  - レイアウト: ヘッダー、アクティビティバー、サイドバー（エクスプローラ／検索／分析／Git）、メインエディタ領域
  - テーマ切替（light/dark）、フォントサイズ調整、表示パネルのトグル（paneState）
  - ドラッグ＆ドロップによるタブ並び替えとファイルのドロップ読み込み
+ - ヘッダーのキーアイコンから OpenAI APIキー設定ダイアログを起動し、ローカル設定 (`~/.dataloom/settings.json`) への保存/削除/再読込が可能（環境変数 `OPENAI_API_KEY` が優先）
 
  ### ファイルエクスプローラ（`src/components/explorer/FileExplorer.tsx`）
  - File System Access API によるローカルフォルダの読み込み、ツリー表示

@@ -31,7 +31,7 @@ DataLoom Studio は Next.js 15 + React 19 をベースとしたクライアン�
 - **Presentation**: `src/components/**` 配下の UI。Tailwind CSS と Headless なコンポーネントで構築。
 - **Interaction & Business**: `src/store/` や `src/hooks/`（store 内）で定義した Zustand ストアとカスタムフック。
 - **Service Utilities**: `src/lib/` のユーティリティ群（ファイル操作、データ変換、Mermaid レンダリング、Git 操作など）。
-- **Persistence & Platform**: File System Access API、IndexedDB ベースの Zustand persist、Electron ブリッジ。
+- **Persistence & Platform**: File System Access API、IndexedDB ベースの Zustand persist、Electron ブリッジ、`src/lib/server/openaiKeyStore.ts` による OpenAI APIキーのローカル設定。
 
 ## 🔄 データフロー
 ```mermaid
@@ -50,6 +50,7 @@ graph TD
 - エクスプローラの選択は Zustand ストアに保存され、プレビュー/分析コンポーネントが購読します。
 - データファイルはユーティリティ層でパースされ、必要に応じて Web Worker 互換の非同期処理を実行します（現在はメインスレッド、Worker 化を拡張予定）。
 - SQL 実行は AlasQL、統計計算は jStat、グラフ描画は Chart.js / Plotly / React Force Graph を利用します。
+- LLM キー設定はクライアントから `/api/llm/openai-key`（Node.js ランタイム）へリクエストし、`~/.dataloom/settings.json`（`DATALOOM_CONFIG_DIR` で変更可）に保存されます。環境変数 `OPENAI_API_KEY` が存在する場合はサーバー側で優先され、状態のみ返します。
 
 ## 📂 ディレクトリ構成
 ```
@@ -98,6 +99,7 @@ src/
 - File System Access API による明示的なユーザー許可が必須
 - ローカル処理を徹底し、データは外部サーバーへ送信しない
 - Electron 版では `contextIsolation` 有効、IPC は限定的なチャネルに制限
+- OpenAI APIキーはユーザー環境の `~/.dataloom/settings.json`（パーミッション 600）に平文で保存されるため、OS のアクセス制御で保護するか `OPENAI_API_KEY` を環境変数で指定してください
 
 ## 📈 将来拡張
 - データ処理の Web Worker 化と進行状況 UI

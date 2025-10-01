@@ -13,7 +13,7 @@ DataLoom Studio の UI は Next.js App Router 上で構築され、Zustand ス�
 - ブラウザ幅に応じてエクスプローラ/分析パネルの開閉を制御
 
 ### `src/components/layout/MainHeader.tsx`
-- アプリ名（DataLoom Studio）とヘッダー操作（フォントサイズ、テーマ切替、検索、マルチファイル分析、Git パネルなど）を提供
+- アプリ名（DataLoom Studio）とヘッダー操作（フォントサイズ、テーマ切替、検索、マルチファイル分析、Git パネル、OpenAI APIキー設定ダイアログの起動など）を提供
 
 ## 📁 ファイル & タブ
 
@@ -57,6 +57,13 @@ DataLoom Studio の UI は Next.js App Router 上で構築され、Zustand ス�
 ### `src/components/git`
 - `GitPanel`：isomorphic-git を利用してステージング、コミット、ブランチ操作、履歴確認を行う
 - `CloneRepositoryModal`：URL 入力からローカルフォルダへのクローンをブラウザ内で完結
+
+## 🔐 モーダル
+
+### `src/components/modals/LlmSettingsDialog.tsx`
+- ヘッダーのキーアイコンから呼び出される OpenAI APIキー設定モーダル
+- `/api/llm/openai-key` 経由でキーの保存/削除/状態確認を行い、ローカル設定ファイル (`~/.dataloom/settings.json` または `DATALOOM_CONFIG_DIR`) を更新
+- 環境変数 `OPENAI_API_KEY` が存在する場合は読み取り専用状態として案内し、保存済みのローカルキーがあれば併記
 
 ## 🎨 テーマ
 
