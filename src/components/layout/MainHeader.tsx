@@ -12,6 +12,7 @@ import {
   IoDownloadOutline,
   IoKeyOutline,
   IoHelpCircleOutline,
+  IoGlobeOutline,
 } from 'react-icons/io5';
 
 interface MainHeaderProps {
@@ -32,6 +33,9 @@ interface MainHeaderProps {
   onToggleHelp: () => void;
   isHelpPaneVisible: boolean;
   onOpenLlmSettings: () => void;
+  isGisData: boolean;
+  isGisModeActive: boolean;
+  onToggleGisMode: () => void;
 }
 
 const MainHeader: React.FC<MainHeaderProps> = ({
@@ -52,6 +56,9 @@ const MainHeader: React.FC<MainHeaderProps> = ({
   onToggleHelp,
   isHelpPaneVisible,
   onOpenLlmSettings,
+  isGisData,
+  isGisModeActive,
+  onToggleGisMode,
 }) => {
   const isDark = theme === 'dark';
 
@@ -122,6 +129,18 @@ const MainHeader: React.FC<MainHeaderProps> = ({
       >
         <IoKeyOutline size={20} />
       </button>
+      {isGisData && (
+        <button
+          className={`p-1 rounded ml-2 ${
+            isGisModeActive ? 'bg-teal-100 text-teal-700' : 'hover:bg-gray-200 dark:hover:bg-gray-800'
+          }`}
+          onClick={onToggleGisMode}
+          aria-label="Toggle GIS Analysis Mode"
+          title={`GIS分析モードを${isGisModeActive ? '終了' : '表示'}`}
+        >
+          <IoGlobeOutline size={20} />
+        </button>
+      )}
       <button
         className={`p-1 rounded ml-2 ${
           isHelpPaneVisible ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-200 dark:hover:bg-gray-800'
