@@ -11,6 +11,7 @@ import { useGitStore } from '@/store/gitStore';
 import TabBarDnD from '@/components/tabs/TabBarDnD';
 import InputDialog from '@/components/modals/InputDialog';
 import MermaidTemplateDialog from '@/components/modals/MermaidTemplateDialog';
+import LlmSettingsDialog from '@/components/modals/LlmSettingsDialog';
 import MainHeader from '@/components/layout/MainHeader';
 import ViewModeBanner from '@/components/layout/ViewModeBanner';
 import Workspace from '@/components/layout/Workspace';
@@ -47,6 +48,7 @@ const MainLayout = () => {
 
   const [showNewFileDialog, setShowNewFileDialog] = useState(false);
   const [showMermaidTemplateDialog, setShowMermaidTemplateDialog] = useState(false);
+  const [showLlmSettingsDialog, setShowLlmSettingsDialog] = useState(false);
   const [showGitCloneDialog, setShowGitCloneDialog] = useState(false);
   const [gitCloneError, setGitCloneError] = useState<string | null>(null);
   const [isCloningRepo, setIsCloningRepo] = useState(false);
@@ -455,6 +457,7 @@ const MainLayout = () => {
         onCloneRepository={handleOpenGitCloneDialog}
         onToggleHelp={handleToggleHelpPane}
         isHelpPaneVisible={paneState.isHelpVisible}
+        onOpenLlmSettings={() => setShowLlmSettingsDialog(true)}
       />
 
       <TabBarDnD />
@@ -521,6 +524,13 @@ const MainLayout = () => {
           onClone={handleCloneRepositoryConfirm}
           isCloning={isCloningRepo}
           errorMessage={gitCloneError ?? undefined}
+        />
+      )}
+
+      {showLlmSettingsDialog && (
+        <LlmSettingsDialog
+          isOpen={showLlmSettingsDialog}
+          onClose={() => setShowLlmSettingsDialog(false)}
         />
       )}
 

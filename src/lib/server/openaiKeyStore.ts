@@ -6,6 +6,14 @@ const CONFIG_DIR_NAME = '.dataloom';
 const CONFIG_FILE_NAME = 'settings.json';
 const CONFIG_KEY = 'openAiApiKey';
 
+export type OpenAiKeySource = 'env' | 'stored' | 'none';
+
+export interface OpenAiKeyStatus {
+  hasKey: boolean;
+  hasStoredKey: boolean;
+  source: OpenAiKeySource;
+}
+
 let cachedStoredKey: string | null | undefined;
 
 function getConfigDirectory(): string {
@@ -111,4 +119,24 @@ export async function hasOpenAiApiKeyConfigured(): Promise<boolean> {
   }
   const stored = await getStoredOpenAiApiKey();
   return !!stored;
+}
+
+export async function getOpenAiApiKeyStatus(): Promise<OpenAiKeyStatus> {
+  const envValue = normalizeKey(process.env.OPENAI_API_KEY);
+  const stored = await getStoredOpenAiApiKey();
+  const hasStoredKey = !!stored;
+
+  let source: OpenAiKeySource = 'none';
+
+  if (envValue) {
+    source = 'env';
+  } else if (hasStoredKey) {
+    source = 'stored';
+  }
+
+  return {
+    hasKey: source !== 'none',
+    hasStoredKey,
+    source,
+  };
 }

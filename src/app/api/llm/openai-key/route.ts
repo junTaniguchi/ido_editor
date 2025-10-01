@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server';
 import {
   deleteStoredOpenAiApiKey,
-  getStoredOpenAiApiKey,
-  hasOpenAiApiKeyConfigured,
+  getOpenAiApiKeyStatus,
   setStoredOpenAiApiKey,
 } from '@/lib/server/openaiKeyStore';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 interface OpenAiKeyRequestBody {
   apiKey?: unknown;
@@ -18,18 +21,9 @@ function normalizeApiKey(value: unknown): string {
 }
 
 export async function GET() {
-  const hasKey = await hasOpenAiApiKeyConfigured();
-  const storedKey = await getStoredOpenAiApiKey();
-  const source: 'env' | 'stored' | 'none' = hasKey
-    ? storedKey
-      ? 'stored'
-      : 'env'
-    : 'none';
+  const status = await getOpenAiApiKeyStatus();
 
-  return NextResponse.json({
-    hasKey,
-    source,
-  });
+  return NextResponse.json(status);
 }
 
 export async function POST(request: Request) {
@@ -43,7 +37,9 @@ export async function POST(request: Request) {
 
     await setStoredOpenAiApiKey(apiKey);
 
-    return NextResponse.json({ success: true });
+    const status = await getOpenAiApiKeyStatus();
+
+    return NextResponse.json({ success: true, status });
   } catch (error) {
     console.error('Failed to persist OpenAI API key:', error);
     return NextResponse.json({ error: 'APIキーの保存に失敗しました。' }, { status: 500 });
@@ -53,7 +49,8 @@ export async function POST(request: Request) {
 export async function DELETE() {
   try {
     await deleteStoredOpenAiApiKey();
-    return NextResponse.json({ success: true });
+    const status = await getOpenAiApiKeyStatus();
+    return NextResponse.json({ success: true, status });
   } catch (error) {
     console.error('Failed to delete OpenAI API key:', error);
     return NextResponse.json({ error: 'APIキーの削除に失敗しました。' }, { status: 500 });
