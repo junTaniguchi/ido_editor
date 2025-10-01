@@ -9,9 +9,15 @@ import {
   IoRefresh,
   IoWarningOutline,
   IoCheckmarkCircle,
+  IoSparklesOutline,
+  IoChatboxEllipsesOutline,
 } from 'react-icons/io5';
 import { useGitStore, type GitCommitEntry } from '@/store/gitStore';
 import { useEditorStore } from '@/store/editorStore';
+import GitAssistSummaryResult from './GitAssistSummaryResult';
+import GitAssistReviewResult from './GitAssistReviewResult';
+import { requestGitAssist } from '@/lib/llm/gitAssist';
+import type { GitAssistSkippedFile } from '@/types/git';
 
 const statusLabel = (status: string) => {
   switch (status) {
@@ -51,10 +57,19 @@ const GitPanel: React.FC = () => {
     createBranch,
     pullRepository,
     getCommitDiff,
+    getDiffPayload,
   } = useGitStore();
   const [commitMessage, setCommitMessage] = useState('');
   const [newBranchName, setNewBranchName] = useState('');
   const [commitDiffLoadingOid, setCommitDiffLoadingOid] = useState<string | null>(null);
+  const [commitPurpose, setCommitPurpose] = useState('');
+  const [assistLoading, setAssistLoading] = useState<'commit' | 'review' | null>(null);
+  const [assistError, setAssistError] = useState<string | null>(null);
+  const [commitSummaryDraft, setCommitSummaryDraft] = useState('');
+  const [commitSummaryPoints, setCommitSummaryPoints] = useState<string[]>([]);
+  const [commitSummaryWarnings, setCommitSummaryWarnings] = useState<string[]>([]);
+  const [reviewDraft, setReviewDraft] = useState('');
+  const [reviewWarnings, setReviewWarnings] = useState<string[]>([]);
 
   const addTab = useEditorStore((state) => state.addTab);
   const updateTab = useEditorStore((state) => state.updateTab);
@@ -70,6 +85,16 @@ const GitPanel: React.FC = () => {
           (entry.worktreeStatus === 'modified' || entry.worktreeStatus === 'deleted' || entry.worktreeStatus === 'untracked' || entry.worktreeStatus === 'added')
       ),
     [status]
+  );
+
+  const skippedToWarnings = useCallback(
+    (skipped: GitAssistSkippedFile[]) =>
+      skipped.map((item) =>
+        item.reason === 'sensitive'
+          ? `${item.path} は機密性の高い可能性があるためAIには送信されていません。`
+          : `${item.path} は読み込みエラーのためAIには送信されていません。${item.message ? ` (${item.message})` : ''}`,
+      ),
+    [],
   );
 
   const handleCommit = async () => {
@@ -126,6 +151,110 @@ const GitPanel: React.FC = () => {
     },
     [addTab, commitDiffLoadingOid, getCommitDiff, getTab, setActiveTabId, updateTab],
   );
+
+  const handleApplyCommitSummary = useCallback(() => {
+    const trimmed = commitSummaryDraft.trim();
+    if (!trimmed) {
+      return;
+    }
+    setAssistError(null);
+    setCommitMessage(trimmed);
+  }, [commitSummaryDraft]);
+
+  const handleClearCommitSummary = useCallback(() => {
+    setCommitSummaryDraft('');
+    setCommitSummaryPoints([]);
+    setCommitSummaryWarnings([]);
+    setAssistError(null);
+  }, []);
+
+  const handleClearReview = useCallback(() => {
+    setReviewDraft('');
+    setReviewWarnings([]);
+    setAssistError(null);
+  }, []);
+
+  const handleGenerateCommitSummary = useCallback(async () => {
+    if (assistLoading) {
+      return;
+    }
+    if (stagedEntries.length === 0) {
+      setAssistError('ステージされた変更がありません。');
+      return;
+    }
+    setAssistError(null);
+    setAssistLoading('commit');
+    try {
+      const diffPayload = await getDiffPayload({ scope: 'staged' });
+      const skipWarnings = skippedToWarnings(diffPayload.skipped);
+      if (diffPayload.files.length === 0) {
+        setCommitSummaryWarnings(skipWarnings);
+        setAssistError('送信可能な差分がありません。');
+        return;
+      }
+
+      const response = await requestGitAssist({
+        intent: 'commit-summary',
+        branch: currentBranch ?? diffPayload.branch ?? null,
+        commitPurpose: commitPurpose.trim() || undefined,
+        diff: diffPayload,
+      });
+
+      setCommitSummaryDraft(response.commitMessage ?? '');
+      setCommitSummaryPoints(response.summary ?? []);
+      const warnings = [...skipWarnings, ...(response.warnings ?? [])];
+      setCommitSummaryWarnings(warnings);
+
+      if (!response.commitMessage) {
+        setAssistError('コミットメッセージの提案を取得できませんでした。');
+      }
+    } catch (error) {
+      setAssistError(error instanceof Error ? error.message : 'コミット要約の生成に失敗しました。');
+    } finally {
+      setAssistLoading(null);
+    }
+  }, [assistLoading, stagedEntries, getDiffPayload, skippedToWarnings, currentBranch, commitPurpose]);
+
+  const handleGenerateReviewComments = useCallback(async () => {
+    if (assistLoading) {
+      return;
+    }
+    if (stagedEntries.length === 0 && workingEntries.length === 0) {
+      setAssistError('変更がありません。');
+      return;
+    }
+    setAssistError(null);
+    setAssistLoading('review');
+    try {
+      const diffPayload = await getDiffPayload({ scope: 'all' });
+      const skipWarnings = skippedToWarnings(diffPayload.skipped);
+      if (diffPayload.files.length === 0) {
+        setReviewWarnings(skipWarnings);
+        setAssistError('送信可能な差分がありません。');
+        return;
+      }
+
+      const response = await requestGitAssist({
+        intent: 'review-comments',
+        branch: currentBranch ?? diffPayload.branch ?? null,
+        commitPurpose: commitPurpose.trim() || undefined,
+        diff: diffPayload,
+      });
+
+      const reviewList = response.reviewComments ?? [];
+      setReviewDraft(reviewList.length > 0 ? reviewList.join('\n\n') : '');
+      const warnings = [...skipWarnings, ...(response.warnings ?? [])];
+      setReviewWarnings(warnings);
+
+      if (reviewList.length === 0) {
+        setAssistError('レビューコメントの提案を取得できませんでした。');
+      }
+    } catch (error) {
+      setAssistError(error instanceof Error ? error.message : 'レビューコメントの生成に失敗しました。');
+    } finally {
+      setAssistLoading(null);
+    }
+  }, [assistLoading, stagedEntries, workingEntries, getDiffPayload, skippedToWarnings, currentBranch, commitPurpose]);
 
   return (
     <div className="h-full flex flex-col overflow-hidden bg-white dark:bg-gray-900 border-l border-gray-300 dark:border-gray-700">
@@ -261,6 +390,14 @@ const GitPanel: React.FC = () => {
                 className="w-full h-20 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-sm"
                 placeholder="コミットメッセージを入力"
               />
+              <label className="mt-2 block text-xs text-gray-500 dark:text-gray-400">AI補助用のコミット目的（任意）</label>
+              <input
+                type="text"
+                value={commitPurpose}
+                onChange={(event) => setCommitPurpose(event.target.value)}
+                className="w-full rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-sm"
+                placeholder="例: ログイン画面のバグ修正"
+              />
               <div className="mt-2 flex items-center gap-2">
                 <button
                   className="flex-1 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
@@ -276,6 +413,55 @@ const GitPanel: React.FC = () => {
                 >
                   クリア
                 </button>
+              </div>
+              <div className="mt-4 space-y-3 rounded border border-gray-200 bg-gray-50/60 p-3 dark:border-gray-700 dark:bg-gray-900/40">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
+                    <IoSparklesOutline size={16} />
+                    <span>AI支援ツール</span>
+                  </div>
+                  {assistError && (
+                    <p className="text-xs text-red-600 dark:text-red-400">{assistError}</p>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 rounded bg-purple-600 px-3 py-2 text-xs font-semibold text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={handleGenerateCommitSummary}
+                    disabled={assistLoading !== null || stagedEntries.length === 0}
+                  >
+                    <IoSparklesOutline size={15} />
+                    コミット要約
+                  </button>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 rounded border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+                    onClick={handleGenerateReviewComments}
+                    disabled={assistLoading !== null || (stagedEntries.length === 0 && workingEntries.length === 0)}
+                  >
+                    <IoChatboxEllipsesOutline size={15} />
+                    レビューコメント生成
+                  </button>
+                </div>
+                <GitAssistSummaryResult
+                  value={commitSummaryDraft}
+                  onChange={setCommitSummaryDraft}
+                  summary={commitSummaryPoints}
+                  warnings={commitSummaryWarnings}
+                  onApply={handleApplyCommitSummary}
+                  onClear={handleClearCommitSummary}
+                  disabled={assistLoading !== null}
+                  loading={assistLoading === 'commit'}
+                />
+                <GitAssistReviewResult
+                  value={reviewDraft}
+                  onChange={setReviewDraft}
+                  warnings={reviewWarnings}
+                  onClear={handleClearReview}
+                  disabled={assistLoading !== null}
+                  loading={assistLoading === 'review'}
+                />
               </div>
             </section>
 

@@ -4,8 +4,12 @@ import { create } from 'zustand';
 import { createTwoFilesPatch } from 'diff';
 import type { ReadCommitResult, StatusMatrixResult } from 'isomorphic-git';
 import { FileSystemAccessFs } from '@/lib/git/fileSystemAccessFs';
-
-type GitFileStatus = 'unmodified' | 'modified' | 'deleted' | 'added' | 'untracked' | 'absent';
+import type {
+  GitAssistDiffPayload,
+  GitAssistDiffScope,
+  GitAssistSkippedFile,
+  GitFileStatus,
+} from '@/types/git';
 
 export interface GitStatusEntry {
   filepath: string;
@@ -54,6 +58,7 @@ interface GitStoreState {
     parentCommit: GitCommitEntry | null;
     files: { filePath: string; diff: string }[];
   }>;
+  getDiffPayload: (options?: { scope?: GitAssistDiffScope }) => Promise<GitAssistDiffPayload>;
   restoreFileToCommit: (filepath: string, oid: string) => Promise<string | null>;
   cloneRepository: (options: {
     url: string;
@@ -96,6 +101,64 @@ const withFs = async <T>(state: GitStoreState, fn: (params: { fs: any; adapter: 
 };
 
 const textDecoder = new TextDecoder();
+const textEncoder = new TextEncoder();
+
+const SENSITIVE_FILENAME_PATTERNS: RegExp[] = [
+  /^\.env(\..*)?$/i,
+  /^id_[a-z0-9_-]+$/i,
+];
+
+const SENSITIVE_PATH_PATTERNS: RegExp[] = [
+  /\.pem$/i,
+  /\.key$/i,
+  /\.crt$/i,
+  /\.cer$/i,
+  /\.pfx$/i,
+  /\.p12$/i,
+  /\.der$/i,
+  /\.jks$/i,
+  /\.keystore$/i,
+  /\.asc$/i,
+];
+
+const SENSITIVE_KEYWORD_PATTERN = /(?:^|[\\/._-])(secret|credential|token|password|private|apikey)(?:[\\/._-]|$)/i;
+
+const isSensitiveFilePath = (filepath: string): boolean => {
+  const normalized = filepath.trim();
+  if (!normalized) {
+    return false;
+  }
+  const lower = normalized.toLowerCase();
+  const filename = lower.split('/').pop() ?? lower;
+  if (SENSITIVE_FILENAME_PATTERNS.some((pattern) => pattern.test(filename))) {
+    return true;
+  }
+  if (SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(filename) || pattern.test(lower))) {
+    return true;
+  }
+  if (SENSITIVE_KEYWORD_PATTERN.test(lower)) {
+    return true;
+  }
+  return false;
+};
+
+const isProbablyBinary = (buffer: Uint8Array | null): boolean => {
+  if (!buffer || buffer.length === 0) {
+    return false;
+  }
+  const sampleLength = Math.min(buffer.length, 1024);
+  let suspicious = 0;
+  for (let index = 0; index < sampleLength; index += 1) {
+    const byte = buffer[index];
+    if (byte === 0) {
+      return true;
+    }
+    if (byte < 7 || (byte > 13 && byte < 32) || byte === 127) {
+      suspicious += 1;
+    }
+  }
+  return suspicious / sampleLength > 0.3;
+};
 
 type GitModule = typeof import('isomorphic-git');
 
@@ -597,6 +660,109 @@ export const useGitStore = create<GitStoreState>((set, get) => ({
       } catch (error) {
         throw error instanceof Error ? error : new Error('コミット差分の取得に失敗しました');
       }
+    });
+  },
+
+  getDiffPayload: async (options) => {
+    const state = get();
+    const scope: GitAssistDiffScope = options?.scope ?? 'staged';
+
+    const selectEntries = (entries: GitStatusEntry[]): GitStatusEntry[] =>
+      entries.filter((entry) => {
+        switch (scope) {
+          case 'staged':
+            return entry.isStaged;
+          case 'worktree':
+            return entry.worktreeStatus !== 'unmodified' && entry.worktreeStatus !== 'absent';
+          case 'all':
+          default:
+            return entry.isStaged || entry.worktreeStatus !== 'unmodified';
+        }
+      });
+
+    return withFs(state, async ({ fs, adapter }) => {
+      const git = await loadGit();
+      const files: GitAssistDiffPayload['files'] = [];
+      const skipped: GitAssistSkippedFile[] = [];
+      const targetEntries = selectEntries(state.status);
+
+      for (const entry of targetEntries) {
+        if (isSensitiveFilePath(entry.filepath)) {
+          skipped.push({ path: entry.filepath, reason: 'sensitive', message: '機密性の高い可能性のあるファイルのため除外しました。' });
+          continue;
+        }
+
+        let headBuffer: Uint8Array | null = null;
+        try {
+          const { blob } = await git.readBlob({ fs, dir: '/', oid: 'HEAD', filepath: entry.filepath });
+          headBuffer = blob;
+        } catch (error) {
+          const code = (error as { code?: string })?.code;
+          if (code !== 'ResolveRefError' && code !== 'NotFoundError' && code !== 'TreeOrBlobNotFoundError') {
+            throw error;
+          }
+        }
+
+        let workBuffer: Uint8Array | null = null;
+        try {
+          const raw = await adapter.readFile(entry.filepath);
+          if (typeof raw === 'string') {
+            workBuffer = textEncoder.encode(raw);
+          } else {
+            workBuffer = raw;
+          }
+        } catch (error) {
+          const code = (error as { code?: string })?.code;
+          if (code === 'ENOENT') {
+            workBuffer = null;
+          } else {
+            skipped.push({
+              path: entry.filepath,
+              reason: 'error',
+              message: error instanceof Error ? error.message : 'ファイルの読み込みに失敗しました。',
+            });
+            continue;
+          }
+        }
+
+        const baseBinary = isProbablyBinary(headBuffer);
+        const workBinary = isProbablyBinary(workBuffer);
+        const isBinary = baseBinary || workBinary;
+
+        let baseText = '';
+        let workText = '';
+        if (!isBinary) {
+          baseText = headBuffer ? textDecoder.decode(headBuffer) : '';
+          workText = workBuffer ? textDecoder.decode(workBuffer) : '';
+          if (baseText === workText) {
+            continue;
+          }
+        }
+
+        const baseLabel = headBuffer ? `${entry.filepath}@HEAD` : `${entry.filepath}@ベース`;
+        const targetLabel = workBuffer !== null ? `${entry.filepath}@作業ツリー` : `${entry.filepath}@削除`;
+
+        const diff = isBinary ? null : createTwoFilesPatch(baseLabel, targetLabel, baseText, workText);
+
+        files.push({
+          path: entry.filepath,
+          worktreeStatus: entry.worktreeStatus,
+          stagedStatus: entry.stagedStatus,
+          isStaged: entry.isStaged,
+          isUntracked: entry.isUntracked,
+          diff,
+          isBinary,
+          headSize: headBuffer ? headBuffer.length : null,
+          worktreeSize: workBuffer ? workBuffer.length : null,
+        });
+      }
+
+      return {
+        branch: state.currentBranch ?? null,
+        scope,
+        files,
+        skipped,
+      } satisfies GitAssistDiffPayload;
     });
   },
 
