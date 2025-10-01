@@ -732,7 +732,7 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
       },
     ],
     defaultConfig: { type: 'gitGraph', orientation: 'LR' },
-    defaultTemplate: `gitGraph LR:
+    defaultTemplate: `gitGraph LR
   commit id: "A"
   commit id: "B"
   branch feature
