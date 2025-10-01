@@ -17,31 +17,21 @@ const ROLE_LABELS: Record<HelpUserRole, string> = {
 const threadTitle = (thread: HelpThread | undefined) => thread?.title || '無題のスレッド';
 
 const HelpSidebar: React.FC = () => {
-  const {
-    helpThreads,
-    helpThreadOrder,
-    activeHelpThreadId,
-    setActiveHelpThread,
-    createHelpThread,
-    addHelpMessage,
-    removeHelpThread,
-    updateHelpThread,
-    helpSettings,
-    updateHelpSettings,
-  } = useEditorStore((state) => ({
-    helpThreads: state.helpThreads,
-    helpThreadOrder: state.helpThreadOrder,
-    activeHelpThreadId: state.activeHelpThreadId,
-    setActiveHelpThread: state.setActiveHelpThread,
-    createHelpThread: state.createHelpThread,
-    addHelpMessage: state.addHelpMessage,
-    removeHelpThread: state.removeHelpThread,
-    updateHelpThread: state.updateHelpThread,
-    helpSettings: state.helpSettings,
-    updateHelpSettings: state.updateHelpSettings,
-  }));
+  // Use individual selectors to avoid returning a new object each render which
+  // can cause an infinite update loop with Zustand's getSnapshot.
+  const helpThreads = useEditorStore((state) => state.helpThreads);
+  const helpThreadOrder = useEditorStore((state) => state.helpThreadOrder);
+  const activeHelpThreadId = useEditorStore((state) => state.activeHelpThreadId);
+  const setActiveHelpThread = useEditorStore((state) => state.setActiveHelpThread);
+  const createHelpThread = useEditorStore((state) => state.createHelpThread);
+  const addHelpMessage = useEditorStore((state) => state.addHelpMessage);
+  const removeHelpThread = useEditorStore((state) => state.removeHelpThread);
+  const updateHelpThread = useEditorStore((state) => state.updateHelpThread);
+  const helpSettings = useEditorStore((state) => state.helpSettings);
+  const updateHelpSettings = useEditorStore((state) => state.updateHelpSettings);
 
-  const { activeTabId, tabs } = useEditorStore((state) => ({ activeTabId: state.activeTabId, tabs: state.tabs }));
+  const activeTabId = useEditorStore((state) => state.activeTabId);
+  const tabs = useEditorStore((state) => state.tabs);
   const activeTab = useMemo(() => (activeTabId ? tabs.get(activeTabId) : undefined), [activeTabId, tabs]);
 
   const activeThread = activeHelpThreadId ? helpThreads[activeHelpThreadId] : undefined;
