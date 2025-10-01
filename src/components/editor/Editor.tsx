@@ -312,20 +312,41 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
   };
   
   const toggleViewMode = () => {
-    // エディタ → プレビュー → 分割表示 → エディタ の順に切り替え
-    let newMode: 'editor' | 'preview' | 'data-preview' | 'split';
-    if (viewMode === 'editor') {
-      newMode = 'preview';
-    } else if (viewMode === 'preview') {
-      newMode = 'data-preview';
-    } else if (viewMode === 'data-preview') {
-      newMode = 'split';
+    const currentType = currentTab?.type?.toLowerCase();
+    const isGisFile =
+      currentType === 'geojson' ||
+      currentType === 'kml' ||
+      currentType === 'kmz' ||
+      currentType === 'shapefile';
+
+    // エディタ → プレビュー → データプレビュー → GIS分析 → 分割表示 → エディタ の順に切り替え
+    let newMode: 'editor' | 'preview' | 'data-preview' | 'split' | 'gis-analysis';
+    if (isGisFile) {
+      if (viewMode === 'editor') {
+        newMode = 'preview';
+      } else if (viewMode === 'preview') {
+        newMode = 'data-preview';
+      } else if (viewMode === 'data-preview') {
+        newMode = 'gis-analysis';
+      } else if (viewMode === 'gis-analysis') {
+        newMode = 'split';
+      } else {
+        newMode = 'editor';
+      }
     } else {
-      newMode = 'editor';
+      if (viewMode === 'editor') {
+        newMode = 'preview';
+      } else if (viewMode === 'preview') {
+        newMode = 'data-preview';
+      } else if (viewMode === 'data-preview') {
+        newMode = 'split';
+      } else {
+        newMode = 'editor';
+      }
     }
-    
+
     // 設定前にログ出力（デバッグ用）
-    
+
     // モード変更を適用（editorStoreに保存）
     setViewMode(tabId, newMode);
     
