@@ -74,6 +74,15 @@ const GitPanel: React.FC = () => {
   const [reviewWarnings, setReviewWarnings] = useState<string[]>([]);
   const [gitFlowError, setGitFlowError] = useState<string | null>(null);
   const [isGeneratingGitFlow, setIsGeneratingGitFlow] = useState(false);
+  const [gitFlowDepthInput, setGitFlowDepthInput] = useState('20');
+
+  const parsedGitFlowDepth = useMemo(() => {
+    const parsed = Number.parseInt(gitFlowDepthInput, 10);
+    if (Number.isNaN(parsed)) {
+      return 20;
+    }
+    return Math.max(1, Math.min(parsed, 500));
+  }, [gitFlowDepthInput]);
 
   const addTab = useEditorStore((state) => state.addTab);
   const updateTab = useEditorStore((state) => state.updateTab);
@@ -178,6 +187,13 @@ const GitPanel: React.FC = () => {
     setAssistError(null);
   }, []);
 
+  const handleGitFlowDepthChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const nextValue = event.target.value;
+    if (/^\d*$/.test(nextValue)) {
+      setGitFlowDepthInput(nextValue);
+    }
+  }, []);
+
   const handleGenerateGitFlowMermaid = useCallback(async () => {
     if (isGeneratingGitFlow) {
       return;
@@ -185,7 +201,9 @@ const GitPanel: React.FC = () => {
     setGitFlowError(null);
     setIsGeneratingGitFlow(true);
     try {
-      const result = await generateGitFlowMermaid({ depth: 200 });
+      const depth = parsedGitFlowDepth;
+      setGitFlowDepthInput(String(depth));
+      const result = await generateGitFlowMermaid({ depth });
       const payload = result.diagram;
       const tabId = 'git-flow-mermaid';
       const tabName = 'Gitフローダイアグラム';
@@ -221,6 +239,7 @@ const GitPanel: React.FC = () => {
     generateGitFlowMermaid,
     getTab,
     isGeneratingGitFlow,
+    parsedGitFlowDepth,
     setActiveTabId,
     updateTab,
   ]);
@@ -583,23 +602,41 @@ const GitPanel: React.FC = () => {
           </div>
 
           <div className="border-t border-gray-200 bg-gray-50 px-4 py-3 text-sm dark:border-gray-700 dark:bg-gray-900/40 max-h-64 overflow-y-auto">
-            <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2 font-semibold">
                 <IoGitCommitOutline size={16} />
                 <span>リポジトリ履歴</span>
               </div>
-              <button
-                type="button"
-                onClick={handleGenerateGitFlowMermaid}
-                disabled={loading || isGeneratingGitFlow}
-                className="flex items-center gap-1 rounded border border-gray-300 px-3 py-1 text-xs font-semibold text-gray-700 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
-                title="Mermaid形式のGitフロー図を生成"
-                aria-busy={isGeneratingGitFlow}
-              >
-                <IoGitMergeOutline size={14} className={isGeneratingGitFlow ? 'animate-spin' : ''} />
-                <span>Mermaid図</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <label className="text-[11px] text-gray-500 dark:text-gray-400" htmlFor="git-flow-depth">
+                  履歴件数
+                </label>
+                <input
+                  id="git-flow-depth"
+                  type="number"
+                  inputMode="numeric"
+                  pattern="\\d*"
+                  min={1}
+                  max={500}
+                  value={gitFlowDepthInput}
+                  onChange={handleGitFlowDepthChange}
+                  disabled={loading || isGeneratingGitFlow}
+                  className="w-20 rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800"
+                />
+                <button
+                  type="button"
+                  onClick={handleGenerateGitFlowMermaid}
+                  disabled={loading || isGeneratingGitFlow}
+                  className="flex items-center gap-1 rounded border border-gray-300 px-3 py-1 text-xs font-semibold text-gray-700 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+                  title="Mermaid形式のGitフロー図を生成"
+                  aria-busy={isGeneratingGitFlow}
+                >
+                  <IoGitMergeOutline size={14} className={isGeneratingGitFlow ? 'animate-spin' : ''} />
+                  <span>Mermaid図</span>
+                </button>
+              </div>
             </div>
+            <p className="mb-2 text-[11px] text-gray-500 dark:text-gray-400">1〜500件の範囲で設定できます。初期値は20件です。</p>
             {gitFlowError && (
               <p className="mb-2 text-xs text-red-600 dark:text-red-400">{gitFlowError}</p>
             )}

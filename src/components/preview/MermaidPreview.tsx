@@ -344,6 +344,21 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({
     }
   }, [addHistoryEntry, aiDiagramType, aiPrompt, content, effectiveHistoryKey, enableAiActions]);
 
+  const handleFixErrorWithAi = useCallback(() => {
+    if (!enableAiActions) {
+      return;
+    }
+
+    setIsAiPanelOpen(true);
+    if (error) {
+      setAiPrompt((previous) =>
+        previous && previous.trim().length > 0
+          ? previous
+          : `次のMermaidレンダリングエラーを修正してください:\n${error}\n\n修正後のコードを出力してください。`,
+      );
+    }
+  }, [enableAiActions, error]);
+
   const handleApplyGeneratedCode = useCallback(() => {
     if (!enableAiActions || !aiGeneratedCode || !tabId) {
       return;
@@ -594,6 +609,14 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({
               >
                 再試行
               </button>
+              {enableAiActions && (
+                <button
+                  onClick={handleFixErrorWithAi}
+                  className="mt-2 px-4 py-2 rounded bg-purple-600 text-white hover:bg-purple-700"
+                >
+                  AIに修正を依頼
+                </button>
+              )}
             </div>
           </div>
         )}

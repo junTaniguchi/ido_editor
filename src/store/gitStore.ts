@@ -782,7 +782,7 @@ export const useGitStore = create<GitStoreState>((set, get) => ({
 
   generateGitFlowMermaid: async (options) => {
     const state = get();
-    const depth = Math.max(1, Math.min(options?.depth ?? 160, 500));
+    const depth = Math.max(1, Math.min(options?.depth ?? 20, 500));
 
     return withFs(state, async ({ fs, adapter }) => {
       const git = await loadGit();
