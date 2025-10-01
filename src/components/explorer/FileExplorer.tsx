@@ -196,7 +196,22 @@ const FileExplorer = () => {
     // 複数ファイル分析モードが有効な場合
     if (multiFileAnalysisEnabled) {
       // データファイルのみ選択可能
-      const dataFileTypes = ['csv', 'tsv', 'json', 'yaml', 'yml', 'xlsx', 'xls'];
+      const dataFileTypes = [
+        'csv',
+        'tsv',
+        'json',
+        'yaml',
+        'yml',
+        'xlsx',
+        'xls',
+        'geojson',
+        'kml',
+        'kmz',
+        'shp',
+        'shpz',
+        'shz',
+        'zip',
+      ];
       const extension = item.name.split('.').pop()?.toLowerCase();
       
       if (extension && dataFileTypes.includes(extension)) {
@@ -245,6 +260,10 @@ const FileExplorer = () => {
         } else if (fileType === 'pdf') {
           const file = await item.fileHandle.getFile();
           content = URL.createObjectURL(file);
+        } else if (fileType === 'shapefile') {
+          content = `# Shapefile: ${item.name}\n\nこのファイルはバイナリGISデータです。データプレビューや分析タブで属性情報を確認してください。`;
+        } else if (fileType === 'kmz') {
+          content = `# KMZ: ${item.name}\n\nKMZは圧縮されたKMLファイルです。データプレビューや分析タブで展開して読み込めます。`;
         } else {
           content = await readFileContent(item.fileHandle);
         }

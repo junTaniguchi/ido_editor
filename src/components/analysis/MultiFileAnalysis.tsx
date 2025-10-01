@@ -4,6 +4,13 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useEditorStore } from '@/store/editorStore';
 import { parseCSV, parseJSON, parseYAML, parseParquet, parseExcel } from '@/lib/dataPreviewUtils';
 import {
+  buildGisDatasetFromObject,
+  parseGeoJsonContent,
+  parseKmlContent,
+  parseKmzContent,
+  parseShapefileContent,
+} from '@/lib/gisUtils';
+import {
   combineMultipleFiles,
   compareMultipleFileStatistics,
   createCrossTabFromFiles,
@@ -604,8 +611,18 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
           const extension = fileName.split('.').pop()?.toLowerCase();
 
           let textContent: string | null = null;
+          let binaryContent: ArrayBuffer | null = null;
 
-          if (!(extension === 'shp' || extension === 'shpz' || extension === 'shz' || (extension === 'zip' && fileName.toLowerCase().includes('.shp')))) {
+          const lowerName = fileName.toLowerCase();
+          const isShapefileExtension =
+            extension === 'shp' ||
+            extension === 'shpz' ||
+            extension === 'shz' ||
+            (extension === 'zip' && lowerName.includes('.shp'));
+
+          if (isShapefileExtension || extension === 'kmz') {
+            binaryContent = await file.arrayBuffer();
+          } else {
             textContent = await file.text();
           }
 
@@ -621,8 +638,50 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
             case 'json':
               const jsonResult = parseJSON(textContent ?? '');
               if (jsonResult.error) throw new Error(jsonResult.error);
-              data = Array.isArray(jsonResult.data) ? jsonResult.data : [jsonResult.data];
+              const geoDataset = buildGisDatasetFromObject(jsonResult.data);
+              if (geoDataset && geoDataset.rows.length > 0) {
+                data = geoDataset.rows;
+              } else {
+                data = Array.isArray(jsonResult.data) ? jsonResult.data : [jsonResult.data];
+              }
               break;
+            case 'geojson': {
+              const geoResult = parseGeoJsonContent(textContent ?? '');
+              if (geoResult.error) throw new Error(geoResult.error);
+              data = geoResult.rows;
+              break;
+            }
+            case 'kml': {
+              const kmlResult = parseKmlContent(textContent ?? '');
+              if (kmlResult.error) throw new Error(kmlResult.error);
+              data = kmlResult.rows;
+              break;
+            }
+            case 'kmz': {
+              if (!binaryContent) {
+                binaryContent = await file.arrayBuffer();
+              }
+              const kmzResult = parseKmzContent(binaryContent);
+              if (kmzResult.error) throw new Error(kmzResult.error);
+              data = kmzResult.rows;
+              break;
+            }
+            case 'shp':
+            case 'shpz':
+            case 'shz':
+            case 'zip': {
+              if (extension === 'zip' && !isShapefileExtension) {
+                console.warn(`Unsupported zip archive for analysis: ${fileName}`);
+                continue;
+              }
+              if (!binaryContent) {
+                binaryContent = await file.arrayBuffer();
+              }
+              const shapefileResult = await parseShapefileContent(binaryContent);
+              if (shapefileResult.error) throw new Error(shapefileResult.error);
+              data = shapefileResult.rows;
+              break;
+            }
             case 'yaml':
             case 'yml':
               const yamlResult = parseYAML(textContent ?? '');
