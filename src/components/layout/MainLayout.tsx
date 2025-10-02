@@ -6,7 +6,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useEditorStore } from '@/store/editorStore';
+import { useEditorStore, type EditorViewMode } from '@/store/editorStore';
 import { useGitStore } from '@/store/gitStore';
 import TabBarDnD from '@/components/tabs/TabBarDnD';
 import InputDialog from '@/components/modals/InputDialog';
@@ -63,7 +63,7 @@ const MainLayoutContent: React.FC = () => {
   const gitLoading = useGitStore((state) => state.loading);
 
   const activeTab = activeTabId ? tabs.get(activeTabId) : null;
-  const activeTabViewMode = activeTabId ? getViewMode(activeTabId) : 'editor';
+  const activeTabViewMode: EditorViewMode = activeTabId ? getViewMode(activeTabId) : 'editor';
 
   const fileTypeFlags = useMemo(() => {
     const type = activeTab?.type?.toLowerCase();
@@ -217,37 +217,13 @@ const MainLayoutContent: React.FC = () => {
     useGitStore.setState({ error: null });
   }, []);
 
-  const handleCycleViewMode = useCallback(() => {
-    if (!activeTabId) return;
-
-    const nextMode = (() => {
-      if (fileTypeFlags.isGisData) {
-        if (activeTabViewMode === 'editor') return 'preview';
-        if (activeTabViewMode === 'preview') return 'data-preview';
-        if (activeTabViewMode === 'data-preview') return 'gis-analysis';
-        if (activeTabViewMode === 'gis-analysis') return 'analysis';
-        if (activeTabViewMode === 'analysis') return 'split';
-        if (activeTabViewMode === 'split') return 'editor';
-        return 'editor';
-      }
-
-      if (fileTypeFlags.isDataPreviewable) {
-        if (activeTabViewMode === 'editor') return 'preview';
-        if (activeTabViewMode === 'preview') return 'data-preview';
-        if (activeTabViewMode === 'data-preview') return 'analysis';
-        if (activeTabViewMode === 'analysis') return 'split';
-        if (activeTabViewMode === 'split') return 'editor';
-        return 'editor';
-      }
-
-      if (activeTabViewMode === 'editor') return 'preview';
-      if (activeTabViewMode === 'preview') return 'split';
-      if (activeTabViewMode === 'split') return 'editor';
-      return 'editor';
-    })();
-
-    setViewMode(activeTabId, nextMode);
-  }, [activeTabId, activeTabViewMode, fileTypeFlags.isDataPreviewable, fileTypeFlags.isGisData, setViewMode]);
+  const handleChangeViewMode = useCallback(
+    (mode: EditorViewMode) => {
+      if (!activeTabId) return;
+      setViewMode(activeTabId, mode);
+    },
+    [activeTabId, setViewMode],
+  );
 
   const handleConfirmNewFile = useCallback(
     async (fileName: string) => {
@@ -351,8 +327,42 @@ const MainLayoutContent: React.FC = () => {
   }, [gitLoading, isCloningRepo]);
 
   const canToggleViewMode = useMemo(() => {
-    return Boolean(activeTab && (fileTypeFlags.isPreviewableSpecialType || fileTypeFlags.isDataPreviewable));
-  }, [activeTab, fileTypeFlags.isDataPreviewable, fileTypeFlags.isPreviewableSpecialType]);
+    return Boolean(activeTab && (fileTypeFlags.isPreviewableSpecialType || fileTypeFlags.isDataPreviewable || fileTypeFlags.isGisData));
+  }, [activeTab, fileTypeFlags.isDataPreviewable, fileTypeFlags.isGisData, fileTypeFlags.isPreviewableSpecialType]);
+
+  const availableViewModes = useMemo<EditorViewMode[]>(() => {
+    if (!activeTab) {
+      return [activeTabViewMode];
+    }
+
+    const modes: EditorViewMode[] = ['editor'];
+
+    if (fileTypeFlags.isPreviewableSpecialType || fileTypeFlags.isDataPreviewable || fileTypeFlags.isGisData) {
+      modes.push('preview');
+    }
+
+    if (fileTypeFlags.isDataPreviewable || fileTypeFlags.isGisData) {
+      modes.push('data-preview');
+    }
+
+    if (fileTypeFlags.isGisData) {
+      modes.push('gis-analysis');
+    }
+
+    if (fileTypeFlags.isDataPreviewable || fileTypeFlags.isGisData) {
+      modes.push('analysis');
+    }
+
+    if (fileTypeFlags.isPreviewableSpecialType || fileTypeFlags.isDataPreviewable || fileTypeFlags.isGisData) {
+      modes.push('split');
+    }
+
+    if (!modes.includes(activeTabViewMode)) {
+      modes.push(activeTabViewMode);
+    }
+
+    return Array.from(new Set(modes));
+  }, [activeTab, activeTabViewMode, fileTypeFlags]);
 
   const handleDroppedFiles = useCallback(
     async (inputFiles: FileList | File[]) => {
@@ -533,7 +543,8 @@ const MainLayoutContent: React.FC = () => {
         activeTab={activeTab ?? null}
         activeTabViewMode={activeTabViewMode}
         canToggleViewMode={canToggleViewMode}
-        onToggleViewMode={handleCycleViewMode}
+        availableViewModes={availableViewModes}
+        onSelectViewMode={handleChangeViewMode}
       />
 
       <Workspace
@@ -543,6 +554,7 @@ const MainLayoutContent: React.FC = () => {
         activeTabViewMode={activeTabViewMode}
         multiFileAnalysisEnabled={multiFileAnalysisEnabled}
         onCloseMultiFileAnalysis={() => setMultiFileAnalysisEnabled(false)}
+        onToggleMultiFileAnalysis={handleToggleMultiFile}
         aiFeaturesEnabled={aiFeaturesEnabled}
       />
 
