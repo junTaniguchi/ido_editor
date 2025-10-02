@@ -20,10 +20,9 @@
  * - エラー・ローディング表示
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useEditorStore } from '@/store/editorStore';
-import type { ChartDesignerSettings } from '@/types';
 import {
   parseCSV,
   parseJSON,
@@ -44,13 +43,12 @@ import {
 import DataTable from './DataTable';
 import EditableDataTable from './EditableDataTable';
 import ObjectViewer from './ObjectViewer';
-import DataDesignerPanel from './DataDesignerPanel';
 import type { MermaidDesignerProps } from '@/components/mermaid/MermaidDesigner';
 import IpynbPreview from './IpynbPreview';
 import PdfPreview from './PdfPreview';
 import ExcelPreview from './ExcelPreview';
 import ExportModal from './ExportModal';
-import { IoAlertCircleOutline, IoCodeSlash, IoEye, IoAnalytics, IoLayers, IoGrid, IoSave, IoClose, IoDownload, IoColorPalette } from 'react-icons/io5';
+import { IoAlertCircleOutline, IoCodeSlash, IoEye, IoAnalytics, IoLayers, IoGrid, IoSave, IoClose, IoDownload } from 'react-icons/io5';
 import * as XLSX from 'xlsx';
 import { Document, Packer, Paragraph } from 'docx';
 
@@ -163,7 +161,6 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   const [isTableEditing, setIsTableEditing] = useState(false);
   const [editedData, setEditedData] = useState<any>(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [designerView, setDesignerView] = useState(false);
   
   const viewMode = getViewMode(tabId);
   const dataDisplayMode = editorSettings.dataDisplayMode || 'flat';
@@ -177,12 +174,6 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     if (typeof parsedData[0] !== 'object' || parsedData[0] === null) return false;
     return columns.length > 0;
   }, [type, parsedData, columns]);
-
-  useEffect(() => {
-    if (!isTabularData && designerView) {
-      setDesignerView(false);
-    }
-  }, [designerView, isTabularData]);
 
   const designerSettings = analysisEntry?.chartSettings;
 
@@ -210,21 +201,6 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     });
   }, [columns, designerSettings, isTabularData, parsedData, setAnalysisData, tabId]);
 
-  const handleDesignerSettingsChange = useCallback(
-    (settings: ChartDesignerSettings) => {
-      if (!isTabularData || !Array.isArray(parsedData)) {
-        return;
-      }
-
-      setAnalysisData(tabId, {
-        columns,
-        rows: parsedData,
-        chartSettings: settings,
-      });
-    },
-    [columns, isTabularData, parsedData, setAnalysisData, tabId],
-  );
-  
   useEffect(() => {
     let isMounted = true; // コンポーネントがマウントされているかを追跡
     
@@ -1054,15 +1030,6 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
                 <IoAnalytics size={20} className="mr-1" /> 分析
               </button>
             )}
-            {isTabularData && (
-              <button
-                className={`px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 mr-2 flex items-center ${designerView ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
-                onClick={() => setDesignerView(prev => !prev)}
-                title={designerView ? 'テーブル表示に戻る' : 'GUIデザインモードに切り替え'}
-              >
-                <IoColorPalette size={20} className="mr-1" /> デザイナー
-              </button>
-            )}
             <button
               className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 mr-2"
               onClick={() => {
@@ -1104,7 +1071,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
             </div>
           )}
           {/* Excelプレビュー */}
-          {type === 'excel' && !designerView && (() => {
+          {type === 'excel' && (() => {
             console.log('Excel条件チェック:', {
               typeIsExcel: type === 'excel',
               hasContent: !!content,
@@ -1127,20 +1094,11 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
           {/* CSV、TSV、JSONとYAMLの配列形式のデータはテーブルで表示 */}
           {isTabularData ? (
             <div className="p-2">
-              {designerView ? (
-                <DataDesignerPanel
-                  rows={Array.isArray(parsedData) ? parsedData : []}
-                  columns={columns}
-                  initialSettings={designerSettings}
-                  onSettingsChange={handleDesignerSettingsChange}
-                />
-              ) : (
-                <DataTable
-                  data={parsedData}
-                  columns={columns}
-                  isNested={dataDisplayMode === 'nested'}
-                />
-              )}
+              <DataTable
+                data={parsedData}
+                columns={columns}
+                isNested={dataDisplayMode === 'nested'}
+              />
             </div>
           ) : (
             // それ以外はオブジェクトビューアで表示（Mermaid以外）

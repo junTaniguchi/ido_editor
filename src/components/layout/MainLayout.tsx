@@ -161,11 +161,8 @@ const MainLayoutContent: React.FC = () => {
   }, [editorSettings.theme, updateEditorSettings]);
 
   const handleToggleMultiFile = useCallback(() => {
-    if (!aiFeaturesEnabled) {
-      return;
-    }
     setMultiFileAnalysisEnabled(!multiFileAnalysisEnabled);
-  }, [aiFeaturesEnabled, multiFileAnalysisEnabled, setMultiFileAnalysisEnabled]);
+  }, [multiFileAnalysisEnabled, setMultiFileAnalysisEnabled]);
 
   const handleOpenGitCloneDialog = useCallback(() => {
     setGitCloneError(null);
@@ -495,10 +492,6 @@ const MainLayoutContent: React.FC = () => {
       return;
     }
 
-    if (multiFileAnalysisEnabled) {
-      setMultiFileAnalysisEnabled(false);
-    }
-
     if (paneState.isHelpVisible || paneState.activeSidebar === 'help') {
       updatePaneState({
         isHelpVisible: false,
@@ -507,10 +500,8 @@ const MainLayoutContent: React.FC = () => {
     }
   }, [
     aiFeaturesEnabled,
-    multiFileAnalysisEnabled,
     paneState.activeSidebar,
     paneState.isHelpVisible,
-    setMultiFileAnalysisEnabled,
     updatePaneState,
   ]);
 

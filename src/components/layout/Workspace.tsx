@@ -318,7 +318,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
   };
 
   const renderMainContent = () => {
-    if (multiFileAnalysisEnabled && aiFeaturesEnabled) {
+    if (multiFileAnalysisEnabled) {
       return (
         <div className="w-full h-full overflow-hidden">
           <MultiFileAnalysis onClose={onCloseMultiFileAnalysis} />
@@ -369,7 +369,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
         activeItem={activeSidebar}
         onSelect={handleSidebarSelect}
         helpEnabled={aiFeaturesEnabled}
-        multiFileAnalysisAvailable={aiFeaturesEnabled}
+        multiFileAnalysisAvailable
         multiFileAnalysisEnabled={multiFileAnalysisEnabled}
         onToggleMultiFileAnalysis={onToggleMultiFileAnalysis}
       />

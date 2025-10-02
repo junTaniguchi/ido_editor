@@ -146,23 +146,21 @@ const MainHeader: React.FC<MainHeaderProps> = ({
       >
         <IoGitBranchOutline size={20} />
       </button>
-      {aiFeaturesEnabled && (
-        <button
-          className={`p-1 rounded ml-2 relative ${
-            multiFileAnalysisEnabled ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-200 dark:hover:bg-gray-800'
-          }`}
-          onClick={onToggleMultiFileAnalysis}
-          aria-label="Toggle Multi-File Analysis"
-          title={`複数ファイル分析モード ${multiFileAnalysisEnabled ? 'ON' : 'OFF'}`}
-        >
-          <IoGitMergeOutline size={20} />
-          {selectedFileCount > 0 && (
-            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
-              {selectedFileCount}
-            </span>
-          )}
-        </button>
-      )}
+      <button
+        className={`p-1 rounded ml-2 relative ${
+          multiFileAnalysisEnabled ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-200 dark:hover:bg-gray-800'
+        }`}
+        onClick={onToggleMultiFileAnalysis}
+        aria-label="Toggle Multi-File Analysis"
+        title={`複数ファイル分析モード ${multiFileAnalysisEnabled ? 'ON' : 'OFF'}`}
+      >
+        <IoGitMergeOutline size={20} />
+        {selectedFileCount > 0 && (
+          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+            {selectedFileCount}
+          </span>
+        )}
+      </button>
     </header>
   );
 };
