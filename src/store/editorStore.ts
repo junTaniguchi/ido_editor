@@ -11,6 +11,7 @@ import {
   ContextMenuTarget,
   SearchSettings,
   AnalysisData,
+  AnalysisDataset,
   SqlResult,
   ChartSettings,
   SearchResult,
@@ -80,7 +81,7 @@ interface EditorStore {
   analysisEnabled: boolean;
   setAnalysisEnabled: (enabled: boolean) => void;
   analysisData: AnalysisData;
-  setAnalysisData: (data: AnalysisData) => void;
+  setAnalysisData: (tabId: string, data: AnalysisDataset | null) => void;
   sqlResult: SqlResult | null;
   setSqlResult: (result: SqlResult | null) => void;
   chartSettings: ChartSettings;
@@ -301,8 +302,17 @@ export const useEditorStore = create<EditorStore>()(
       // 分析機能
       analysisEnabled: false,
       setAnalysisEnabled: (enabled) => set({ analysisEnabled: enabled }),
-      analysisData: { columns: [], rows: [] },
-      setAnalysisData: (data) => set({ analysisData: data }),
+      analysisData: {},
+      setAnalysisData: (tabId, data) =>
+        set((state) => {
+          const nextData = { ...state.analysisData } as AnalysisData;
+          if (!data) {
+            delete nextData[tabId];
+          } else {
+            nextData[tabId] = data;
+          }
+          return { analysisData: nextData };
+        }),
       sqlResult: null,
       setSqlResult: (result) => set({ sqlResult: result }),
       chartSettings: {

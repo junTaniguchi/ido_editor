@@ -11,6 +11,7 @@ import {
   prepareChartData,
 } from '@/lib/dataAnalysisUtils';
 import { IoChevronDownOutline, IoChevronForwardOutline } from 'react-icons/io5';
+import type { ChartDesignerSettings, ResultAggregation, ResultChartType } from '@/types';
 
 const Plot = dynamic(() => import('react-plotly.js'), { ssr: false });
 
@@ -35,27 +36,13 @@ const parseDateValue = (value: any): Date | null => {
 
 const isParsableDateValue = (value: any): boolean => parseDateValue(value) !== null;
 
-export type ResultChartType =
-  | 'bar'
-  | 'line'
-  | 'scatter'
-  | 'pie'
-  | 'histogram'
-  | 'stacked-bar'
-  | 'regression'
-  | 'bubble'
-  | 'sunburst'
-  | 'gantt'
-  | 'treemap'
-  | 'streamgraph'
-  | 'venn';
-export type ResultAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
-
 interface ResultChartBuilderProps {
   rows: any[];
   title?: string;
   collapsedByDefault?: boolean;
   className?: string;
+  initialSettings?: Partial<ChartDesignerSettings>;
+  onSettingsChange?: (settings: ChartDesignerSettings) => void;
 }
 
 interface PlotState {
@@ -861,6 +848,8 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
   title = 'チャート',
   collapsedByDefault = false,
   className,
+  initialSettings,
+  onSettingsChange,
 }) => {
   const flattened = useMemo(() => flattenObjectsWithDotNotation(rows || []), [rows]);
   const availableColumns = useMemo(() => {
@@ -880,21 +869,137 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     );
   }, [availableColumns, flattened]);
 
-  const [categoryField, setCategoryField] = useState<string>('');
-  const [vennFields, setVennFields] = useState<string[]>([]);
-  const [bubbleSizeField, setBubbleSizeField] = useState<string>('');
-  const [ganttTaskField, setGanttTaskField] = useState<string>('');
-  const [ganttStartField, setGanttStartField] = useState<string>('');
-  const [ganttEndField, setGanttEndField] = useState<string>('');
+  const resolvedInitial = initialSettings ?? {};
 
-  const [expanded, setExpanded] = useState(!collapsedByDefault);
-  const [chartType, setChartType] = useState<ResultChartType>('bar');
-  const [xField, setXField] = useState<string>('');
-  const [yField, setYField] = useState<string>('');
-  const [aggregation, setAggregation] = useState<ResultAggregation>('sum');
-  const [bins, setBins] = useState<number>(20);
+  const [categoryField, setCategoryField] = useState<string>(() => resolvedInitial.categoryField ?? '');
+  const [vennFields, setVennFields] = useState<string[]>(() => resolvedInitial.vennFields ?? []);
+  const [bubbleSizeField, setBubbleSizeField] = useState<string>(() => resolvedInitial.bubbleSizeField ?? '');
+  const [ganttTaskField, setGanttTaskField] = useState<string>(() => resolvedInitial.ganttTaskField ?? '');
+  const [ganttStartField, setGanttStartField] = useState<string>(() => resolvedInitial.ganttStartField ?? '');
+  const [ganttEndField, setGanttEndField] = useState<string>(() => resolvedInitial.ganttEndField ?? '');
+
+  const [expanded, setExpanded] = useState(() => !(resolvedInitial.collapsed ?? collapsedByDefault));
+  const [chartType, setChartType] = useState<ResultChartType>(() => resolvedInitial.chartType ?? 'bar');
+  const [xField, setXField] = useState<string>(() => resolvedInitial.xField ?? '');
+  const [yField, setYField] = useState<string>(() => resolvedInitial.yField ?? '');
+  const [aggregation, setAggregation] = useState<ResultAggregation>(() => resolvedInitial.aggregation ?? 'sum');
+  const [bins, setBins] = useState<number>(() => resolvedInitial.bins ?? 20);
   const [error, setError] = useState<string | null>(null);
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!initialSettings) {
+      return;
+    }
+
+    if (initialSettings.chartType && initialSettings.chartType !== chartType) {
+      setChartType(initialSettings.chartType);
+    }
+
+    if (initialSettings.xField !== undefined && initialSettings.xField !== xField) {
+      setXField(initialSettings.xField);
+    }
+
+    if (initialSettings.yField !== undefined && initialSettings.yField !== yField) {
+      setYField(initialSettings.yField);
+    }
+
+    if (initialSettings.aggregation !== undefined && initialSettings.aggregation !== aggregation) {
+      setAggregation(initialSettings.aggregation);
+    }
+
+    if (initialSettings.bins !== undefined && initialSettings.bins !== bins) {
+      setBins(initialSettings.bins);
+    }
+
+    if (initialSettings.categoryField !== undefined && initialSettings.categoryField !== categoryField) {
+      setCategoryField(initialSettings.categoryField);
+    }
+
+    if (initialSettings.vennFields !== undefined) {
+      const incoming = initialSettings.vennFields;
+      const isSameLength = incoming.length === vennFields.length;
+      const isSame =
+        isSameLength && incoming.every((value, index) => value === vennFields[index]);
+      if (!isSame) {
+        setVennFields([...incoming]);
+      }
+    }
+
+    if (initialSettings.bubbleSizeField !== undefined && initialSettings.bubbleSizeField !== bubbleSizeField) {
+      setBubbleSizeField(initialSettings.bubbleSizeField);
+    }
+
+    if (initialSettings.ganttTaskField !== undefined && initialSettings.ganttTaskField !== ganttTaskField) {
+      setGanttTaskField(initialSettings.ganttTaskField);
+    }
+
+    if (initialSettings.ganttStartField !== undefined && initialSettings.ganttStartField !== ganttStartField) {
+      setGanttStartField(initialSettings.ganttStartField);
+    }
+
+    if (initialSettings.ganttEndField !== undefined && initialSettings.ganttEndField !== ganttEndField) {
+      setGanttEndField(initialSettings.ganttEndField);
+    }
+
+    if (initialSettings.collapsed !== undefined) {
+      const nextExpanded = !initialSettings.collapsed;
+      if (nextExpanded !== expanded) {
+        setExpanded(nextExpanded);
+      }
+    }
+  }, [
+    initialSettings,
+    aggregation,
+    bins,
+    bubbleSizeField,
+    categoryField,
+    chartType,
+    expanded,
+    ganttEndField,
+    ganttStartField,
+    ganttTaskField,
+    vennFields,
+    xField,
+    yField,
+  ]);
+
+  useEffect(() => {
+    if (!onSettingsChange) {
+      return;
+    }
+
+    const payload: ChartDesignerSettings = {
+      chartType,
+      xField,
+      yField,
+      aggregation,
+      bins,
+      categoryField,
+      vennFields,
+      bubbleSizeField,
+      ganttTaskField,
+      ganttStartField,
+      ganttEndField,
+      collapsed: !expanded,
+    };
+
+    onSettingsChange(payload);
+  }, [
+    aggregation,
+    bins,
+    bubbleSizeField,
+    categoryField,
+    chartType,
+    expanded,
+    ganttEndField,
+    ganttStartField,
+    ganttTaskField,
+    onSettingsChange,
+    vennFields,
+    xField,
+    yField,
+  ]);
 
   const handleChartTypeChange = (newType: ResultChartType) => {
     setChartType(newType);
