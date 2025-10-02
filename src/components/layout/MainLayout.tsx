@@ -12,6 +12,7 @@ import TabBarDnD from '@/components/tabs/TabBarDnD';
 import InputDialog from '@/components/modals/InputDialog';
 import MermaidTemplateDialog from '@/components/modals/MermaidTemplateDialog';
 import LlmSettingsDialog from '@/components/modals/LlmSettingsDialog';
+import { LlmSettingsProvider, useLlmSettingsContext } from '@/components/providers/LlmSettingsProvider';
 import MainHeader from '@/components/layout/MainHeader';
 import ViewModeBanner from '@/components/layout/ViewModeBanner';
 import Workspace from '@/components/layout/Workspace';
@@ -23,7 +24,8 @@ import type { MermaidDiagramType } from '@/lib/mermaid/types';
 import GitCloneDialog from '@/components/git/GitCloneDialog';
 import LoadingOverlay from '@/components/layout/LoadingOverlay';
 
-const MainLayout = () => {
+const MainLayoutContent: React.FC = () => {
+  const { aiFeaturesEnabled } = useLlmSettingsContext();
   const {
     paneState,
     updatePaneState,
@@ -133,6 +135,9 @@ const MainLayout = () => {
   }, [paneState.activeSidebar, updatePaneState]);
 
   const handleToggleHelpPane = useCallback(() => {
+    if (!aiFeaturesEnabled) {
+      return;
+    }
     const isActive = paneState.activeSidebar === 'help';
     updatePaneState({
       activeSidebar: isActive ? null : 'help',
@@ -141,7 +146,7 @@ const MainLayout = () => {
       isGisVisible: false,
       isGitVisible: false,
     });
-  }, [paneState.activeSidebar, updatePaneState]);
+  }, [aiFeaturesEnabled, paneState.activeSidebar, updatePaneState]);
 
   const handleDecreaseFont = useCallback(() => {
     updateEditorSettings({ fontSize: Math.max(10, editorSettings.fontSize - 1) });
@@ -156,8 +161,11 @@ const MainLayout = () => {
   }, [editorSettings.theme, updateEditorSettings]);
 
   const handleToggleMultiFile = useCallback(() => {
+    if (!aiFeaturesEnabled) {
+      return;
+    }
     setMultiFileAnalysisEnabled(!multiFileAnalysisEnabled);
-  }, [multiFileAnalysisEnabled, setMultiFileAnalysisEnabled]);
+  }, [aiFeaturesEnabled, multiFileAnalysisEnabled, setMultiFileAnalysisEnabled]);
 
   const handleOpenGitCloneDialog = useCallback(() => {
     setGitCloneError(null);
@@ -472,6 +480,30 @@ const MainLayout = () => {
     };
   }, [handleDroppedFiles]);
 
+  useEffect(() => {
+    if (aiFeaturesEnabled) {
+      return;
+    }
+
+    if (multiFileAnalysisEnabled) {
+      setMultiFileAnalysisEnabled(false);
+    }
+
+    if (paneState.isHelpVisible || paneState.activeSidebar === 'help') {
+      updatePaneState({
+        isHelpVisible: false,
+        activeSidebar: paneState.activeSidebar === 'help' ? null : paneState.activeSidebar,
+      });
+    }
+  }, [
+    aiFeaturesEnabled,
+    multiFileAnalysisEnabled,
+    paneState.activeSidebar,
+    paneState.isHelpVisible,
+    setMultiFileAnalysisEnabled,
+    updatePaneState,
+  ]);
+
   return (
     <div className="flex flex-col h-screen bg-white text-gray-900 dark:bg-[#0f172a] dark:text-gray-100">
       <MainHeader
@@ -492,6 +524,7 @@ const MainLayout = () => {
         onToggleHelp={handleToggleHelpPane}
         isHelpPaneVisible={paneState.isHelpVisible}
         onOpenLlmSettings={() => setShowLlmSettingsDialog(true)}
+        aiFeaturesEnabled={aiFeaturesEnabled}
       />
 
       <TabBarDnD />
@@ -510,6 +543,7 @@ const MainLayout = () => {
         activeTabViewMode={activeTabViewMode}
         multiFileAnalysisEnabled={multiFileAnalysisEnabled}
         onCloseMultiFileAnalysis={() => setMultiFileAnalysisEnabled(false)}
+        aiFeaturesEnabled={aiFeaturesEnabled}
       />
 
       <footer className="h-6 bg-gray-100 dark:bg-gray-800 text-xs px-4 flex items-center border-t border-gray-300 dark:border-gray-700">
@@ -572,5 +606,11 @@ const MainLayout = () => {
     </div>
   );
 };
+
+const MainLayout: React.FC = () => (
+  <LlmSettingsProvider>
+    <MainLayoutContent />
+  </LlmSettingsProvider>
+);
 
 export default MainLayout;

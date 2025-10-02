@@ -1,20 +1,19 @@
 import { NextResponse } from 'next/server';
 
-import { checkOpenAiQuota } from '@/lib/server/openaiQuotaChecker';
 import {
-  deleteStoredOpenAiApiKey,
+  deleteStoredGeminiApiKey,
   getActiveLlmProvider,
   getLlmSettingsStatus,
   refreshActiveProviderFallback,
   setActiveLlmProvider,
-  setStoredOpenAiApiKey,
+  setStoredGeminiApiKey,
 } from '@/lib/server/llmSettingsStore';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-interface OpenAiKeyRequestBody {
+interface GeminiKeyRequestBody {
   apiKey?: unknown;
 }
 
@@ -25,63 +24,38 @@ function normalizeApiKey(value: unknown): string {
   return value.trim();
 }
 
-function mergeQuota(settings: Awaited<ReturnType<typeof getLlmSettingsStatus>>, quota: ReturnType<typeof checkOpenAiQuota>) {
-  return {
-    ...settings,
-    openai: {
-      ...settings.openai,
-      quota,
-    },
-  };
-}
-
-export async function GET() {
-  const settings = await getLlmSettingsStatus();
-  return NextResponse.json({ settings });
-}
-
 export async function POST(request: Request) {
   try {
-    const body: OpenAiKeyRequestBody = await request.json();
+    const body: GeminiKeyRequestBody = await request.json();
     const apiKey = normalizeApiKey(body.apiKey);
 
     if (!apiKey) {
       return NextResponse.json({ error: 'APIキーを入力してください。' }, { status: 400 });
     }
 
-    const quotaResult = await checkOpenAiQuota(apiKey);
-    if (!quotaResult.ok && quotaResult.reason === 'invalid_key') {
-      return NextResponse.json(
-        { error: quotaResult.message ?? 'OpenAI APIキーが無効です。' },
-        { status: 400 },
-      );
-    }
-
-    await setStoredOpenAiApiKey(apiKey);
+    await setStoredGeminiApiKey(apiKey);
 
     const activeProvider = await getActiveLlmProvider();
     if (activeProvider === 'none') {
-      await setActiveLlmProvider('openai');
+      await setActiveLlmProvider('gemini');
     }
 
     const settings = await getLlmSettingsStatus();
-    const responseSettings = quotaResult ? mergeQuota(settings, quotaResult) : settings;
-
-    return NextResponse.json({ success: true, settings: responseSettings });
+    return NextResponse.json({ success: true, settings });
   } catch (error) {
-    console.error('Failed to persist OpenAI API key:', error);
+    console.error('Failed to persist Gemini API key:', error);
     return NextResponse.json({ error: 'APIキーの保存に失敗しました。' }, { status: 500 });
   }
 }
 
 export async function DELETE() {
   try {
-    await deleteStoredOpenAiApiKey();
+    await deleteStoredGeminiApiKey();
     await refreshActiveProviderFallback();
     const settings = await getLlmSettingsStatus();
     return NextResponse.json({ success: true, settings });
   } catch (error) {
-    console.error('Failed to delete OpenAI API key:', error);
+    console.error('Failed to delete Gemini API key:', error);
     return NextResponse.json({ error: 'APIキーの削除に失敗しました。' }, { status: 500 });
   }
 }

@@ -1,5 +1,7 @@
 import type { PairWritingPurpose } from '@/types';
-import type { ChatCompletionMessage } from './workflowPrompt';
+import type { LlmProvider } from '@/types/llm';
+
+import { callLlmModel } from '@/lib/server/llmProviderClient';
 
 export interface PairWritingRequest {
   purpose: PairWritingPurpose;
@@ -22,8 +24,8 @@ export interface PairWritingResponse {
   usage?: PairWritingUsage | null;
 }
 
-const OPENAI_CHAT_COMPLETION_URL = 'https://api.openai.com/v1/chat/completions';
-const DEFAULT_MODEL = 'gpt-4o-mini';
+const OPENAI_MODEL = process.env.OPENAI_CHAT_MODEL || 'gpt-4o-mini';
+const GEMINI_MODEL = process.env.GEMINI_CHAT_MODEL;
 export const DEFAULT_TRANSLATION_TARGET = '日本語';
 
 interface PromptTemplate {
@@ -91,7 +93,7 @@ const promptMap: Record<PairWritingPurpose, PromptTemplate> = {
   rewrite: rewritePrompt,
 };
 
-export function buildPairWritingMessages(payload: PairWritingRequest): ChatCompletionMessage[] {
+export function buildPairWritingMessages(payload: PairWritingRequest) {
   const template = promptMap[payload.purpose];
   const systemContent = template.system;
   const userContent = template.buildUserContent(payload);
@@ -99,61 +101,38 @@ export function buildPairWritingMessages(payload: PairWritingRequest): ChatCompl
   return [
     { role: 'system', content: systemContent },
     { role: 'user', content: userContent },
-  ];
+  ] as const;
 }
 
 export async function callPairWritingModel(
+  provider: Exclude<LlmProvider, 'none'>,
   apiKey: string,
   payload: PairWritingRequest,
 ): Promise<PairWritingResponse> {
   const template = promptMap[payload.purpose];
   const messages = buildPairWritingMessages(payload);
 
-  const response = await fetch(OPENAI_CHAT_COMPLETION_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: DEFAULT_MODEL,
-      temperature: template.temperature ?? 0.3,
-      messages,
-    }),
+  const result = await callLlmModel({
+    provider,
+    apiKey,
+    messages: messages as any,
+    temperature: template.temperature ?? 0.3,
+    ...(provider === 'openai'
+      ? { model: OPENAI_MODEL }
+      : { model: GEMINI_MODEL, responseMimeType: 'text/plain' }),
   });
 
-  if (!response.ok) {
-    let message = 'ChatGPT APIの呼び出しに失敗しました。';
-    try {
-      const errorPayload = await response.json();
-      message = errorPayload?.error?.message || message;
-    } catch {
-      // ignore JSON parse errors
-    }
-    const error = new Error(message);
-    throw error;
-  }
-
-  const data = await response.json();
-  const content: string | undefined = data?.choices?.[0]?.message?.content;
-  const usage: PairWritingUsage | null = data?.usage
-    ? {
-        promptTokens: typeof data.usage.prompt_tokens === 'number' ? data.usage.prompt_tokens : undefined,
-        completionTokens: typeof data.usage.completion_tokens === 'number' ? data.usage.completion_tokens : undefined,
-        totalTokens: typeof data.usage.total_tokens === 'number' ? data.usage.total_tokens : undefined,
-      }
-    : null;
-
+  const content = result.content?.trim();
   if (!content) {
     throw new Error('モデルから有効な応答を取得できませんでした。');
   }
 
   return {
     purpose: payload.purpose,
-    output: content.trim(),
+    output: content,
     targetLanguage: payload.targetLanguage,
     rewriteInstruction: payload.rewriteInstruction,
-    usage,
+    usage: result.usage ?? null,
   };
 }
 

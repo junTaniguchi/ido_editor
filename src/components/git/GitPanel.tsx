@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   IoGitBranchOutline,
   IoGitCommitOutline,
@@ -19,6 +19,7 @@ import GitAssistSummaryResult from './GitAssistSummaryResult';
 import GitAssistReviewResult from './GitAssistReviewResult';
 import { requestGitAssist } from '@/lib/llm/gitAssist';
 import type { GitAssistSkippedFile } from '@/types/git';
+import { useLlmSettingsContext } from '@/components/providers/LlmSettingsProvider';
 
 const statusLabel = (status: string) => {
   switch (status) {
@@ -36,6 +37,7 @@ const statusLabel = (status: string) => {
 };
 
 const GitPanel: React.FC = () => {
+  const { aiFeaturesEnabled } = useLlmSettingsContext();
   const {
     repoInitialized,
     loading,
@@ -75,6 +77,18 @@ const GitPanel: React.FC = () => {
   const [gitFlowError, setGitFlowError] = useState<string | null>(null);
   const [isGeneratingGitFlow, setIsGeneratingGitFlow] = useState(false);
   const [gitFlowDepthInput, setGitFlowDepthInput] = useState('20');
+
+  useEffect(() => {
+    if (!aiFeaturesEnabled) {
+      setAssistError(null);
+      setCommitSummaryDraft('');
+      setCommitSummaryPoints([]);
+      setCommitSummaryWarnings([]);
+      setReviewDraft('');
+      setReviewWarnings([]);
+      setAssistLoading(null);
+    }
+  }, [aiFeaturesEnabled]);
 
   const parsedGitFlowDepth = useMemo(() => {
     const parsed = Number.parseInt(gitFlowDepthInput, 10);
@@ -245,6 +259,10 @@ const GitPanel: React.FC = () => {
   ]);
 
   const handleGenerateCommitSummary = useCallback(async () => {
+    if (!aiFeaturesEnabled) {
+      setAssistError('AI機能が無効化されています。設定からAIプロバイダーを有効にしてください。');
+      return;
+    }
     if (assistLoading) {
       return;
     }
@@ -283,9 +301,21 @@ const GitPanel: React.FC = () => {
     } finally {
       setAssistLoading(null);
     }
-  }, [assistLoading, stagedEntries, getDiffPayload, skippedToWarnings, currentBranch, commitPurpose]);
+  }, [
+    aiFeaturesEnabled,
+    assistLoading,
+    stagedEntries,
+    getDiffPayload,
+    skippedToWarnings,
+    currentBranch,
+    commitPurpose,
+  ]);
 
   const handleGenerateReviewComments = useCallback(async () => {
+    if (!aiFeaturesEnabled) {
+      setAssistError('AI機能が無効化されています。設定からAIプロバイダーを有効にしてください。');
+      return;
+    }
     if (assistLoading) {
       return;
     }
@@ -324,7 +354,16 @@ const GitPanel: React.FC = () => {
     } finally {
       setAssistLoading(null);
     }
-  }, [assistLoading, stagedEntries, workingEntries, getDiffPayload, skippedToWarnings, currentBranch, commitPurpose]);
+  }, [
+    aiFeaturesEnabled,
+    assistLoading,
+    stagedEntries,
+    workingEntries,
+    getDiffPayload,
+    skippedToWarnings,
+    currentBranch,
+    commitPurpose,
+  ]);
 
   return (
     <div className="h-full flex flex-col overflow-hidden bg-white dark:bg-gray-900 border-l border-gray-300 dark:border-gray-700">
@@ -460,14 +499,18 @@ const GitPanel: React.FC = () => {
                 className="w-full h-20 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-sm"
                 placeholder="コミットメッセージを入力"
               />
-              <label className="mt-2 block text-xs text-gray-500 dark:text-gray-400">AI補助用のコミット目的（任意）</label>
-              <input
-                type="text"
-                value={commitPurpose}
-                onChange={(event) => setCommitPurpose(event.target.value)}
-                className="w-full rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-sm"
-                placeholder="例: ログイン画面のバグ修正"
-              />
+              {aiFeaturesEnabled && (
+                <>
+                  <label className="mt-2 block text-xs text-gray-500 dark:text-gray-400">AI補助用のコミット目的（任意）</label>
+                  <input
+                    type="text"
+                    value={commitPurpose}
+                    onChange={(event) => setCommitPurpose(event.target.value)}
+                    className="w-full rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-sm"
+                    placeholder="例: ログイン画面のバグ修正"
+                  />
+                </>
+              )}
               <div className="mt-2 flex items-center gap-2">
                 <button
                   className="flex-1 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
@@ -484,55 +527,57 @@ const GitPanel: React.FC = () => {
                   クリア
                 </button>
               </div>
-              <div className="mt-4 space-y-3 rounded border border-gray-200 bg-gray-50/60 p-3 dark:border-gray-700 dark:bg-gray-900/40">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
-                    <IoSparklesOutline size={16} />
-                    <span>AI支援ツール</span>
+              {aiFeaturesEnabled && (
+                <div className="mt-4 space-y-3 rounded border border-gray-200 bg-gray-50/60 p-3 dark:border-gray-700 dark:bg-gray-900/40">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
+                      <IoSparklesOutline size={16} />
+                      <span>AI支援ツール</span>
+                    </div>
+                    {assistError && (
+                      <p className="text-xs text-red-600 dark:text-red-400">{assistError}</p>
+                    )}
                   </div>
-                  {assistError && (
-                    <p className="text-xs text-red-600 dark:text-red-400">{assistError}</p>
-                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="flex items-center gap-1 rounded bg-purple-600 px-3 py-2 text-xs font-semibold text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={handleGenerateCommitSummary}
+                      disabled={assistLoading !== null || stagedEntries.length === 0}
+                    >
+                      <IoSparklesOutline size={15} />
+                      コミット要約
+                    </button>
+                    <button
+                      type="button"
+                      className="flex items-center gap-1 rounded border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+                      onClick={handleGenerateReviewComments}
+                      disabled={assistLoading !== null || (stagedEntries.length === 0 && workingEntries.length === 0)}
+                    >
+                      <IoChatboxEllipsesOutline size={15} />
+                      レビューコメント生成
+                    </button>
+                  </div>
+                  <GitAssistSummaryResult
+                    value={commitSummaryDraft}
+                    onChange={setCommitSummaryDraft}
+                    summary={commitSummaryPoints}
+                    warnings={commitSummaryWarnings}
+                    onApply={handleApplyCommitSummary}
+                    onClear={handleClearCommitSummary}
+                    disabled={assistLoading !== null}
+                    loading={assistLoading === 'commit'}
+                  />
+                  <GitAssistReviewResult
+                    value={reviewDraft}
+                    onChange={setReviewDraft}
+                    warnings={reviewWarnings}
+                    onClear={handleClearReview}
+                    disabled={assistLoading !== null}
+                    loading={assistLoading === 'review'}
+                  />
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    className="flex items-center gap-1 rounded bg-purple-600 px-3 py-2 text-xs font-semibold text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
-                    onClick={handleGenerateCommitSummary}
-                    disabled={assistLoading !== null || stagedEntries.length === 0}
-                  >
-                    <IoSparklesOutline size={15} />
-                    コミット要約
-                  </button>
-                  <button
-                    type="button"
-                    className="flex items-center gap-1 rounded border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
-                    onClick={handleGenerateReviewComments}
-                    disabled={assistLoading !== null || (stagedEntries.length === 0 && workingEntries.length === 0)}
-                  >
-                    <IoChatboxEllipsesOutline size={15} />
-                    レビューコメント生成
-                  </button>
-                </div>
-                <GitAssistSummaryResult
-                  value={commitSummaryDraft}
-                  onChange={setCommitSummaryDraft}
-                  summary={commitSummaryPoints}
-                  warnings={commitSummaryWarnings}
-                  onApply={handleApplyCommitSummary}
-                  onClear={handleClearCommitSummary}
-                  disabled={assistLoading !== null}
-                  loading={assistLoading === 'commit'}
-                />
-                <GitAssistReviewResult
-                  value={reviewDraft}
-                  onChange={setReviewDraft}
-                  warnings={reviewWarnings}
-                  onClear={handleClearReview}
-                  disabled={assistLoading !== null}
-                  loading={assistLoading === 'review'}
-                />
-              </div>
+              )}
             </section>
 
             <section>

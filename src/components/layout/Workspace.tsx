@@ -28,6 +28,7 @@ interface WorkspaceProps {
   activeTabViewMode: 'editor' | 'preview' | 'data-preview' | 'analysis' | 'split' | 'gis-analysis';
   multiFileAnalysisEnabled: boolean;
   onCloseMultiFileAnalysis: () => void;
+  aiFeaturesEnabled: boolean;
 }
 
 const Workspace: React.FC<WorkspaceProps> = ({
@@ -37,6 +38,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
   activeTabViewMode,
   multiFileAnalysisEnabled,
   onCloseMultiFileAnalysis,
+  aiFeaturesEnabled,
 }) => {
   const updatePaneState = useEditorStore((state) => state.updatePaneState);
   const setViewMode = useEditorStore((state) => state.setViewMode);
@@ -107,10 +109,13 @@ const Workspace: React.FC<WorkspaceProps> = ({
   const showExplorer = activeSidebar === 'explorer';
   const showGitSidebar = activeSidebar === 'git';
   const showGisSidebar = activeSidebar === 'gis';
-  const showHelpSidebar = activeSidebar === 'help';
+  const showHelpSidebar = aiFeaturesEnabled && activeSidebar === 'help';
 
   const handleSidebarSelect = useCallback(
     (sidebar: 'explorer' | 'gis' | 'git' | 'help') => {
+      if (sidebar === 'help' && !aiFeaturesEnabled) {
+        return;
+      }
       const isActive = activeSidebar === sidebar;
       updatePaneState({
         activeSidebar: isActive ? null : sidebar,
@@ -130,7 +135,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
         }
       }
     },
-    [activeSidebar, activeTabId, activeTabViewMode, isGisData, setViewMode, updatePaneState]
+    [aiFeaturesEnabled, activeSidebar, activeTabId, activeTabViewMode, isGisData, setViewMode, updatePaneState]
   );
 
   const showSearchPanel = paneState.isSearchVisible;
@@ -188,7 +193,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
               content={activeTab.content}
               fileName={activeTab.name}
               tabId={activeTabId}
-              enableAiActions={Boolean(activeTabId && isMermaid)}
+              enableAiActions={aiFeaturesEnabled && Boolean(activeTabId && isMermaid)}
             />
           ) : isHtml ? (
             <HtmlPreview tabId={activeTabId} />
@@ -239,7 +244,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
               content={activeTab.content}
               fileName={activeTab.name}
               tabId={activeTabId}
-              enableAiActions={Boolean(activeTabId && isMermaid)}
+              enableAiActions={aiFeaturesEnabled && Boolean(activeTabId && isMermaid)}
             />
           ) : isHtml ? (
             <HtmlPreview tabId={activeTabId} onScroll={handlePreviewScroll} />
@@ -311,7 +316,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
   };
 
   const renderMainContent = () => {
-    if (multiFileAnalysisEnabled) {
+    if (multiFileAnalysisEnabled && aiFeaturesEnabled) {
       return (
         <div className="w-full h-full overflow-hidden">
           <MultiFileAnalysis onClose={onCloseMultiFileAnalysis} />
@@ -342,7 +347,8 @@ const Workspace: React.FC<WorkspaceProps> = ({
       return <GitCommitDiffView tab={activeTab} />;
     }
 
-    const shouldShowAnalysis = isDataAnalyzable && (paneState.isAnalysisVisible || activeTabViewMode === 'analysis');
+    const shouldShowAnalysis =
+      aiFeaturesEnabled && isDataAnalyzable && (paneState.isAnalysisVisible || activeTabViewMode === 'analysis');
 
     if (shouldShowAnalysis) {
       return (
@@ -357,7 +363,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
 
   return (
     <div className="flex flex-1 overflow-hidden bg-white dark:bg-gray-900">
-      <ActivityBar activeItem={activeSidebar} onSelect={handleSidebarSelect} />
+      <ActivityBar activeItem={activeSidebar} onSelect={handleSidebarSelect} helpEnabled={aiFeaturesEnabled} />
       {showExplorer && (
         <div className="w-64 flex-shrink-0 border-r border-gray-200 dark:border-gray-800">
           <FileExplorer />

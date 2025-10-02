@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+
 import {
   buildWorkflowMessages,
   ensureWorkflowCellsAreSafe,
@@ -6,7 +7,8 @@ import {
   WorkflowGeneratedCell,
   WorkflowPromptInput,
 } from '@/lib/llm/workflowPrompt';
-import { getEffectiveOpenAiApiKey } from '@/lib/server/openaiKeyStore';
+import { callLlmModel, LlmProviderError } from '@/lib/server/llmProviderClient';
+import { getActiveProviderApiKey } from '@/lib/server/llmSettingsStore';
 
 class WorkflowApiError extends Error {
   status: number;
@@ -24,8 +26,8 @@ interface WorkflowApiRequestBody {
   sampleRows?: unknown;
 }
 
-const OPENAI_CHAT_COMPLETION_URL = 'https://api.openai.com/v1/chat/completions';
 const DEFAULT_MODEL = 'gpt-4o-mini';
+const GEMINI_WORKFLOW_MODEL = process.env.GEMINI_WORKFLOW_MODEL || process.env.GEMINI_CHAT_MODEL;
 const MAX_SAMPLE_ROWS = 5;
 const MAX_COLUMNS = 50;
 
@@ -72,38 +74,23 @@ function normalizeSampleRows(sampleRows: unknown): Array<Record<string, unknown>
 }
 
 async function callChatCompletion(
+  provider: 'openai' | 'gemini',
   apiKey: string,
   input: WorkflowPromptInput,
 ): Promise<{ cells: WorkflowGeneratedCell[]; rationale?: string }> {
   const messages = buildWorkflowMessages(input);
 
-  const response = await fetch(OPENAI_CHAT_COMPLETION_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: DEFAULT_MODEL,
-      temperature: 0.2,
-      response_format: { type: 'json_object' },
-      messages,
-    }),
+  const result = await callLlmModel({
+    provider,
+    apiKey,
+    messages,
+    temperature: 0.2,
+    ...(provider === 'openai'
+      ? { model: DEFAULT_MODEL, responseFormat: { type: 'json_object' as const } }
+      : { model: GEMINI_WORKFLOW_MODEL, responseMimeType: 'application/json' }),
   });
 
-  if (!response.ok) {
-    let message = 'ChatGPT APIの呼び出しに失敗しました。';
-    try {
-      const errorPayload = await response.json();
-      message = errorPayload?.error?.message || message;
-    } catch {
-      // ignore
-    }
-    throw new WorkflowApiError(message, response.status >= 400 && response.status < 500 ? response.status : 502);
-  }
-
-  const data = await response.json();
-  const content: string | undefined = data?.choices?.[0]?.message?.content;
+  const content = result.content;
 
   if (!content) {
     throw new Error('モデルから有効な応答を取得できませんでした。');
@@ -123,9 +110,9 @@ async function callChatCompletion(
 
 export async function POST(request: Request) {
   try {
-    const apiKey = await getEffectiveOpenAiApiKey();
-    if (!apiKey) {
-      return NextResponse.json({ error: 'OPENAI_API_KEY が設定されていません。' }, { status: 500 });
+    const providerConfig = await getActiveProviderApiKey();
+    if (!providerConfig) {
+      return NextResponse.json({ error: 'AIプロバイダーのAPIキーが設定されていません。設定画面から登録してください。' }, { status: 500 });
     }
 
     const body: WorkflowApiRequestBody = await request.json();
@@ -144,11 +131,14 @@ export async function POST(request: Request) {
       sampleRows,
     };
 
-    const { cells, rationale } = await callChatCompletion(apiKey, promptInput);
+    const { cells, rationale } = await callChatCompletion(providerConfig.provider, providerConfig.apiKey, promptInput);
 
     return NextResponse.json({ cells, rationale: rationale ?? null });
   } catch (error) {
     console.error('Workflow API error:', error);
+    if (error instanceof LlmProviderError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     const message = error instanceof Error ? error.message : 'ワークフロー生成中にエラーが発生しました。';
     const status = error instanceof WorkflowApiError ? error.status : 500;
     return NextResponse.json({ error: message }, { status });

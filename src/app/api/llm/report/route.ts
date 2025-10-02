@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
+
 import {
   AnalysisSummary,
   buildReportMessages,
   parseReportResponse,
   reportResponseJsonSchema,
 } from '@/lib/llm/analysisSummarizer';
-import { getEffectiveOpenAiApiKey } from '@/lib/server/openaiKeyStore';
+import { callLlmModel, LlmProviderError } from '@/lib/server/llmProviderClient';
+import { getActiveProviderApiKey } from '@/lib/server/llmSettingsStore';
 
 class ReportApiError extends Error {
   status: number;
@@ -22,51 +24,28 @@ interface ReportApiRequestBody {
   customInstruction?: string;
 }
 
-const OPENAI_CHAT_COMPLETION_URL = 'https://api.openai.com/v1/chat/completions';
 const DEFAULT_MODEL = 'gpt-4o-mini';
+const GEMINI_REPORT_MODEL = process.env.GEMINI_REPORT_MODEL || process.env.GEMINI_CHAT_MODEL;
 
 async function callChatCompletion(
+  provider: 'openai' | 'gemini',
   apiKey: string,
   summary: AnalysisSummary,
   customInstruction?: string,
 ) {
   const messages = buildReportMessages(summary, customInstruction);
 
-  const response = await fetch(OPENAI_CHAT_COMPLETION_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: DEFAULT_MODEL,
-      temperature: 0.2,
-      response_format: {
-        type: 'json_schema',
-        json_schema: reportResponseJsonSchema,
-      },
-      messages,
-    }),
+  const result = await callLlmModel({
+    provider,
+    apiKey,
+    messages,
+    temperature: 0.2,
+    ...(provider === 'openai'
+      ? { model: DEFAULT_MODEL, responseFormat: { type: 'json_schema', json_schema: reportResponseJsonSchema } }
+      : { model: GEMINI_REPORT_MODEL, responseMimeType: 'application/json' }),
   });
 
-  if (!response.ok) {
-    let message = 'ChatGPT APIの呼び出しに失敗しました。';
-    try {
-      const errorPayload = await response.json();
-      message = errorPayload?.error?.message || message;
-    } catch {
-      // ignore
-    }
-
-    throw new ReportApiError(
-      message,
-      response.status >= 400 && response.status < 500 ? response.status : 502,
-    );
-  }
-
-  const data = await response.json();
-  const content: unknown = data?.choices?.[0]?.message?.content;
-
+  const content = result.content;
   if (typeof content !== 'string' || content.trim().length === 0) {
     throw new Error('モデルから有効な応答を取得できませんでした。');
   }
@@ -77,9 +56,9 @@ async function callChatCompletion(
 
 export async function POST(request: Request) {
   try {
-    const apiKey = await getEffectiveOpenAiApiKey();
-    if (!apiKey) {
-      return NextResponse.json({ error: 'OPENAI_API_KEY が設定されていません。' }, { status: 500 });
+    const providerConfig = await getActiveProviderApiKey();
+    if (!providerConfig) {
+      return NextResponse.json({ error: 'AIプロバイダーのAPIキーが設定されていません。設定画面から登録してください。' }, { status: 500 });
     }
 
     const body: ReportApiRequestBody = await request.json();
@@ -87,11 +66,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'summary が必要です。' }, { status: 400 });
     }
 
-    const report = await callChatCompletion(apiKey, body.summary, body.customInstruction);
+    const report = await callChatCompletion(
+      providerConfig.provider,
+      providerConfig.apiKey,
+      body.summary,
+      body.customInstruction,
+    );
 
     return NextResponse.json(report);
   } catch (error) {
     console.error('Report API error:', error);
+    if (error instanceof LlmProviderError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     const message = error instanceof Error ? error.message : 'レポート生成中にエラーが発生しました。';
     const status = error instanceof ReportApiError ? error.status : 500;
     return NextResponse.json({ error: message }, { status });

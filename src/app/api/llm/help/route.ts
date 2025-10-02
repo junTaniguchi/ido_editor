@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
-import type { HelpMessageRole } from '@/types';
-import { getEffectiveOpenAiApiKey } from '@/lib/server/openaiKeyStore';
 
-const OPENAI_CHAT_COMPLETION_URL = 'https://api.openai.com/v1/chat/completions';
+import type { HelpMessageRole } from '@/types';
+import { callLlmModel, LlmProviderError } from '@/lib/server/llmProviderClient';
+import { getActiveProviderApiKey } from '@/lib/server/llmSettingsStore';
+
 const DEFAULT_HELP_MODEL = process.env.OPENAI_HELP_MODEL || 'gpt-4o-mini';
+const DEFAULT_GEMINI_HELP_MODEL = process.env.GEMINI_HELP_MODEL || process.env.GEMINI_CHAT_MODEL;
 const HELP_TEMPERATURE = 0.2;
 
 type ChatCompletionMessage = { role: 'system' | 'user' | 'assistant'; content: string };
@@ -103,9 +105,9 @@ function buildMessages(params: {
 
 export async function POST(request: Request) {
   try {
-    const apiKey = await getEffectiveOpenAiApiKey();
-    if (!apiKey) {
-      return NextResponse.json({ error: 'OPENAI_API_KEY が設定されていません。' }, { status: 500 });
+    const providerConfig = await getActiveProviderApiKey();
+    if (!providerConfig) {
+      return NextResponse.json({ error: 'AIプロバイダーのAPIキーが設定されていません。設定画面から登録してください。' }, { status: 500 });
     }
 
     const body: HelpRequestBody = await request.json();
@@ -135,52 +137,40 @@ export async function POST(request: Request) {
       maskedFiles,
     });
 
-    const response = await fetch(OPENAI_CHAT_COMPLETION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: DEFAULT_HELP_MODEL,
-        temperature: HELP_TEMPERATURE,
-        messages,
-      }),
+    const result = await callLlmModel({
+      provider: providerConfig.provider,
+      apiKey: providerConfig.apiKey,
+      messages,
+      temperature: HELP_TEMPERATURE,
+      ...(providerConfig.provider === 'openai'
+        ? { model: DEFAULT_HELP_MODEL }
+        : { model: DEFAULT_GEMINI_HELP_MODEL, responseMimeType: 'text/plain' }),
     });
 
-    if (!response.ok) {
-      let message = 'ヘルプ応答の生成に失敗しました。';
-      try {
-        const errorPayload = await response.json();
-        message = errorPayload?.error?.message || message;
-      } catch {
-        // ignore parse error
-      }
-      return NextResponse.json({ error: message }, { status: response.status });
-    }
-
-    const data = await response.json();
-    const answer: string | undefined = data?.choices?.[0]?.message?.content;
-    const usage = data?.usage
-      ? {
-          promptTokens: typeof data.usage.prompt_tokens === 'number' ? data.usage.prompt_tokens : undefined,
-          completionTokens: typeof data.usage.completion_tokens === 'number' ? data.usage.completion_tokens : undefined,
-          totalTokens: typeof data.usage.total_tokens === 'number' ? data.usage.total_tokens : undefined,
-        }
-      : null;
-
+    const answer = result.content?.trim();
     if (!answer) {
       return NextResponse.json({ error: 'モデルから有効な応答を取得できませんでした。' }, { status: 502 });
     }
 
+    const usage = result.usage
+      ? {
+          promptTokens: result.usage.promptTokens,
+          completionTokens: result.usage.completionTokens,
+          totalTokens: result.usage.totalTokens,
+        }
+      : null;
+
     return NextResponse.json({
-      answer: answer.trim(),
+      answer,
       documentId,
       knowledgeBaseUrl,
       usage,
     });
   } catch (error) {
     console.error('Help API error:', error);
+    if (error instanceof LlmProviderError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     const message = error instanceof Error ? error.message : 'ヘルプ処理中にエラーが発生しました。';
     return NextResponse.json({ error: message }, { status: 500 });
   }

@@ -6,11 +6,8 @@ import { diagramDefinitions, diagramList } from '@/lib/mermaid/diagramDefinition
 import type { MermaidDiagramType } from '@/lib/mermaid/types';
 import MermaidCodePreview from '@/components/mermaid/MermaidCodePreview';
 import { requestMermaidGeneration } from '@/lib/llm/mermaidGenerator';
-import {
-  fetchLlmKeyStatus,
-  saveLlmKey,
-  type LlmKeyStatus,
-} from '@/lib/llm/llmKeyClient';
+import { useLlmSettingsContext } from '@/components/providers/LlmSettingsProvider';
+import type { LlmProviderStatus } from '@/types/llm';
 import { createId } from '@/lib/utils/id';
 import { useEditorStore } from '@/store/editorStore';
 import type { MermaidGenerationHistoryEntry } from '@/types';
@@ -40,37 +37,64 @@ const MermaidTemplateDialog: React.FC<MermaidTemplateDialogProps> = ({
   const [summary, setSummary] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [llmStatus, setLlmStatus] = useState<LlmKeyStatus | null>(null);
-  const [isCheckingLlmStatus, setIsCheckingLlmStatus] = useState(false);
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [apiKeySaveError, setApiKeySaveError] = useState<string | null>(null);
-  const [apiKeySaveMessage, setApiKeySaveMessage] = useState<string | null>(null);
-  const [isSavingApiKey, setIsSavingApiKey] = useState(false);
+  const { settings, refresh } = useLlmSettingsContext();
 
-  const isAiAvailable = llmStatus === null ? null : llmStatus.hasKey;
+  const activeProvider = settings?.activeProvider ?? 'none';
+  const providerStatus: LlmProviderStatus | undefined =
+    activeProvider === 'openai'
+      ? settings?.openai
+      : activeProvider === 'gemini'
+        ? settings?.gemini
+        : undefined;
 
-  const llmStatusMessage = useMemo(() => {
-    if (!llmStatus) {
-      return '';
+  const providerDescription = useMemo(() => {
+    if (!settings) {
+      return 'AIプロバイダーの状態を確認しています…';
+    }
+    if (activeProvider === 'none') {
+      return 'AI機能は無効化されています。右上の鍵アイコンから設定を開き、プロバイダーとAPIキーを登録してください。';
+    }
+    if (!providerStatus) {
+      return 'AIプロバイダーの状態を確認しています…';
     }
 
-    if (llmStatus.source === 'env') {
-      return llmStatus.hasStoredKey
-        ? '環境変数 OPENAI_API_KEY が優先されます（ローカル設定にもキーが保存されています）。'
-        : '環境変数 OPENAI_API_KEY が設定されています。';
+    if (providerStatus.source === 'env') {
+      return providerStatus.hasStoredKey
+        ? '環境変数のキーが優先されています（ローカル設定にもキーがあります）。'
+        : '環境変数に設定されたキーを使用しています。';
     }
 
-    if (llmStatus.source === 'stored') {
-      return 'ローカル設定ファイルに保存された OpenAI APIキーが利用されます。';
+    if (providerStatus.source === 'stored') {
+      return 'ローカル設定ファイルに保存されたキーを使用しています。';
     }
 
-    if (llmStatus.hasStoredKey) {
-      return 'ローカル設定ファイルにキーが保存されていますが、現在は利用されていません。';
+    if (providerStatus.hasStoredKey) {
+      return 'ローカル設定ファイルにキーが保存されていますが、現在は使用していません。';
     }
 
-    return 'OpenAI APIキーが未設定です。';
-  }, [llmStatus]);
+    return `${activeProvider === 'openai' ? 'OpenAI' : 'Google Gemini'} のAPIキーが未設定です。設定画面から登録してください。`;
+  }, [activeProvider, providerStatus, settings]);
+
+  const quotaWarning = useMemo(() => {
+    if (!providerStatus || activeProvider !== 'openai') {
+      return null;
+    }
+    if (!providerStatus.quota || providerStatus.quota.ok || providerStatus.quota.reason !== 'insufficient_quota') {
+      return null;
+    }
+    return providerStatus.quota.message ?? 'OpenAIの利用枠（クォータ）が不足しています。';
+  }, [activeProvider, providerStatus]);
+
+  const isAiAvailable = useMemo(() => {
+    if (!settings) {
+      return null;
+    }
+    if (activeProvider === 'none') {
+      return false;
+    }
+    return providerStatus?.hasKey ?? false;
+  }, [activeProvider, providerStatus, settings]);
 
   useEffect(() => {
     if (isOpen) {
@@ -85,36 +109,11 @@ const MermaidTemplateDialog: React.FC<MermaidTemplateDialogProps> = ({
       setSummary('');
       setErrorMessage(null);
       setSelectedHistoryId(null);
-      setLlmStatus(null);
-      setIsCheckingLlmStatus(false);
-      setApiKeyInput('');
-      setApiKeySaveError(null);
-      setApiKeySaveMessage(null);
-      setIsSavingApiKey(false);
       return;
     }
 
-    let isMounted = true;
-    setIsCheckingLlmStatus(true);
-
-    fetchLlmKeyStatus()
-      .then((status) => {
-        if (!isMounted) return;
-        setLlmStatus(status);
-      })
-      .catch(() => {
-        if (!isMounted) return;
-        setLlmStatus({ hasKey: false, hasStoredKey: false, source: 'none' });
-      })
-      .finally(() => {
-        if (!isMounted) return;
-        setIsCheckingLlmStatus(false);
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [isOpen]);
+    void refresh();
+  }, [isOpen, refresh]);
 
   const definition = useMemo(() => diagramDefinitions[selectedType], [selectedType]);
   const effectiveHistoryKey = useMemo(() => historyKey ?? fileName, [historyKey, fileName]);
@@ -147,8 +146,13 @@ const MermaidTemplateDialog: React.FC<MermaidTemplateDialogProps> = ({
       return;
     }
 
-    if (llmStatus && !llmStatus.hasKey) {
-      setErrorMessage('AI生成機能を利用するには OPENAI_API_KEY を設定してください。');
+    if (isAiAvailable === false) {
+      setErrorMessage('AI生成機能を利用するには設定メニューでAIプロバイダーとAPIキーを有効にしてください。');
+      return;
+    }
+
+    if (isAiAvailable === null) {
+      setErrorMessage('AIプロバイダーの状態を確認しています。少し時間をおいてから再度お試しください。');
       return;
     }
 
@@ -185,37 +189,7 @@ const MermaidTemplateDialog: React.FC<MermaidTemplateDialogProps> = ({
     } finally {
       setIsGenerating(false);
     }
-  }, [addHistoryEntry, effectiveHistoryKey, llmStatus, prompt, selectedType]);
-
-  const handleSaveApiKey = useCallback(async () => {
-    const trimmedKey = apiKeyInput.trim();
-    if (!trimmedKey) {
-      setApiKeySaveError('OpenAI APIキーを入力してください。');
-      setApiKeySaveMessage(null);
-      return;
-    }
-
-    setIsSavingApiKey(true);
-    setApiKeySaveError(null);
-    setApiKeySaveMessage(null);
-
-    try {
-      const status = await saveLlmKey(trimmedKey);
-      const message =
-        status.source === 'env'
-          ? 'OpenAI APIキーを保存しました（環境変数が優先されます）。'
-          : 'OpenAI APIキーを保存しました。';
-      setApiKeySaveMessage(message);
-      setApiKeyInput('');
-      setLlmStatus(status);
-    } catch (error) {
-      console.error('Failed to save OpenAI API key:', error);
-      const message = error instanceof Error ? error.message : 'APIキーの保存中にエラーが発生しました。';
-      setApiKeySaveError(message);
-    } finally {
-      setIsSavingApiKey(false);
-    }
-  }, [apiKeyInput]);
+  }, [addHistoryEntry, effectiveHistoryKey, isAiAvailable, prompt, selectedType]);
 
   const handleApplyGeneratedCode = useCallback(() => {
     if (!generatedCode) {
@@ -277,102 +251,60 @@ const MermaidTemplateDialog: React.FC<MermaidTemplateDialogProps> = ({
             <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">{definition.description}</p>
           </div>
 
-          <div className="space-y-3 border border-gray-200 dark:border-gray-700 rounded-md p-4 bg-gray-50 dark:bg-gray-900">
-            <div className="flex flex-col gap-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">
-                  自然言語説明
-                </label>
-                <textarea
-                  className="w-full h-24 border border-gray-300 dark:border-gray-600 rounded-md p-2 text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  value={prompt}
-                  onChange={(event) => setPrompt(event.target.value)}
-                  placeholder="例: 部署間の承認フローをフローチャートで表現し、主要な意思決定ポイントを強調"
-                />
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={handleGenerate}
-                  disabled={isGenerating || isCheckingLlmStatus || isAiAvailable === false}
-                  className="px-4 py-2 text-sm rounded-md bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-60"
-                >
-                  {isGenerating ? '生成中…' : 'AI生成'}
-                </button>
-                {llmStatusMessage ? (
-                  <p className="w-full text-xs text-gray-500 dark:text-gray-400">{llmStatusMessage}</p>
-                ) : null}
-                {!isCheckingLlmStatus && isAiAvailable === false ? (
-                  <div className="w-full space-y-2">
-                    <p className="text-xs text-red-600">
-                      AI生成機能を利用するには OpenAI APIキーを登録してください。
-                    </p>
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                      <input
-                        type="password"
-                        className="flex-1 min-w-0 border border-gray-300 dark:border-gray-600 rounded-md p-2 text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        placeholder="sk-..."
-                        value={apiKeyInput}
-                        onChange={(event) => {
-                          setApiKeyInput(event.target.value);
-                          setApiKeySaveError(null);
-                          setApiKeySaveMessage(null);
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') {
-                            event.preventDefault();
-                            void handleSaveApiKey();
-                          }
-                        }}
-                        autoComplete="off"
-                        spellCheck={false}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void handleSaveApiKey();
-                        }}
-                        disabled={isSavingApiKey}
-                        className="px-4 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
-                      >
-                        {isSavingApiKey ? '保存中…' : 'APIキーを保存'}
-                      </button>
-                    </div>
-                    {apiKeySaveError ? (
-                      <p className="text-xs text-red-600">{apiKeySaveError}</p>
-                    ) : null}
-                    {apiKeySaveMessage ? (
-                      <p className="text-xs text-green-600">{apiKeySaveMessage}</p>
-                    ) : null}
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      入力したキーはローカル環境の設定ファイルにのみ保存され、ブラウザを再起動しても利用できます。
-                    </p>
-                  </div>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setGeneratedCode('');
-                    setSummary('');
-                    setSelectedHistoryId(null);
-                    setErrorMessage(null);
-                  }}
-                  disabled={!generatedCode && !summary}
-                  className="px-4 py-2 text-sm rounded-md bg-gray-200 text-gray-700 hover:bg-gray-300 disabled:opacity-60 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
-                >
-                  リセット
-                </button>
-              </div>
-
-              {apiKeySaveMessage && isAiAvailable === true ? (
-                <p className="text-xs text-green-600">{apiKeySaveMessage}</p>
-              ) : null}
-
-              {errorMessage && <p className="text-xs text-red-500">{errorMessage}</p>}
+          <div className="space-y-4 border border-gray-200 dark:border-gray-700 rounded-md p-4 bg-gray-50 dark:bg-gray-900">
+            <div className="space-y-1 text-xs text-gray-600 dark:text-gray-300">
+              <p>{providerDescription}</p>
+              {quotaWarning ? <p className="text-red-600 dark:text-red-400">{quotaWarning}</p> : null}
             </div>
 
-            {hasHistory && (
+            {isAiAvailable ? (
+              <div className="flex flex-col gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">
+                    自然言語説明
+                  </label>
+                  <textarea
+                    className="w-full h-24 border border-gray-300 dark:border-gray-600 rounded-md p-2 text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    value={prompt}
+                    onChange={(event) => setPrompt(event.target.value)}
+                    placeholder="例: 部署間の承認フローをフローチャートで表現し、主要な意思決定ポイントを強調"
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleGenerate}
+                    disabled={isGenerating}
+                    className="px-4 py-2 text-sm rounded-md bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-60"
+                  >
+                    {isGenerating ? '生成中…' : 'AI生成'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGeneratedCode('');
+                      setSummary('');
+                      setSelectedHistoryId(null);
+                      setErrorMessage(null);
+                    }}
+                    disabled={!generatedCode && !summary}
+                    className="px-4 py-2 text-sm rounded-md bg-gray-200 text-gray-700 hover:bg-gray-300 disabled:opacity-60 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                  >
+                    リセット
+                  </button>
+                </div>
+                {errorMessage && <p className="text-xs text-red-500">{errorMessage}</p>}
+              </div>
+            ) : (
+              <div className="rounded-md border border-dashed border-gray-300 dark:border-gray-600 bg-white/60 dark:bg-gray-800/60 p-4 text-sm text-gray-600 dark:text-gray-300">
+                {isAiAvailable === null
+                  ? 'AIプロバイダーの状態を確認しています…'
+                  : 'AI生成を利用するには設定メニューでAIプロバイダーとAPIキーを登録してください。'}
+              </div>
+            )}
+
+            {isAiAvailable && hasHistory && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">生成履歴</label>
                 <select
@@ -399,13 +331,13 @@ const MermaidTemplateDialog: React.FC<MermaidTemplateDialogProps> = ({
               </div>
             )}
 
-            {summary && (
+            {isAiAvailable && summary && (
               <div className="text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md p-3">
                 {summary}
               </div>
             )}
 
-            {generatedCode && (
+            {isAiAvailable && generatedCode && (
               <div className="space-y-3">
                 <div className="border border-gray-200 dark:border-gray-700 rounded-md p-3 bg-white dark:bg-gray-900">
                   <MermaidCodePreview code={generatedCode} />
