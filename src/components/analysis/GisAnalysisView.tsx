@@ -5,7 +5,7 @@ import type { FeatureCollection, Geometry } from 'geojson';
 import type { CircleMarker, GeoJSON as LeafletGeoJSON, Map as LeafletMap, Path } from 'leaflet';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { IoSparkles, IoWarningOutline } from 'react-icons/io5';
+import { IoChevronDown, IoChevronForward, IoSparkles, IoWarningOutline } from 'react-icons/io5';
 
 import { useEditorStore } from '@/store/editorStore';
 import { useGisAnalysisStore } from '@/store/gisStore';
@@ -114,6 +114,18 @@ interface StyleSettings {
   valueDriven: boolean;
   valueIntensity: number;
 }
+
+const DEFAULT_STYLE_SETTINGS: StyleSettings = {
+  color: '#2563eb',
+  brightness: 0,
+  fillOpacity: 60,
+  lineWeight: 2,
+  pointRadius: 6,
+  valueDriven: true,
+  valueIntensity: 60,
+};
+
+const STYLE_COLOR_PALETTE = ['#2563eb', '#16a34a', '#f97316', '#ef4444', '#a855f7', '#0ea5e9', '#10b981', '#f59e0b'];
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
@@ -274,27 +286,43 @@ const getPreferredColumns = (columns: string[]) => {
 const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
   const rootFileTree = useEditorStore((state) => state.rootFileTree);
   const tabs = useEditorStore((state) => state.tabs);
-  const selectedFilePath = useGisAnalysisStore((state) => state.selectedFilePath);
-  const setSelectedFile = useGisAnalysisStore((state) => state.setSelectedFilePath);
-  const selectedColumn = useGisAnalysisStore((state) => state.selectedColumn);
+  const selectedFilePaths = useGisAnalysisStore((state) => state.selectedFilePaths);
+  const activeFilePath = useGisAnalysisStore((state) => state.activeFilePath);
+  const setActiveFilePath = useGisAnalysisStore((state) => state.setActiveFilePath);
+  const selectedColumns = useGisAnalysisStore((state) => state.selectedColumns);
   const setSelectedColumn = useGisAnalysisStore((state) => state.setSelectedColumn);
   const columnCache = useGisAnalysisStore((state) => state.columnCache);
   const updateColumnCache = useGisAnalysisStore((state) => state.setColumnCache);
+  const clearColumnCache = useGisAnalysisStore((state) => state.clearColumnCache);
+  const setAnalysisSummary = useGisAnalysisStore((state) => state.setAnalysisSummary);
 
-  const [rows, setRows] = useState<any[]>([]);
-  const [featureCollection, setFeatureCollection] = useState<FeatureCollection | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [datasets, setDatasets] = useState<
+    Record<string, { rows: any[]; columns: string[]; featureCollection: FeatureCollection | null }>
+  >({});
+  const [loadingPaths, setLoadingPaths] = useState<Set<string>>(new Set());
+  const [errorsByPath, setErrorsByPath] = useState<Record<string, string | null>>({});
 
-  const [styleSettings, setStyleSettings] = useState<StyleSettings>({
-    color: '#2563eb',
-    brightness: 0,
-    fillOpacity: 60,
-    lineWeight: 2,
-    pointRadius: 6,
-    valueDriven: true,
-    valueIntensity: 60,
-  });
+  const [styleSettingsMap, setStyleSettingsMap] = useState<Record<string, StyleSettings>>({});
+  const [expandedTables, setExpandedTables] = useState<Record<string, boolean>>({});
+
+  const setPathLoading = useCallback((path: string, value: boolean) => {
+    setLoadingPaths((previous) => {
+      const next = new Set(previous);
+      if (value) {
+        next.add(path);
+      } else {
+        next.delete(path);
+      }
+      return next;
+    });
+  }, []);
+
+  const isAnyLoading = loadingPaths.size > 0;
+  const activeError = activeFilePath ? errorsByPath[activeFilePath] ?? null : null;
+
+  const activeDataset = activeFilePath ? datasets[activeFilePath] ?? null : null;
+  const rows = activeDataset?.rows ?? [];
+  const featureCollection = activeDataset?.featureCollection ?? null;
 
   const [analysisPrompt, setAnalysisPrompt] = useState('');
   const [aiAnalysisLoading, setAiAnalysisLoading] = useState(false);
@@ -312,11 +340,106 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
   const [leafletError, setLeafletError] = useState<string | null>(null);
 
   const columns = useMemo(() => {
-    if (!selectedFilePath) {
+    if (!activeFilePath) {
       return [];
     }
-    return columnCache[selectedFilePath] ?? [];
-  }, [columnCache, selectedFilePath]);
+    return columnCache[activeFilePath] ?? [];
+  }, [activeFilePath, columnCache]);
+
+  const activeSelectedColumn = useMemo(() => {
+    if (!activeFilePath) {
+      return null;
+    }
+    return selectedColumns[activeFilePath] ?? null;
+  }, [activeFilePath, selectedColumns]);
+
+  useEffect(() => {
+    setStyleSettingsMap((previous) => {
+      const next = { ...previous };
+      let mutated = false;
+
+      selectedFilePaths.forEach((path, index) => {
+        if (!next[path]) {
+          const paletteColor = STYLE_COLOR_PALETTE[index % STYLE_COLOR_PALETTE.length] ?? DEFAULT_STYLE_SETTINGS.color;
+          next[path] = { ...DEFAULT_STYLE_SETTINGS, color: paletteColor };
+          mutated = true;
+        }
+      });
+
+      Object.keys(next).forEach((path) => {
+        if (!selectedFilePaths.includes(path)) {
+          delete next[path];
+          mutated = true;
+        }
+      });
+
+      return mutated ? next : previous;
+    });
+  }, [selectedFilePaths]);
+
+  useEffect(() => {
+    setExpandedTables((previous) => {
+      const next = { ...previous };
+      let mutated = false;
+
+      selectedFilePaths.forEach((path) => {
+        if (!(path in next)) {
+          next[path] = path === activeFilePath;
+          mutated = true;
+        } else if (path === activeFilePath && !next[path]) {
+          next[path] = true;
+          mutated = true;
+        }
+      });
+
+      Object.keys(next).forEach((path) => {
+        if (!selectedFilePaths.includes(path)) {
+          delete next[path];
+          mutated = true;
+        }
+      });
+
+      return mutated ? next : previous;
+    });
+  }, [activeFilePath, selectedFilePaths]);
+
+  const resolveStyleSettings = useCallback(
+    (path: string): StyleSettings => {
+      const existing = styleSettingsMap[path];
+      if (existing) {
+        return existing;
+      }
+      const index = selectedFilePaths.indexOf(path);
+      const paletteColor = STYLE_COLOR_PALETTE[index % STYLE_COLOR_PALETTE.length] ?? DEFAULT_STYLE_SETTINGS.color;
+      return { ...DEFAULT_STYLE_SETTINGS, color: paletteColor };
+    },
+    [selectedFilePaths, styleSettingsMap],
+  );
+
+  const activeStyleSettings = useMemo(() => {
+    if (!activeFilePath) {
+      return DEFAULT_STYLE_SETTINGS;
+    }
+    return resolveStyleSettings(activeFilePath);
+  }, [activeFilePath, resolveStyleSettings]);
+
+  const updateActiveStyleSettings = useCallback(
+    (updater: (previous: StyleSettings) => StyleSettings) => {
+      if (!activeFilePath) {
+        return;
+      }
+      setStyleSettingsMap((previous) => {
+        const current = previous[activeFilePath] ?? resolveStyleSettings(activeFilePath);
+        const next = updater(current);
+        return { ...previous, [activeFilePath]: next };
+      });
+    },
+    [activeFilePath, resolveStyleSettings],
+  );
+
+  const toggleTableExpansion = useCallback((path: string) => {
+    setExpandedTables((previous) => ({ ...previous, [path]: !previous[path] }));
+  }, []);
 
   const activeTab = useMemo(() => tabs.get(tabId) ?? null, [tabs, tabId]);
   const gisFiles = useMemo(() => {
@@ -339,36 +462,36 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
   }, [activeTab, rootFileTree]);
   const gisFileMap = useMemo(() => getFileEntryMap(gisFiles), [gisFiles]);
 
-  const selectedFileEntry = useMemo(() => {
-    if (!selectedFilePath) {
+  const activeFileEntry = useMemo(() => {
+    if (!activeFilePath) {
       return null;
     }
-    return gisFileMap.get(selectedFilePath) ?? null;
-  }, [gisFileMap, selectedFilePath]);
+    return gisFileMap.get(activeFilePath) ?? null;
+  }, [activeFilePath, gisFileMap]);
 
   const datasetName = useMemo(() => {
-    if (selectedFileEntry?.name) {
-      return selectedFileEntry.name;
+    if (activeFileEntry?.name) {
+      return activeFileEntry.name;
     }
     if (activeTab?.name) {
       return activeTab.name;
     }
-    if (selectedFilePath) {
-      const segments = selectedFilePath.split('/');
-      return segments[segments.length - 1] || selectedFilePath;
+    if (activeFilePath) {
+      const segments = activeFilePath.split('/');
+      return segments[segments.length - 1] || activeFilePath;
     }
     return 'GISデータセット';
-  }, [activeTab, selectedFileEntry, selectedFilePath]);
+  }, [activeFileEntry, activeFilePath, activeTab]);
 
   const datasetType = useMemo(() => {
-    if (selectedFileEntry?.type) {
-      return selectedFileEntry.type;
+    if (activeFileEntry?.type) {
+      return activeFileEntry.type;
     }
     if (activeTab?.type && (GIS_FILE_TYPES as readonly string[]).includes(activeTab.type as string)) {
       return activeTab.type as GisFileType;
     }
     return null;
-  }, [activeTab, selectedFileEntry]);
+  }, [activeFileEntry, activeTab]);
 
   const geometryInfo = useMemo(() => {
     if (!featureCollection) {
@@ -453,7 +576,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
   }, [featureCollection]);
 
   const selectedColumnProfile = useMemo(() => {
-    if (!selectedColumn) {
+    if (!activeSelectedColumn) {
       return null;
     }
 
@@ -462,7 +585,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
         if (!row || typeof row !== 'object') {
           return undefined;
         }
-        return (row as Record<string, unknown>)[selectedColumn];
+        return (row as Record<string, unknown>)[activeSelectedColumn];
       })
       .filter((value) => value !== null && value !== undefined);
 
@@ -528,14 +651,14 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       uniqueCount: frequency.size,
       topValues,
     };
-  }, [rows, selectedColumn]);
+  }, [activeSelectedColumn, rows]);
 
   const analysisContext = useMemo(() => {
     const lines: string[] = [];
     const featureCount = featureCollection?.features.length ?? 0;
 
     lines.push('このサマリーはDataLoom StudioのGIS分析モードで地図上に可視化されたデータです。');
-    lines.push(`対象ファイル: ${datasetName} (${selectedFilePath ?? '未保存パス'})`);
+    lines.push(`対象ファイル: ${datasetName} (${activeFilePath ?? '未保存パス'})`);
     if (datasetType) {
       lines.push(`ファイル種別: ${datasetType}`);
     }
@@ -555,12 +678,12 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       );
     }
 
-    if (selectedColumn) {
+    if (activeSelectedColumn) {
       if (!selectedColumnProfile || selectedColumnProfile.kind === 'empty') {
-        lines.push(`可視化対象カラム: ${selectedColumn}（値が取得できませんでした）`);
+        lines.push(`可視化対象カラム: ${activeSelectedColumn}（値が取得できませんでした）`);
       } else if (selectedColumnProfile.kind === 'numeric') {
         lines.push(
-          `可視化対象カラム: ${selectedColumn}（数値: 有効データ ${selectedColumnProfile.count} 件, 欠損 ${selectedColumnProfile.missingCount} 件, ` +
+          `可視化対象カラム: ${activeSelectedColumn}（数値: 有効データ ${selectedColumnProfile.count} 件, 欠損 ${selectedColumnProfile.missingCount} 件, ` +
             `最小 ${formatNumber(selectedColumnProfile.min, 4)}, 最大 ${formatNumber(selectedColumnProfile.max, 4)}, ` +
             `平均 ${formatNumber(selectedColumnProfile.mean, 4)}, 中央値 ${formatNumber(selectedColumnProfile.median, 4)}）`,
         );
@@ -572,7 +695,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
           })
           .join(', ');
         lines.push(
-          `可視化対象カラム: ${selectedColumn}（カテゴリ: 有効データ ${selectedColumnProfile.count} 件, 欠損 ${selectedColumnProfile.missingCount} 件, ` +
+          `可視化対象カラム: ${activeSelectedColumn}（カテゴリ: 有効データ ${selectedColumnProfile.count} 件, 欠損 ${selectedColumnProfile.missingCount} 件, ` +
             `ユニーク値 ${selectedColumnProfile.uniqueCount} 件, 上位: ${topValues || 'データ不足'}）`,
         );
       }
@@ -581,13 +704,13 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
     }
 
     const styleParts = [
-      `ベースカラー ${styleSettings.color}`,
-      `明度 ${styleSettings.brightness}`,
-      `透明度 ${styleSettings.fillOpacity}%`,
-      `ライン太さ ${styleSettings.lineWeight}px`,
-      `ポイント半径 ${styleSettings.pointRadius}px`,
-      styleSettings.valueDriven
-        ? `値に応じて色分け（強調度 ${styleSettings.valueIntensity}%）`
+      `ベースカラー ${activeStyleSettings.color}`,
+      `明度 ${activeStyleSettings.brightness}`,
+      `透明度 ${activeStyleSettings.fillOpacity}%`,
+      `ライン太さ ${activeStyleSettings.lineWeight}px`,
+      `ポイント半径 ${activeStyleSettings.pointRadius}px`,
+      activeStyleSettings.valueDriven
+        ? `値に応じて色分け（強調度 ${activeStyleSettings.valueIntensity}%）`
         : '値に応じた色分けなし',
     ];
     lines.push(`スタイル設定: ${styleParts.join(' / ')}`);
@@ -605,16 +728,16 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
     geometryInfo.boundingBox,
     geometryInfo.counts,
     rows.length,
-    selectedColumn,
+    activeFilePath,
+    activeSelectedColumn,
     selectedColumnProfile,
-    selectedFilePath,
-    styleSettings.brightness,
-    styleSettings.color,
-    styleSettings.fillOpacity,
-    styleSettings.lineWeight,
-    styleSettings.pointRadius,
-    styleSettings.valueDriven,
-    styleSettings.valueIntensity,
+    activeStyleSettings.brightness,
+    activeStyleSettings.color,
+    activeStyleSettings.fillOpacity,
+    activeStyleSettings.lineWeight,
+    activeStyleSettings.pointRadius,
+    activeStyleSettings.valueDriven,
+    activeStyleSettings.valueIntensity,
   ]);
 
   const aiSummary = useMemo(() => {
@@ -629,6 +752,10 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       analysisContext,
     });
   }, [analysisContext, columns, datasetName, datasetType, rows]);
+
+  useEffect(() => {
+    setAnalysisSummary(aiSummary);
+  }, [aiSummary, setAnalysisSummary]);
 
   const isMountedRef = useRef(false);
   useEffect(() => {
@@ -710,65 +837,89 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
     };
   }, [initialiseMap, leafletLib]);
 
-  const numericStats = useMemo(() => {
-    if (!selectedColumn) {
+  const numericStatsByPath = useMemo(() => {
+    const stats: Record<string, { min: number; max: number } | null> = {};
+
+    selectedFilePaths.forEach((path) => {
+      const dataset = datasets[path];
+      const column = selectedColumns[path];
+      if (!dataset || !column) {
+        stats[path] = null;
+        return;
+      }
+
+      const values = dataset.rows
+        .map((row) => row?.[column])
+        .filter((value) => value !== null && value !== undefined && value !== '');
+
+      if (values.length === 0) {
+        stats[path] = null;
+        return;
+      }
+
+      const numericValues = values
+        .map((value) => {
+          if (typeof value === 'number') {
+            return Number.isFinite(value) ? value : Number.NaN;
+          }
+          const parsed = Number(value);
+          return Number.isFinite(parsed) ? parsed : Number.NaN;
+        })
+        .filter((value) => !Number.isNaN(value));
+
+      if (numericValues.length === 0) {
+        stats[path] = null;
+        return;
+      }
+
+      stats[path] = {
+        min: Math.min(...numericValues),
+        max: Math.max(...numericValues),
+      };
+    });
+
+    return stats;
+  }, [datasets, selectedColumns, selectedFilePaths]);
+
+  const activeNumericStats = useMemo(() => {
+    if (!activeFilePath) {
       return null;
     }
-
-    const values = rows
-      .map((row) => row?.[selectedColumn])
-      .filter((value) => value !== null && value !== undefined && value !== '');
-
-    if (values.length === 0) {
-      return null;
-    }
-
-    const numericValues = values
-      .map((value) => {
-        if (typeof value === 'number') {
-          return Number.isFinite(value) ? value : Number.NaN;
-        }
-        const parsed = Number(value);
-        return Number.isFinite(parsed) ? parsed : Number.NaN;
-      })
-      .filter((value) => !Number.isNaN(value));
-
-    if (numericValues.length === 0) {
-      return null;
-    }
-
-    return {
-      min: Math.min(...numericValues),
-      max: Math.max(...numericValues),
-    };
-  }, [rows, selectedColumn]);
+    return numericStatsByPath[activeFilePath] ?? null;
+  }, [activeFilePath, numericStatsByPath]);
 
   useEffect(() => {
-    if (!numericStats && styleSettings.valueDriven) {
-      setStyleSettings((prev) => ({ ...prev, valueDriven: false }));
+    if (!activeNumericStats && activeStyleSettings.valueDriven) {
+      updateActiveStyleSettings((prev) => ({ ...prev, valueDriven: false }));
     }
-  }, [numericStats, styleSettings.valueDriven]);
+  }, [activeNumericStats, activeStyleSettings.valueDriven, updateActiveStyleSettings]);
 
-  const computeColor = useCallback((value: unknown) => {
-    const baseColor = adjustColorBrightness(styleSettings.color, styleSettings.brightness);
-    if (!styleSettings.valueDriven || !numericStats) {
-      return baseColor;
-    }
+  const computeColorForFeature = useCallback(
+    (path: string, value: unknown) => {
+      const settings = resolveStyleSettings(path);
+      const baseColor = adjustColorBrightness(settings.color, settings.brightness);
+      const stats = numericStatsByPath[path];
 
-    const numericValue = typeof value === 'number' ? value : Number(value);
-    if (!Number.isFinite(numericValue)) {
-      return baseColor;
-    }
+      if (!settings.valueDriven || !stats) {
+        return baseColor;
+      }
 
-    const { min, max } = numericStats;
-    if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
-      return baseColor;
-    }
+      const numericValue = typeof value === 'number' ? value : Number(value);
+      if (!Number.isFinite(numericValue)) {
+        return baseColor;
+      }
 
-    const normalized = clamp((numericValue - min) / (max - min), 0, 1);
-    const intensity = clamp(styleSettings.valueIntensity / 100, 0, 1);
-    return mixColors(baseColor, '#ffffff', normalized * intensity);
-  }, [numericStats, styleSettings.brightness, styleSettings.color, styleSettings.valueDriven, styleSettings.valueIntensity]);
+      const { min, max } = stats;
+      if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
+        return baseColor;
+      }
+
+      const normalized = clamp((numericValue - min) / (max - min), 0, 1);
+      const intensity = clamp(settings.valueIntensity / 100, 0, 1);
+      return mixColors(baseColor, '#ffffff', normalized * intensity);
+    },
+    [numericStatsByPath, resolveStyleSettings],
+  );
 
   const updateGeoJsonLayerStyle = useCallback(() => {
     const layer = geoJsonLayerRef.current;
@@ -776,17 +927,26 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       return;
     }
 
-    const fillOpacity = clamp(styleSettings.fillOpacity / 100, 0, 1);
-
     layer.eachLayer((subLayer) => {
-      const leafletLayer = subLayer as (CircleMarker | Path) & { feature?: GeoJSON.Feature }; // 型ガード
+      const leafletLayer = subLayer as (CircleMarker | Path) & { feature?: GeoJSON.Feature };
       const feature = leafletLayer.feature;
-      const index = feature?.properties && typeof feature.properties === 'object'
-        ? Number((feature.properties as Record<string, unknown>).__feature_index)
-        : Number.NaN;
-      const row = Number.isFinite(index) ? rows[index] : undefined;
-      const value = selectedColumn && row ? row[selectedColumn] : undefined;
-      const color = computeColor(value);
+      const properties =
+        feature && feature.properties && typeof feature.properties === 'object'
+          ? (feature.properties as Record<string, unknown>)
+          : null;
+      const sourcePath = properties && typeof properties.__source_path === 'string'
+        ? (properties.__source_path as string)
+        : null;
+
+      if (!sourcePath) {
+        return;
+      }
+
+      const settings = resolveStyleSettings(sourcePath);
+      const fillOpacity = clamp(settings.fillOpacity / 100, 0, 1);
+      const selectedColumnForSource = selectedColumns[sourcePath] ?? null;
+      const value = selectedColumnForSource && properties ? properties[selectedColumnForSource] : undefined;
+      const color = computeColorForFeature(sourcePath, value);
 
       if (leafletLayer instanceof leafletLib.CircleMarker) {
         leafletLayer.setStyle({
@@ -796,63 +956,84 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
           opacity: fillOpacity,
           weight: 1,
         });
-        leafletLayer.setRadius(styleSettings.pointRadius);
+        leafletLayer.setRadius(settings.pointRadius);
       } else if (leafletLayer instanceof leafletLib.Path) {
         leafletLayer.setStyle({
           color,
-          weight: styleSettings.lineWeight,
+          weight: settings.lineWeight,
           fillColor: color,
           fillOpacity,
           opacity: fillOpacity,
         });
       }
 
-      if (feature && leafletLayer.bindPopup) {
-        const rowForPopup = row ?? {};
-        const selectedValue = selectedColumn ? rowForPopup?.[selectedColumn] : undefined;
+      if (feature && leafletLayer.bindPopup && properties) {
         const popupLines: string[] = [];
-        if (selectedColumn) {
-          popupLines.push(`<div><strong>${escapeHtml(selectedColumn)}</strong>: ${escapeHtml(selectedValue)}</div>`);
+        const sourceName = typeof properties.__source_name === 'string' ? String(properties.__source_name) : null;
+        if (sourceName) {
+          popupLines.push(`<div class="text-xs font-semibold text-gray-700 dark:text-gray-200">${escapeHtml(sourceName)}</div>`);
+        }
+        if (selectedColumnForSource) {
+          popupLines.push(
+            `<div><strong>${escapeHtml(selectedColumnForSource)}</strong>: ${escapeHtml(properties[selectedColumnForSource])}</div>`,
+          );
         }
 
-        const additionalColumns = columns
-          .filter((column) => column !== selectedColumn)
+        const additionalColumns = (columnCache[sourcePath] ?? [])
+          .filter((column) => column !== selectedColumnForSource)
           .slice(0, 4);
 
         additionalColumns.forEach((column) => {
-          popupLines.push(`<div>${escapeHtml(column)}: ${escapeHtml(rowForPopup?.[column])}</div>`);
+          popupLines.push(`<div>${escapeHtml(column)}: ${escapeHtml(properties[column])}</div>`);
         });
 
         leafletLayer.bindPopup(`<div class="text-sm space-y-1">${popupLines.join('')}</div>`);
       }
     });
-  }, [columns, computeColor, leafletLib, rows, selectedColumn, styleSettings.fillOpacity, styleSettings.lineWeight, styleSettings.pointRadius]);
+  }, [columnCache, computeColorForFeature, leafletLib, resolveStyleSettings, selectedColumns]);
 
-  const buildEnrichedFeatureCollection = useCallback((collection: FeatureCollection | null) => {
-    if (!collection) {
-      return null;
-    }
+  const combinedFeatureCollection = useMemo(() => {
+    const features: FeatureCollection['features'] = [];
 
-    const features = collection.features.map((feature, index) => {
-      const row = rows[index] ?? {};
-      const sanitizedRow = { ...row };
-      delete sanitizedRow.geometry;
+    selectedFilePaths.forEach((path) => {
+      const dataset = datasets[path];
+      if (!dataset?.featureCollection) {
+        return;
+      }
+      const entry = gisFileMap.get(path);
+      const rowsForDataset = dataset.rows;
 
-      return {
-        ...feature,
-        properties: {
-          ...(feature.properties ?? {}),
-          __feature_index: index,
-          ...sanitizedRow,
-        },
-      };
+      dataset.featureCollection.features.forEach((feature, index) => {
+        const row = rowsForDataset[index];
+        const sanitizedProperties: Record<string, unknown> = {};
+        if (row && typeof row === 'object') {
+          Object.entries(row as Record<string, unknown>).forEach(([key, value]) => {
+            if (key !== 'geometry') {
+              sanitizedProperties[key] = value;
+            }
+          });
+        }
+
+        features.push({
+          ...feature,
+          properties: {
+            ...(feature.properties ?? {}),
+            __feature_index: index,
+            __source_path: path,
+            __source_name: entry?.name ?? path.split('/').pop() ?? path,
+            ...sanitizedProperties,
+          },
+        });
+      });
     });
 
-    return {
-      type: 'FeatureCollection',
-      features,
-    } as FeatureCollection;
-  }, [rows]);
+    return features.length > 0
+      ? ({
+          type: 'FeatureCollection',
+          features,
+        } as FeatureCollection)
+      : null;
+  }, [datasets, gisFileMap, selectedFilePaths]);
 
   useEffect(() => {
     const mapInstance = mapInstanceRef.current;
@@ -860,30 +1041,33 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       return;
     }
 
-    const enriched = buildEnrichedFeatureCollection(featureCollection);
     if (geoJsonLayerRef.current) {
       geoJsonLayerRef.current.remove();
       geoJsonLayerRef.current = null;
     }
 
-    if (!enriched) {
+    if (!combinedFeatureCollection) {
       return;
     }
 
-    const layer = leafletLib.geoJSON(enriched, {
+    const layer = leafletLib.geoJSON(combinedFeatureCollection, {
       pointToLayer: (feature, latlng) => {
-        const index = typeof feature.properties === 'object'
-          ? Number((feature.properties as Record<string, unknown>).__feature_index)
-          : Number.NaN;
-        const row = Number.isFinite(index) ? rows[index] : undefined;
-        const value = selectedColumn && row ? row[selectedColumn] : undefined;
-        const color = computeColor(value);
+        const properties =
+          feature && feature.properties && typeof feature.properties === 'object'
+            ? (feature.properties as Record<string, unknown>)
+            : {};
+        const sourcePath = typeof properties.__source_path === 'string' ? (properties.__source_path as string) : '';
+        const settings = resolveStyleSettings(sourcePath);
+        const selectedColumnForSource = selectedColumns[sourcePath] ?? null;
+        const value = selectedColumnForSource ? properties[selectedColumnForSource] : undefined;
+        const color = computeColorForFeature(sourcePath, value);
+        const opacity = clamp(settings.fillOpacity / 100, 0, 1);
         return leafletLib.circleMarker(latlng, {
-          radius: styleSettings.pointRadius,
+          radius: settings.pointRadius,
           color,
           fillColor: color,
-          fillOpacity: clamp(styleSettings.fillOpacity / 100, 0, 1),
-          opacity: clamp(styleSettings.fillOpacity / 100, 0, 1),
+          fillOpacity: opacity,
+          opacity,
           weight: 1,
         });
       },
@@ -898,52 +1082,68 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
     }
 
     updateGeoJsonLayerStyle();
-  }, [buildEnrichedFeatureCollection, computeColor, featureCollection, leafletLib, rows, selectedColumn, styleSettings.fillOpacity, styleSettings.pointRadius, updateGeoJsonLayerStyle]);
+  }, [
+    combinedFeatureCollection,
+    computeColorForFeature,
+    leafletLib,
+    resolveStyleSettings,
+    selectedColumns,
+    updateGeoJsonLayerStyle,
+  ]);
 
   useEffect(() => {
     updateGeoJsonLayerStyle();
-  }, [updateGeoJsonLayerStyle]);
+  }, [combinedFeatureCollection, updateGeoJsonLayerStyle]);
 
   useEffect(() => {
     setAiAnalysisResult(null);
     setAiAnalysisError(null);
-  }, [analysisContext, selectedColumn, selectedFilePath]);
+  }, [analysisContext, activeFilePath, activeSelectedColumn]);
 
   const applyDatasetToState = useCallback(
     (path: string, dataset: { rows: any[]; columns: string[]; featureCollection: FeatureCollection | null }) => {
-      setRows(dataset.rows);
-      setFeatureCollection(dataset.featureCollection ?? null);
+      setDatasets((previous) => ({ ...previous, [path]: dataset }));
 
       const preferredColumns = getPreferredColumns(dataset.columns);
       updateColumnCache(path, preferredColumns);
 
       if (preferredColumns.length > 0) {
-        const currentColumn = useGisAnalysisStore.getState().selectedColumn;
+        const currentColumn = useGisAnalysisStore.getState().selectedColumns[path] ?? null;
         if (!currentColumn || !preferredColumns.includes(currentColumn)) {
-          setSelectedColumn(preferredColumns[0]);
+          setSelectedColumn(path, preferredColumns[0]);
         }
       } else {
-        setSelectedColumn(null);
+        setSelectedColumn(path, null);
       }
 
-      setError(null);
+      setErrorsByPath((previous) => {
+        const next = { ...previous };
+        delete next[path];
+        return next;
+      });
     },
-    [setSelectedColumn, updateColumnCache],
+    [setSelectedColumn, setErrorsByPath, updateColumnCache],
   );
 
-  const resetDatasetState = useCallback(() => {
-    setRows([]);
-    setFeatureCollection(null);
+  const removeDatasetForPath = useCallback((path: string) => {
+    setDatasets((previous) => {
+      if (!(path in previous)) {
+        return previous;
+      }
+      const next = { ...previous };
+      delete next[path];
+      return next;
+    });
   }, []);
 
   const resolveGisResult = useCallback(
     (path: string, result: GisParseResult, options?: { cache?: boolean }) => {
       if (result.error) {
-        resetDatasetState();
-        setError(result.error);
+        removeDatasetForPath(path);
+        setErrorsByPath((previous) => ({ ...previous, [path]: result.error ?? 'GISデータの解析に失敗しました。' }));
         datasetCacheRef.current.delete(path);
-        updateColumnCache(path, []);
-        setSelectedColumn(null);
+        clearColumnCache(path);
+        setSelectedColumn(path, null);
         return;
       }
 
@@ -959,7 +1159,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
 
       applyDatasetToState(path, dataset);
     },
-    [applyDatasetToState, resetDatasetState, setSelectedColumn, updateColumnCache],
+    [applyDatasetToState, clearColumnCache, removeDatasetForPath, setErrorsByPath, setSelectedColumn],
   );
 
   const loadArrayBufferFromHandle = async (fileHandle?: FileSystemFileHandle | TabData['file']) => {
@@ -994,17 +1194,26 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
     }
 
     if (!entry && !tab) {
-      setError('選択されたファイルを読み込めませんでした');
+      removeDatasetForPath(path);
+      clearColumnCache(path);
+      setErrorsByPath((previous) => ({ ...previous, [path]: '選択されたファイルを読み込めませんでした' }));
       return;
     }
 
     const fileType = entry?.type ?? (tab?.type as GisFileType | undefined);
     if (!fileType) {
-      setError('このファイル形式はGIS分析に対応していません');
+      removeDatasetForPath(path);
+      clearColumnCache(path);
+      setErrorsByPath((previous) => ({ ...previous, [path]: 'このファイル形式はGIS分析に対応していません' }));
       return;
     }
 
-    setLoading(true);
+    setPathLoading(path, true);
+    setErrorsByPath((previous) => {
+      const next = { ...previous };
+      delete next[path];
+      return next;
+    });
 
     try {
       switch (fileType) {
@@ -1077,14 +1286,29 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
           break;
         }
         default:
-          setError('このファイル形式には対応していません');
+          removeDatasetForPath(path);
+          clearColumnCache(path);
+          setErrorsByPath((previous) => ({ ...previous, [path]: 'このファイル形式には対応していません' }));
       }
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'ファイルの読み込みに失敗しました');
+      const message = loadError instanceof Error ? loadError.message : 'ファイルの読み込みに失敗しました';
+      removeDatasetForPath(path);
+      clearColumnCache(path);
+      datasetCacheRef.current.delete(path);
+      setErrorsByPath((previous) => ({ ...previous, [path]: message }));
     } finally {
-      setLoading(false);
+      setPathLoading(path, false);
     }
-  }, [applyDatasetToState, gisFileMap, resolveGisResult, tabs]);
+  }, [
+    applyDatasetToState,
+    clearColumnCache,
+    gisFileMap,
+    removeDatasetForPath,
+    resolveGisResult,
+    setErrorsByPath,
+    setPathLoading,
+    tabs,
+  ]);
 
   const canRequestAiAnalysis = useMemo(() => {
     return Boolean(aiSummary && featureCollection && rows.length > 0);
@@ -1150,15 +1374,65 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
   }, [aiSummary, analysisPrompt, featureCollection, rows.length]);
 
   useEffect(() => {
-    if (!selectedFilePath) {
-      resetDatasetState();
-      setError(null);
+    if (selectedFilePaths.length === 0) {
+      setDatasets({});
+      setErrorsByPath({});
       return;
     }
-    loadGisFile(selectedFilePath).catch((err) => {
-      console.error('Failed to load GIS file:', err);
+
+    selectedFilePaths.forEach((path) => {
+      loadGisFile(path).catch((err) => {
+        console.error('Failed to load GIS file:', err);
+        setErrorsByPath((previous) => ({ ...previous, [path]: err instanceof Error ? err.message : 'ファイルの読み込みに失敗しました' }));
+      });
     });
-  }, [loadGisFile, resetDatasetState, selectedFilePath]);
+  }, [loadGisFile, selectedFilePaths]);
+
+  useEffect(() => {
+    setDatasets((previous) => {
+      const next = { ...previous };
+      let mutated = false;
+      Object.keys(next).forEach((path) => {
+        if (!selectedFilePaths.includes(path)) {
+          delete next[path];
+          mutated = true;
+        }
+      });
+      return mutated ? next : previous;
+    });
+
+    setErrorsByPath((previous) => {
+      const next = { ...previous };
+      let mutated = false;
+      Object.keys(next).forEach((path) => {
+        if (!selectedFilePaths.includes(path)) {
+          delete next[path];
+          mutated = true;
+        }
+      });
+      return mutated ? next : previous;
+    });
+
+    setLoadingPaths((previous) => {
+      const next = new Set(previous);
+      let mutated = false;
+      Array.from(next).forEach((path) => {
+        if (!selectedFilePaths.includes(path)) {
+          next.delete(path);
+          mutated = true;
+        }
+      });
+      return mutated ? next : previous;
+    });
+  }, [selectedFilePaths]);
+
+  useEffect(() => {
+    Object.keys(columnCache).forEach((path) => {
+      if (!selectedFilePaths.includes(path)) {
+        clearColumnCache(path);
+      }
+    });
+  }, [clearColumnCache, columnCache, selectedFilePaths]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -1171,32 +1445,41 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
         map.invalidateSize();
       }, 50);
     });
-  }, [featureCollection, leafletLib, selectedFilePath]);
+  }, [combinedFeatureCollection, leafletLib, selectedFilePaths.length]);
 
   useEffect(() => {
-    if (selectedFilePath) {
+    if (selectedFilePaths.length > 0) {
       return;
     }
 
     if (gisFileMap.has(tabId)) {
-      setSelectedFile(tabId);
+      setActiveFilePath(tabId);
       return;
     }
 
     if (isGisTab(activeTab)) {
-      setSelectedFile(activeTab.id);
+      setActiveFilePath(activeTab.id);
     }
-  }, [activeTab, gisFileMap, selectedFilePath, setSelectedFile, tabId]);
+  }, [activeTab, gisFileMap, selectedFilePaths.length, setActiveFilePath, tabId]);
 
   const renderMapPlaceholder = () => {
-    const displayError = leafletError ?? error;
-    if (displayError) {
-      const heading = leafletError ? '地図表示の初期化に失敗しました' : 'GISデータの読み込みに失敗しました';
+    if (leafletError) {
       return (
         <div className="flex h-full items-center justify-center">
           <div className="max-w-md rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/60 dark:bg-red-900/40 dark:text-red-200">
-            <div className="font-medium">{heading}</div>
-            <div className="mt-1 whitespace-pre-line leading-relaxed">{displayError}</div>
+            <div className="font-medium">地図表示の初期化に失敗しました</div>
+            <div className="mt-1 whitespace-pre-line leading-relaxed">{leafletError}</div>
+          </div>
+        </div>
+      );
+    }
+
+    if (activeError && (!combinedFeatureCollection || combinedFeatureCollection.features.length === 0)) {
+      return (
+        <div className="flex h-full items-center justify-center">
+          <div className="max-w-md rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/60 dark:bg-red-900/40 dark:text-red-200">
+            <div className="font-medium">GISデータの読み込みに失敗しました</div>
+            <div className="mt-1 whitespace-pre-line leading-relaxed">{activeError}</div>
           </div>
         </div>
       );
@@ -1210,7 +1493,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       );
     }
 
-    if (loading) {
+    if (isAnyLoading && (!combinedFeatureCollection || combinedFeatureCollection.features.length === 0)) {
       return (
         <div className="flex h-full items-center justify-center text-sm text-gray-500 dark:text-gray-400">
           GISデータを解析しています…
@@ -1218,7 +1501,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       );
     }
 
-    if (!selectedFilePath) {
+    if (selectedFilePaths.length === 0) {
       return (
         <div className="flex h-full items-center justify-center text-center text-sm text-gray-500 dark:text-gray-400">
           左サイドバーのGISファイルから表示したいデータを選択してください。
@@ -1226,7 +1509,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       );
     }
 
-    if (!featureCollection || featureCollection.features.length === 0) {
+    if (!combinedFeatureCollection || combinedFeatureCollection.features.length === 0) {
       return (
         <div className="flex h-full items-center justify-center text-center text-sm text-gray-500 dark:text-gray-400">
           選択したファイルに表示可能な地物がありません。別のファイルまたはカラムを選択してください。
@@ -1237,18 +1520,114 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
     return null;
   };
 
-  const isNumericColumn = Boolean(numericStats);
+  const isNumericColumn = Boolean(activeNumericStats);
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-white dark:bg-gray-900">
-      <main className="relative flex flex-1">
-        <div className="flex-1">
+      <main className="relative flex flex-1 flex-col">
+        <div className="relative flex-1">
           <div ref={mapContainerRef} className="h-full w-full" />
           {renderMapPlaceholder()}
         </div>
+        {selectedFilePaths.length > 0 && (
+          <div className="max-h-64 overflow-y-auto border-t border-gray-200 bg-white/90 text-xs dark:border-gray-800 dark:bg-gray-900/60">
+            {selectedFilePaths.map((path) => {
+              const dataset = datasets[path];
+              const isExpanded = expandedTables[path] ?? false;
+              const isLoading = loadingPaths.has(path);
+              const errorMessage = errorsByPath[path] ?? null;
+              const fileEntry = gisFileMap.get(path);
+              const displayName = fileEntry?.name ?? path.split('/').pop() ?? path;
+              const datasetColumns = dataset?.columns ?? [];
+              const preferredColumns = dataset ? getPreferredColumns(datasetColumns) : [];
+              const cachedColumns = columnCache[path] ?? [];
+              const fallbackColumns = preferredColumns.length > 0
+                ? preferredColumns
+                : cachedColumns.length > 0
+                ? cachedColumns
+                : datasetColumns.length > 0
+                ? datasetColumns
+                : dataset && dataset.rows.length > 0
+                ? Object.keys(dataset.rows[0] ?? {}).filter((key) => key !== 'geometry')
+                : [];
+              const limitedColumns = fallbackColumns.slice(0, 8);
+              const displayRows = dataset ? dataset.rows.slice(0, 50) : [];
+              const rowCount = dataset?.rows.length ?? 0;
+
+              return (
+                <div key={path} className="border-b border-gray-200 last:border-b-0 dark:border-gray-800">
+                  <button
+                    type="button"
+                    onClick={() => toggleTableExpansion(path)}
+                    className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
+                  >
+                    <span className="flex items-center gap-2">
+                      {isExpanded ? <IoChevronDown size={14} /> : <IoChevronForward size={14} />}
+                      <span className="truncate">{displayName}</span>
+                    </span>
+                    <span className="flex items-center gap-3 text-[11px] text-gray-500 dark:text-gray-400">
+                      <span>行 {rowCount.toLocaleString('ja-JP')}</span>
+                      <span>列 {(datasetColumns.length || fallbackColumns.length).toLocaleString('ja-JP')}</span>
+                    </span>
+                  </button>
+                  {isExpanded && (
+                    <div className="px-3 pb-3">
+                      {isLoading ? (
+                        <div className="py-6 text-center text-[11px] text-gray-500 dark:text-gray-400">属性データを読み込んでいます…</div>
+                      ) : errorMessage ? (
+                        <div className="rounded border border-red-200 bg-red-50 p-3 text-[11px] text-red-700 dark:border-red-800 dark:bg-red-900/40 dark:text-red-300">
+                          {errorMessage}
+                        </div>
+                      ) : dataset && displayRows.length > 0 && limitedColumns.length > 0 ? (
+                        <>
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full border-collapse text-[11px]">
+                              <thead>
+                                <tr className="bg-gray-100 text-left font-semibold text-gray-600 dark:bg-gray-800 dark:text-gray-200">
+                                  <th className="w-12 px-2 py-1 text-[11px] text-gray-500 dark:text-gray-300">#</th>
+                                  {limitedColumns.map((column) => (
+                                    <th key={`${path}-head-${column}`} className="px-2 py-1 text-[11px] text-gray-500 dark:text-gray-300">
+                                      {column}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {displayRows.map((row, index) => (
+                                  <tr
+                                    key={`${path}-row-${index}`}
+                                    className={index % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/70'}
+                                  >
+                                    <td className="px-2 py-1 text-[11px] text-gray-400">{index + 1}</td>
+                                    {limitedColumns.map((column) => (
+                                      <td key={`${path}-${column}-${index}`} className="px-2 py-1 text-[11px] text-gray-700 dark:text-gray-200">
+                                        {truncateLabel(valueToLabel((row ?? {})[column]), 80)}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                          {dataset.rows.length > displayRows.length && (
+                            <div className="mt-1 text-right text-[11px] text-gray-400 dark:text-gray-500">先頭50件を表示しています</div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="py-4 text-center text-[11px] text-gray-500 dark:text-gray-400">
+                          表示できる属性データがありません。
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </main>
 
-      <aside className="w-80 flex-shrink-0 border-l border-gray-200 bg-white/80 p-4 dark:border-gray-800 dark:bg-gray-900/60">
+      <aside className="w-80 flex-shrink-0 border-l border-gray-200 bg-white/80 p-4 overflow-y-auto dark:border-gray-800 dark:bg-gray-900/60">
         <div className="mb-4">
           <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">シンボル設定</h2>
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -1261,8 +1640,8 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-300">ベースカラー</label>
             <input
               type="color"
-              value={styleSettings.color}
-              onChange={(event) => setStyleSettings((prev) => ({ ...prev, color: event.target.value }))}
+              value={activeStyleSettings.color}
+              onChange={(event) => updateActiveStyleSettings((prev) => ({ ...prev, color: event.target.value }))}
               className="mt-1 h-10 w-full cursor-pointer rounded border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800"
             />
           </div>
@@ -1273,11 +1652,11 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
               type="range"
               min={-50}
               max={50}
-              value={styleSettings.brightness}
-              onChange={(event) => setStyleSettings((prev) => ({ ...prev, brightness: Number(event.target.value) }))}
+              value={activeStyleSettings.brightness}
+              onChange={(event) => updateActiveStyleSettings((prev) => ({ ...prev, brightness: Number(event.target.value) }))}
               className="mt-2 w-full"
             />
-            <div className="mt-1 text-right text-xs text-gray-500 dark:text-gray-400">{styleSettings.brightness}</div>
+            <div className="mt-1 text-right text-xs text-gray-500 dark:text-gray-400">{activeStyleSettings.brightness}</div>
           </div>
 
           <div>
@@ -1286,11 +1665,11 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
               type="range"
               min={10}
               max={100}
-              value={styleSettings.fillOpacity}
-              onChange={(event) => setStyleSettings((prev) => ({ ...prev, fillOpacity: Number(event.target.value) }))}
+              value={activeStyleSettings.fillOpacity}
+              onChange={(event) => updateActiveStyleSettings((prev) => ({ ...prev, fillOpacity: Number(event.target.value) }))}
               className="mt-2 w-full"
             />
-            <div className="mt-1 text-right text-xs text-gray-500 dark:text-gray-400">{styleSettings.fillOpacity}%</div>
+            <div className="mt-1 text-right text-xs text-gray-500 dark:text-gray-400">{activeStyleSettings.fillOpacity}%</div>
           </div>
 
           <div>
@@ -1299,11 +1678,11 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
               type="range"
               min={2}
               max={20}
-              value={styleSettings.pointRadius}
-              onChange={(event) => setStyleSettings((prev) => ({ ...prev, pointRadius: Number(event.target.value) }))}
+              value={activeStyleSettings.pointRadius}
+              onChange={(event) => updateActiveStyleSettings((prev) => ({ ...prev, pointRadius: Number(event.target.value) }))}
               className="mt-2 w-full"
             />
-            <div className="mt-1 text-right text-xs text-gray-500 dark:text-gray-400">{styleSettings.pointRadius}px</div>
+            <div className="mt-1 text-right text-xs text-gray-500 dark:text-gray-400">{activeStyleSettings.pointRadius}px</div>
           </div>
 
           <div>
@@ -1312,11 +1691,11 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
               type="range"
               min={1}
               max={10}
-              value={styleSettings.lineWeight}
-              onChange={(event) => setStyleSettings((prev) => ({ ...prev, lineWeight: Number(event.target.value) }))}
+              value={activeStyleSettings.lineWeight}
+              onChange={(event) => updateActiveStyleSettings((prev) => ({ ...prev, lineWeight: Number(event.target.value) }))}
               className="mt-2 w-full"
             />
-            <div className="mt-1 text-right text-xs text-gray-500 dark:text-gray-400">{styleSettings.lineWeight}px</div>
+            <div className="mt-1 text-right text-xs text-gray-500 dark:text-gray-400">{activeStyleSettings.lineWeight}px</div>
           </div>
 
           <div className="rounded border border-gray-200 p-3 dark:border-gray-700">
@@ -1324,8 +1703,8 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
               <input
                 type="checkbox"
                 className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                checked={styleSettings.valueDriven && isNumericColumn}
-                onChange={(event) => setStyleSettings((prev) => ({
+                checked={activeStyleSettings.valueDriven && isNumericColumn}
+                onChange={(event) => updateActiveStyleSettings((prev) => ({
                   ...prev,
                   valueDriven: isNumericColumn ? event.target.checked : false,
                 }))}
@@ -1344,22 +1723,22 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
               type="range"
               min={0}
               max={100}
-              value={styleSettings.valueIntensity}
-              onChange={(event) => setStyleSettings((prev) => ({ ...prev, valueIntensity: Number(event.target.value) }))}
-              disabled={!styleSettings.valueDriven || !isNumericColumn}
+              value={activeStyleSettings.valueIntensity}
+              onChange={(event) => updateActiveStyleSettings((prev) => ({ ...prev, valueIntensity: Number(event.target.value) }))}
+              disabled={!activeStyleSettings.valueDriven || !isNumericColumn}
               className="mt-2 w-full"
             />
             <div className="mt-1 text-right text-xs text-gray-500 dark:text-gray-400">
-              {styleSettings.valueIntensity}%
+              {activeStyleSettings.valueIntensity}%
             </div>
           </div>
 
-          {numericStats && (
+          {activeNumericStats && activeSelectedColumn && (
             <div className="rounded border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800/40 dark:text-gray-300">
-              <div className="font-semibold">{selectedColumn} の統計</div>
+              <div className="font-semibold">{activeSelectedColumn} の統計</div>
               <div className="mt-2 flex flex-col gap-1">
-                <div>最小値: {numericStats.min.toLocaleString()}</div>
-                <div>最大値: {numericStats.max.toLocaleString()}</div>
+                <div>最小値: {activeNumericStats.min.toLocaleString()}</div>
+                <div>最大値: {activeNumericStats.max.toLocaleString()}</div>
               </div>
             </div>
           )}

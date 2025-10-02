@@ -12,7 +12,6 @@ import {
   IoDownloadOutline,
   IoKeyOutline,
   IoHelpCircleOutline,
-  IoGlobeOutline,
 } from 'react-icons/io5';
 
 interface MainHeaderProps {
@@ -33,9 +32,6 @@ interface MainHeaderProps {
   onToggleHelp: () => void;
   isHelpPaneVisible: boolean;
   onOpenLlmSettings: () => void;
-  isGisData: boolean;
-  isGisModeActive: boolean;
-  onToggleGisMode: () => void;
 }
 
 const MainHeader: React.FC<MainHeaderProps> = ({
@@ -56,18 +52,8 @@ const MainHeader: React.FC<MainHeaderProps> = ({
   onToggleHelp,
   isHelpPaneVisible,
   onOpenLlmSettings,
-  isGisData,
-  isGisModeActive,
-  onToggleGisMode,
 }) => {
   const isDark = theme === 'dark';
-
-  const canToggleGisMode = isGisData || isGisModeActive;
-  const gisButtonLabel = isGisModeActive
-    ? 'GIS分析モードを終了'
-    : isGisData
-      ? 'GIS分析モードを表示'
-      : 'GIS対応ファイルを開くと利用できます';
 
   return (
     <header className="flex items-center px-4 h-12 bg-white border-b border-gray-300 dark:bg-gray-900 dark:border-gray-700">
@@ -135,72 +121,6 @@ const MainHeader: React.FC<MainHeaderProps> = ({
         title="OpenAI APIキー設定"
       >
         <IoKeyOutline size={20} />
-      </button>
-      {isGisData && (
-        <button
-          className={`p-1 rounded ml-2 ${
-            isGisModeActive ? 'bg-teal-100 text-teal-700' : 'hover:bg-gray-200 dark:hover:bg-gray-800'
-          }`}
-          onClick={onToggleGisMode}
-          aria-label="Toggle GIS Analysis Mode"
-          title={`GIS分析モードを${isGisModeActive ? '終了' : '表示'}`}
-        >
-          <IoGlobeOutline size={20} />
-        </button>
-      )}
-      <button
-        className={`p-1 rounded ml-2 ${
-          isGisModeActive
-            ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-200'
-            : 'hover:bg-gray-200 dark:hover:bg-gray-800'
-        } ${canToggleGisMode ? '' : 'opacity-40 cursor-not-allowed'}`}
-        onClick={() => {
-          if (!canToggleGisMode) {
-            return;
-          }
-          onToggleGisMode();
-        }}
-        aria-label="Toggle GIS Analysis Mode"
-        title={gisButtonLabel}
-        type="button"
-      >
-        <IoGlobeOutline size={20} />
-      </button>
-      <button
-        className={`p-1 rounded ml-2 ${
-          isGisModeActive
-            ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-200'
-            : 'hover:bg-gray-200 dark:hover:bg-gray-800'
-        } ${canToggleGisMode ? '' : 'opacity-40 cursor-not-allowed'}`}
-        onClick={() => {
-          if (!canToggleGisMode) {
-            return;
-          }
-          onToggleGisMode();
-        }}
-        aria-label="Toggle GIS Analysis Mode"
-        title={gisButtonLabel}
-        type="button"
-      >
-        <IoGlobeOutline size={20} />
-      </button>
-      <button
-        className={`p-1 rounded ml-2 ${
-          isGisModeActive
-            ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-200'
-            : 'hover:bg-gray-200 dark:hover:bg-gray-800'
-        } ${canToggleGisMode ? '' : 'opacity-40 cursor-not-allowed'}`}
-        onClick={() => {
-          if (!canToggleGisMode) {
-            return;
-          }
-          onToggleGisMode();
-        }}
-        aria-label="Toggle GIS Analysis Mode"
-        title={gisButtonLabel}
-        type="button"
-      >
-        <IoGlobeOutline size={20} />
       </button>
       <button
         className={`p-1 rounded ml-2 ${
