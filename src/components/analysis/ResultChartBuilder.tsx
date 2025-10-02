@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import type { Config as PlotlyConfig, Data as PlotlyData, Layout as PlotlyLayout } from 'plotly.js';
 import {
@@ -887,82 +887,88 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
 
+  const lastInitialSettingsRef = useRef<ChartDesignerSettings | undefined>(undefined);
+
   useEffect(() => {
     if (!initialSettings) {
+      lastInitialSettingsRef.current = undefined;
       return;
     }
 
-    if (initialSettings.chartType && initialSettings.chartType !== chartType) {
-      setChartType(initialSettings.chartType);
+    if (lastInitialSettingsRef.current === initialSettings) {
+      return;
     }
 
-    if (initialSettings.xField !== undefined && initialSettings.xField !== xField) {
-      setXField(initialSettings.xField);
+    lastInitialSettingsRef.current = initialSettings;
+
+    if (initialSettings.chartType !== undefined) {
+      setChartType(prev => (prev !== initialSettings.chartType ? initialSettings.chartType : prev));
     }
 
-    if (initialSettings.yField !== undefined && initialSettings.yField !== yField) {
-      setYField(initialSettings.yField);
+    if (initialSettings.xField !== undefined) {
+      setXField(prev => (prev !== initialSettings.xField ? initialSettings.xField ?? '' : prev));
     }
 
-    if (initialSettings.aggregation !== undefined && initialSettings.aggregation !== aggregation) {
-      setAggregation(initialSettings.aggregation);
+    if (initialSettings.yField !== undefined) {
+      setYField(prev => (prev !== initialSettings.yField ? initialSettings.yField ?? '' : prev));
     }
 
-    if (initialSettings.bins !== undefined && initialSettings.bins !== bins) {
-      setBins(initialSettings.bins);
+    if (initialSettings.aggregation !== undefined) {
+      setAggregation(prev =>
+        prev !== initialSettings.aggregation ? initialSettings.aggregation : prev,
+      );
     }
 
-    if (initialSettings.categoryField !== undefined && initialSettings.categoryField !== categoryField) {
-      setCategoryField(initialSettings.categoryField);
+    if (initialSettings.bins !== undefined) {
+      setBins(prev => (prev !== initialSettings.bins ? initialSettings.bins : prev));
+    }
+
+    if (initialSettings.categoryField !== undefined) {
+      setCategoryField(prev =>
+        prev !== initialSettings.categoryField ? initialSettings.categoryField ?? '' : prev,
+      );
     }
 
     if (initialSettings.vennFields !== undefined) {
       const incoming = initialSettings.vennFields;
-      const isSameLength = incoming.length === vennFields.length;
-      const isSame =
-        isSameLength && incoming.every((value, index) => value === vennFields[index]);
-      if (!isSame) {
-        setVennFields([...incoming]);
-      }
+      setVennFields(prev => {
+        const isSameLength = prev.length === incoming.length;
+        const isSame = isSameLength && incoming.every((value, index) => value === prev[index]);
+        return isSame ? prev : [...incoming];
+      });
     }
 
-    if (initialSettings.bubbleSizeField !== undefined && initialSettings.bubbleSizeField !== bubbleSizeField) {
-      setBubbleSizeField(initialSettings.bubbleSizeField);
+    if (initialSettings.bubbleSizeField !== undefined) {
+      setBubbleSizeField(prev =>
+        prev !== initialSettings.bubbleSizeField ? initialSettings.bubbleSizeField ?? '' : prev,
+      );
     }
 
-    if (initialSettings.ganttTaskField !== undefined && initialSettings.ganttTaskField !== ganttTaskField) {
-      setGanttTaskField(initialSettings.ganttTaskField);
+    if (initialSettings.ganttTaskField !== undefined) {
+      setGanttTaskField(prev =>
+        prev !== initialSettings.ganttTaskField ? initialSettings.ganttTaskField ?? '' : prev,
+      );
     }
 
-    if (initialSettings.ganttStartField !== undefined && initialSettings.ganttStartField !== ganttStartField) {
-      setGanttStartField(initialSettings.ganttStartField);
+    if (initialSettings.ganttStartField !== undefined) {
+      setGanttStartField(prev =>
+        prev !== initialSettings.ganttStartField ? initialSettings.ganttStartField ?? '' : prev,
+      );
     }
 
-    if (initialSettings.ganttEndField !== undefined && initialSettings.ganttEndField !== ganttEndField) {
-      setGanttEndField(initialSettings.ganttEndField);
+    if (initialSettings.ganttEndField !== undefined) {
+      setGanttEndField(prev =>
+        prev !== initialSettings.ganttEndField ? initialSettings.ganttEndField ?? '' : prev,
+      );
     }
 
     if (initialSettings.collapsed !== undefined) {
-      const nextExpanded = !initialSettings.collapsed;
-      if (nextExpanded !== expanded) {
-        setExpanded(nextExpanded);
-      }
+      setExpanded(prev => {
+        const nextExpanded = !initialSettings.collapsed;
+        return prev !== nextExpanded ? nextExpanded : prev;
+      });
     }
-  }, [
-    initialSettings,
-    aggregation,
-    bins,
-    bubbleSizeField,
-    categoryField,
-    chartType,
-    expanded,
-    ganttEndField,
-    ganttStartField,
-    ganttTaskField,
-    vennFields,
-    xField,
-    yField,
-  ]);
+  }, [initialSettings]);
 
   useEffect(() => {
     if (!onSettingsChange) {
