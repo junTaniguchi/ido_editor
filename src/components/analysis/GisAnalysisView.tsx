@@ -26,6 +26,78 @@ import { loadLeaflet } from '@/lib/loadLeaflet';
 
 type LeafletModule = Awaited<ReturnType<typeof loadLeaflet>>;
 
+type RemoteFilePayload =
+  | { kind: 'text'; content: string }
+  | { kind: 'base64'; content: string };
+
+const remoteFileCache = new Map<string, RemoteFilePayload | null>();
+
+const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
+  if (!base64) {
+    return new ArrayBuffer(0);
+  }
+
+  if (typeof window === 'undefined' || typeof window.atob !== 'function') {
+    return new ArrayBuffer(0);
+  }
+
+  const normalized = base64.replace(/\s+/g, '');
+  const binary = window.atob(normalized);
+  const length = binary.length;
+  const bytes = new Uint8Array(length);
+  for (let index = 0; index < length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes.buffer;
+};
+
+const fetchWorkspaceFile = async (path: string): Promise<RemoteFilePayload | null> => {
+  if (!path) {
+    return null;
+  }
+
+  const normalized = path.replace(/^\/+/, '');
+  const candidates = new Set<string>();
+  candidates.add(normalized);
+  if (!normalized.startsWith('test_data/')) {
+    candidates.add(`test_data/${normalized}`);
+  }
+
+  for (const candidate of candidates) {
+    if (remoteFileCache.has(candidate)) {
+      const cached = remoteFileCache.get(candidate) ?? null;
+      if (cached) {
+        return cached;
+      }
+      continue;
+    }
+
+    try {
+      const response = await fetch(`/api/files?path=${encodeURIComponent(candidate)}`);
+      if (!response.ok) {
+        remoteFileCache.set(candidate, null);
+        continue;
+      }
+      const payload = (await response.json()) as Partial<RemoteFilePayload> | null;
+      if (
+        payload &&
+        typeof payload === 'object' &&
+        (payload.kind === 'text' || payload.kind === 'base64') &&
+        typeof payload.content === 'string'
+      ) {
+        remoteFileCache.set(candidate, payload as RemoteFilePayload);
+        return payload as RemoteFilePayload;
+      }
+      remoteFileCache.set(candidate, null);
+    } catch (error) {
+      console.error('Failed to fetch workspace file for GIS analysis:', error);
+      remoteFileCache.set(candidate, null);
+    }
+  }
+
+  return null;
+};
+
 interface GisFileEntry {
   path: string;
   name: string;
@@ -899,6 +971,12 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
             content = await readFileContent(entry.fileHandle);
           }
           if (!content) {
+            const remote = await fetchWorkspaceFile(path);
+            if (remote?.kind === 'text') {
+              content = remote.content;
+            }
+          }
+          if (!content) {
             throw new Error('GeoJSONの内容を取得できませんでした');
           }
           const result = parseGeoJsonContent(content);
@@ -911,6 +989,12 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
             content = await readFileContent(entry.fileHandle);
           }
           if (!content) {
+            const remote = await fetchWorkspaceFile(path);
+            if (remote?.kind === 'text') {
+              content = remote.content;
+            }
+          }
+          if (!content) {
             throw new Error('KMLの内容を取得できませんでした');
           }
           const result = await parseKmlContent(content);
@@ -919,19 +1003,33 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
         }
         case 'kmz': {
           const buffer = await loadArrayBufferFromHandle(tab?.file ?? entry?.fileHandle);
-          if (!buffer) {
+          let workingBuffer = buffer;
+          if (!workingBuffer) {
+            const remote = await fetchWorkspaceFile(path);
+            if (remote?.kind === 'base64') {
+              workingBuffer = base64ToArrayBuffer(remote.content);
+            }
+          }
+          if (!workingBuffer || workingBuffer.byteLength === 0) {
             throw new Error('KMZの内容を取得できませんでした');
           }
-          const result = await parseKmzContent(buffer);
+          const result = await parseKmzContent(workingBuffer);
           resolveGisResult(path, result);
           break;
         }
         case 'shapefile': {
           const buffer = await loadArrayBufferFromHandle(tab?.file ?? entry?.fileHandle);
-          if (!buffer) {
+          let workingBuffer = buffer;
+          if (!workingBuffer) {
+            const remote = await fetchWorkspaceFile(path);
+            if (remote?.kind === 'base64') {
+              workingBuffer = base64ToArrayBuffer(remote.content);
+            }
+          }
+          if (!workingBuffer || workingBuffer.byteLength === 0) {
             throw new Error('シェープファイルの内容を取得できませんでした');
           }
-          const result = await parseShapefileContent(buffer);
+          const result = await parseShapefileContent(workingBuffer);
           resolveGisResult(path, result);
           break;
         }
