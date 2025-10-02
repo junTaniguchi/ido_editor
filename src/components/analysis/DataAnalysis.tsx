@@ -93,9 +93,22 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
   };
 
   const toggleAnalysisMode = () => {
-    updatePaneState({ 
-      isAnalysisVisible: !paneState.isAnalysisVisible 
-    });
+    const tab = tabs.get(tabId);
+    const type = tab?.type?.toLowerCase();
+    const isDataPreviewable =
+      type === 'csv' ||
+      type === 'tsv' ||
+      type === 'json' ||
+      type === 'yaml' ||
+      type === 'parquet' ||
+      type === 'excel' ||
+      type === 'geojson' ||
+      type === 'kml' ||
+      type === 'kmz' ||
+      type === 'shapefile';
+
+    const fallbackMode = isDataPreviewable ? 'data-preview' : 'editor';
+    setViewMode(tabId, fallbackMode);
   };
   
   const toggleDisplayMode = () => {

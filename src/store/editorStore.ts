@@ -24,7 +24,7 @@ import {
   HelpUserRole,
 } from '@/types';
 
-type EditorViewMode = 'editor' | 'preview' | 'data-preview' | 'split' | 'gis-analysis';
+type EditorViewMode = 'editor' | 'preview' | 'data-preview' | 'analysis' | 'split' | 'gis-analysis';
 
 interface EditorStore {
   // タブ管理
@@ -219,8 +219,17 @@ export const useEditorStore = create<EditorStore>()(
       setViewMode: (tabId, mode) => set((state) => {
         const newViewModes = new Map(state.viewModes);
         newViewModes.set(tabId, mode);
-        // グローバル lastViewMode を更新
-        return { viewModes: newViewModes, lastViewMode: mode };
+
+        const isAnalysisMode = mode === 'analysis';
+        const shouldUpdatePaneState = state.paneState.isAnalysisVisible !== isAnalysisMode;
+
+        return {
+          viewModes: newViewModes,
+          lastViewMode: mode === 'analysis' ? state.lastViewMode : mode,
+          paneState: shouldUpdatePaneState
+            ? { ...state.paneState, isAnalysisVisible: isAnalysisMode }
+            : state.paneState,
+        };
       }),
       getViewMode: (tabId) => {
         const mode = get().viewModes.get(tabId);

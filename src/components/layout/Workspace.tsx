@@ -25,7 +25,7 @@ interface WorkspaceProps {
   paneState: PaneState;
   activeTab: TabData | null;
   activeTabId: string | null;
-  activeTabViewMode: 'editor' | 'preview' | 'data-preview' | 'split' | 'gis-analysis';
+  activeTabViewMode: 'editor' | 'preview' | 'data-preview' | 'analysis' | 'split' | 'gis-analysis';
   multiFileAnalysisEnabled: boolean;
   onCloseMultiFileAnalysis: () => void;
 }
@@ -342,7 +342,9 @@ const Workspace: React.FC<WorkspaceProps> = ({
       return <GitCommitDiffView tab={activeTab} />;
     }
 
-    if (isDataAnalyzable && paneState.isAnalysisVisible) {
+    const shouldShowAnalysis = isDataAnalyzable && (paneState.isAnalysisVisible || activeTabViewMode === 'analysis');
+
+    if (shouldShowAnalysis) {
       return (
         <div className="w-full h-full overflow-hidden">
           <DataAnalysis tabId={activeTabId} />

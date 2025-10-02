@@ -369,7 +369,8 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   };
   
   const toggleAnalysisMode = () => {
-    updatePaneState({ isAnalysisVisible: !paneState.isAnalysisVisible });
+    const nextMode = viewMode === 'analysis' ? 'editor' : 'analysis';
+    setViewMode(tabId, nextMode);
   };
   
   const toggleDisplayMode = () => {

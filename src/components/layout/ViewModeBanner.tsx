@@ -5,7 +5,7 @@ import { TabData } from '@/types';
 
 interface ViewModeBannerProps {
   activeTab: TabData | null;
-  activeTabViewMode: 'editor' | 'preview' | 'data-preview' | 'split' | 'gis-analysis';
+  activeTabViewMode: 'editor' | 'preview' | 'data-preview' | 'analysis' | 'split' | 'gis-analysis';
   canToggleViewMode: boolean;
   onToggleViewMode: () => void;
 }
@@ -27,9 +27,11 @@ const ViewModeBanner: React.FC<ViewModeBannerProps> = ({
         ? 'プレビュー'
         : activeTabViewMode === 'data-preview'
           ? 'GUIデザインモード'
-          : activeTabViewMode === 'gis-analysis'
-            ? 'GIS分析'
-            : '分割表示';
+          : activeTabViewMode === 'analysis'
+            ? '分析モード'
+            : activeTabViewMode === 'gis-analysis'
+              ? 'GIS分析'
+              : '分割表示';
 
   const modeClassName =
     activeTabViewMode === 'editor'
@@ -38,9 +40,11 @@ const ViewModeBanner: React.FC<ViewModeBannerProps> = ({
         ? 'bg-green-100 text-green-800'
         : activeTabViewMode === 'data-preview'
           ? 'bg-indigo-100 text-indigo-800'
-          : activeTabViewMode === 'gis-analysis'
-            ? 'bg-teal-100 text-teal-800'
-            : 'bg-purple-100 text-purple-800';
+          : activeTabViewMode === 'analysis'
+            ? 'bg-amber-100 text-amber-800'
+            : activeTabViewMode === 'gis-analysis'
+              ? 'bg-teal-100 text-teal-800'
+              : 'bg-purple-100 text-purple-800';
 
   return (
     <div className="bg-gray-100 dark:bg-gray-900 px-2 py-1 border-b border-gray-300 dark:border-gray-700 flex justify-between items-center">

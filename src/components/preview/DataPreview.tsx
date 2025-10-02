@@ -658,7 +658,8 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   };
   
   const toggleAnalysisMode = () => {
-    updatePaneState({ isAnalysisVisible: !paneState.isAnalysisVisible });
+    const nextMode = viewMode === 'analysis' ? 'editor' : 'analysis';
+    setViewMode(tabId, nextMode);
   };
   
   const toggleDisplayMode = () => {
@@ -976,7 +977,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
             {(type === 'csv' || type === 'tsv' || type === 'json' || type === 'yaml' || type === 'parquet' || type === 'excel') && (
               <button
                 className={`px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 mr-2 flex items-center ${paneState.isAnalysisVisible ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
-                onClick={() => updatePaneState({ isAnalysisVisible: !paneState.isAnalysisVisible })}
+                onClick={toggleAnalysisMode}
                 title={paneState.isAnalysisVisible ? '分析モードを閉じる' : '分析モードに切り替え'}
               >
                 <IoAnalytics size={20} className="mr-1" /> 分析
