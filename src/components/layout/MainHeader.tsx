@@ -186,6 +186,24 @@ const MainHeader: React.FC<MainHeaderProps> = ({
       </button>
       <button
         className={`p-1 rounded ml-2 ${
+          isGisModeActive
+            ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-200'
+            : 'hover:bg-gray-200 dark:hover:bg-gray-800'
+        } ${canToggleGisMode ? '' : 'opacity-40 cursor-not-allowed'}`}
+        onClick={() => {
+          if (!canToggleGisMode) {
+            return;
+          }
+          onToggleGisMode();
+        }}
+        aria-label="Toggle GIS Analysis Mode"
+        title={gisButtonLabel}
+        type="button"
+      >
+        <IoGlobeOutline size={20} />
+      </button>
+      <button
+        className={`p-1 rounded ml-2 ${
           isHelpPaneVisible ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-200 dark:hover:bg-gray-800'
         }`}
         onClick={onToggleHelp}

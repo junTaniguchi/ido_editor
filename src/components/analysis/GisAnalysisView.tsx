@@ -304,6 +304,9 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<LeafletMap | null>(null);
   const geoJsonLayerRef = useRef<LeafletGeoJSON | null>(null);
+  const datasetCacheRef = useRef<Map<string, { rows: any[]; columns: string[]; featureCollection: FeatureCollection | null }>>(
+    new Map(),
+  );
   const [leafletLib, setLeafletLib] = useState<LeafletModule | null>(null);
   const [leafletLoading, setLeafletLoading] = useState(false);
   const [leafletError, setLeafletError] = useState<string | null>(null);
@@ -632,6 +635,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      datasetCacheRef.current.clear();
       useGisAnalysisStore.getState().reset();
     };
   }, []);
@@ -905,29 +909,58 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
     setAiAnalysisError(null);
   }, [analysisContext, selectedColumn, selectedFilePath]);
 
-  const resolveGisResult = useCallback((path: string, result: GisParseResult) => {
-    if (result.error) {
-      setError(result.error);
-      return;
-    }
+  const applyDatasetToState = useCallback(
+    (path: string, dataset: { rows: any[]; columns: string[]; featureCollection: FeatureCollection | null }) => {
+      setRows(dataset.rows);
+      setFeatureCollection(dataset.featureCollection ?? null);
 
-    setRows(result.rows);
-    setFeatureCollection(result.featureCollection ?? null);
+      const preferredColumns = getPreferredColumns(dataset.columns);
+      updateColumnCache(path, preferredColumns);
 
-    const preferredColumns = getPreferredColumns(result.columns);
-    updateColumnCache(path, preferredColumns);
-
-    if (preferredColumns.length > 0) {
-      const currentColumn = useGisAnalysisStore.getState().selectedColumn;
-      if (!currentColumn || !preferredColumns.includes(currentColumn)) {
-        setSelectedColumn(preferredColumns[0]);
+      if (preferredColumns.length > 0) {
+        const currentColumn = useGisAnalysisStore.getState().selectedColumn;
+        if (!currentColumn || !preferredColumns.includes(currentColumn)) {
+          setSelectedColumn(preferredColumns[0]);
+        }
+      } else {
+        setSelectedColumn(null);
       }
-    } else {
-      setSelectedColumn(null);
-    }
 
-    setError(null);
-  }, [setSelectedColumn, updateColumnCache]);
+      setError(null);
+    },
+    [setSelectedColumn, updateColumnCache],
+  );
+
+  const resetDatasetState = useCallback(() => {
+    setRows([]);
+    setFeatureCollection(null);
+  }, []);
+
+  const resolveGisResult = useCallback(
+    (path: string, result: GisParseResult, options?: { cache?: boolean }) => {
+      if (result.error) {
+        resetDatasetState();
+        setError(result.error);
+        datasetCacheRef.current.delete(path);
+        updateColumnCache(path, []);
+        setSelectedColumn(null);
+        return;
+      }
+
+      const dataset = {
+        rows: result.rows,
+        columns: result.columns,
+        featureCollection: result.featureCollection ?? null,
+      };
+
+      if (options?.cache) {
+        datasetCacheRef.current.set(path, dataset);
+      }
+
+      applyDatasetToState(path, dataset);
+    },
+    [applyDatasetToState, resetDatasetState, setSelectedColumn, updateColumnCache],
+  );
 
   const loadArrayBufferFromHandle = async (fileHandle?: FileSystemFileHandle | TabData['file']) => {
     if (!fileHandle) {
@@ -949,6 +982,16 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
   const loadGisFile = useCallback(async (path: string) => {
     const entry = gisFileMap.get(path);
     const tab = tabs.get(path);
+
+    const shouldBypassCache = Boolean(tab?.isDirty);
+    if (shouldBypassCache) {
+      datasetCacheRef.current.delete(path);
+    }
+    const cached = datasetCacheRef.current.get(path);
+    if (cached && !shouldBypassCache) {
+      applyDatasetToState(path, cached);
+      return;
+    }
 
     if (!entry && !tab) {
       setError('選択されたファイルを読み込めませんでした');
@@ -980,7 +1023,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
             throw new Error('GeoJSONの内容を取得できませんでした');
           }
           const result = parseGeoJsonContent(content);
-          resolveGisResult(path, result);
+          resolveGisResult(path, result, { cache: !shouldBypassCache });
           break;
         }
         case 'kml': {
@@ -998,7 +1041,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
             throw new Error('KMLの内容を取得できませんでした');
           }
           const result = await parseKmlContent(content);
-          resolveGisResult(path, result);
+          resolveGisResult(path, result, { cache: !shouldBypassCache });
           break;
         }
         case 'kmz': {
@@ -1014,7 +1057,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
             throw new Error('KMZの内容を取得できませんでした');
           }
           const result = await parseKmzContent(workingBuffer);
-          resolveGisResult(path, result);
+          resolveGisResult(path, result, { cache: !shouldBypassCache });
           break;
         }
         case 'shapefile': {
@@ -1030,7 +1073,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
             throw new Error('シェープファイルの内容を取得できませんでした');
           }
           const result = await parseShapefileContent(workingBuffer);
-          resolveGisResult(path, result);
+          resolveGisResult(path, result, { cache: !shouldBypassCache });
           break;
         }
         default:
@@ -1041,7 +1084,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
     } finally {
       setLoading(false);
     }
-  }, [gisFileMap, resolveGisResult, tabs]);
+  }, [applyDatasetToState, gisFileMap, resolveGisResult, tabs]);
 
   const canRequestAiAnalysis = useMemo(() => {
     return Boolean(aiSummary && featureCollection && rows.length > 0);
@@ -1108,12 +1151,27 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
 
   useEffect(() => {
     if (!selectedFilePath) {
+      resetDatasetState();
+      setError(null);
       return;
     }
     loadGisFile(selectedFilePath).catch((err) => {
       console.error('Failed to load GIS file:', err);
     });
-  }, [loadGisFile, selectedFilePath]);
+  }, [loadGisFile, resetDatasetState, selectedFilePath]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) {
+      return;
+    }
+
+    map.whenReady(() => {
+      setTimeout(() => {
+        map.invalidateSize();
+      }, 50);
+    });
+  }, [featureCollection, leafletLib, selectedFilePath]);
 
   useEffect(() => {
     if (selectedFilePath) {
