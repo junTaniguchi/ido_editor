@@ -1248,7 +1248,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
         </div>
       </main>
 
-      <aside className="w-80 flex-shrink-0 border-l border-gray-200 bg-white/80 p-4 dark:border-gray-800 dark:bg-gray-900/60">
+      <aside className="w-80 flex-shrink-0 border-l border-gray-200 bg-white/80 p-4 overflow-y-auto dark:border-gray-800 dark:bg-gray-900/60">
         <div className="mb-4">
           <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">シンボル設定</h2>
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">

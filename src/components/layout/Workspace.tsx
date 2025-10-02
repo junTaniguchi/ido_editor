@@ -39,49 +39,10 @@ const Workspace: React.FC<WorkspaceProps> = ({
   onCloseMultiFileAnalysis,
 }) => {
   const updatePaneState = useEditorStore((state) => state.updatePaneState);
+  const setViewMode = useEditorStore((state) => state.setViewMode);
   const editorRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const [isScrollSyncEnabled, setIsScrollSyncEnabled] = useState(false);
-
-  const activeSidebar = useMemo(() => {
-    if (paneState.activeSidebar !== undefined && paneState.activeSidebar !== null) {
-      return paneState.activeSidebar;
-    }
-    if (paneState.isExplorerVisible) {
-      return 'explorer';
-    }
-    if (paneState.isGitVisible) {
-      return 'git';
-    }
-    if (paneState.isGisVisible) {
-      return 'gis';
-    }
-    if (paneState.isHelpVisible) {
-      return 'help';
-    }
-    return null;
-  }, [paneState.activeSidebar, paneState.isExplorerVisible, paneState.isGitVisible, paneState.isGisVisible, paneState.isHelpVisible]);
-
-  const showExplorer = activeSidebar === 'explorer';
-  const showGitSidebar = activeSidebar === 'git';
-  const showGisSidebar = activeSidebar === 'gis';
-  const showHelpSidebar = activeSidebar === 'help';
-
-  const handleSidebarSelect = useCallback(
-    (sidebar: 'explorer' | 'gis' | 'git' | 'help') => {
-      const isActive = activeSidebar === sidebar;
-      updatePaneState({
-        activeSidebar: isActive ? null : sidebar,
-        isExplorerVisible: sidebar === 'explorer' ? !isActive : false,
-        isGisVisible: sidebar === 'gis' ? !isActive : false,
-        isGitVisible: sidebar === 'git' ? !isActive : false,
-        isHelpVisible: sidebar === 'help' ? !isActive : false,
-      });
-    },
-  [activeSidebar, updatePaneState]
-  );
-
-  const showSearchPanel = paneState.isSearchVisible;
 
   const {
     isMarkdown,
@@ -123,6 +84,56 @@ const Workspace: React.FC<WorkspaceProps> = ({
       isGisData: gisData,
     };
   }, [activeTab]);
+
+  const activeSidebar = useMemo(() => {
+    if (paneState.activeSidebar !== undefined && paneState.activeSidebar !== null) {
+      return paneState.activeSidebar;
+    }
+    if (paneState.isExplorerVisible) {
+      return 'explorer';
+    }
+    if (paneState.isGitVisible) {
+      return 'git';
+    }
+    if (paneState.isGisVisible) {
+      return 'gis';
+    }
+    if (paneState.isHelpVisible) {
+      return 'help';
+    }
+    return null;
+  }, [paneState.activeSidebar, paneState.isExplorerVisible, paneState.isGitVisible, paneState.isGisVisible, paneState.isHelpVisible]);
+
+  const showExplorer = activeSidebar === 'explorer';
+  const showGitSidebar = activeSidebar === 'git';
+  const showGisSidebar = activeSidebar === 'gis';
+  const showHelpSidebar = activeSidebar === 'help';
+
+  const handleSidebarSelect = useCallback(
+    (sidebar: 'explorer' | 'gis' | 'git' | 'help') => {
+      const isActive = activeSidebar === sidebar;
+      updatePaneState({
+        activeSidebar: isActive ? null : sidebar,
+        isExplorerVisible: sidebar === 'explorer' ? !isActive : false,
+        isGisVisible: sidebar === 'gis' ? !isActive : false,
+        isGitVisible: sidebar === 'git' ? !isActive : false,
+        isHelpVisible: sidebar === 'help' ? !isActive : false,
+      });
+
+      if (sidebar === 'gis' && activeTabId && isGisData) {
+        if (isActive) {
+          if (activeTabViewMode === 'gis-analysis') {
+            setViewMode(activeTabId, 'editor');
+          }
+        } else {
+          setViewMode(activeTabId, 'gis-analysis');
+        }
+      }
+    },
+    [activeSidebar, activeTabId, activeTabViewMode, isGisData, setViewMode, updatePaneState]
+  );
+
+  const showSearchPanel = paneState.isSearchVisible;
 
   const handleEditorScroll = useCallback(
     (event: React.UIEvent<HTMLDivElement>) => {

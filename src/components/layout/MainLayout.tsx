@@ -233,13 +233,6 @@ const MainLayout = () => {
     setViewMode(activeTabId, nextMode);
   }, [activeTabId, activeTabViewMode, fileTypeFlags.isGisData, setViewMode]);
 
-  const handleToggleGisAnalysisMode = useCallback(() => {
-    if (!activeTabId || !fileTypeFlags.isGisData) return;
-
-    const nextMode = activeTabViewMode === 'gis-analysis' ? 'editor' : 'gis-analysis';
-    setViewMode(activeTabId, nextMode);
-  }, [activeTabId, activeTabViewMode, fileTypeFlags.isGisData, setViewMode]);
-
   const handleConfirmNewFile = useCallback(
     async (fileName: string) => {
       setShowNewFileDialog(false);
@@ -491,9 +484,6 @@ const MainLayout = () => {
         onToggleHelp={handleToggleHelpPane}
         isHelpPaneVisible={paneState.isHelpVisible}
         onOpenLlmSettings={() => setShowLlmSettingsDialog(true)}
-        isGisData={fileTypeFlags.isGisData}
-        isGisModeActive={activeTabViewMode === 'gis-analysis'}
-        onToggleGisMode={handleToggleGisAnalysisMode}
       />
 
       <TabBarDnD />
