@@ -128,11 +128,47 @@ export interface SearchMatch {
   replaced?: boolean;
 }
 
-// 分析データに関する型定義
-export interface AnalysisData {
+// チャートビルダーに関する型定義
+export type ResultChartType =
+  | 'bar'
+  | 'line'
+  | 'scatter'
+  | 'pie'
+  | 'histogram'
+  | 'stacked-bar'
+  | 'regression'
+  | 'bubble'
+  | 'sunburst'
+  | 'gantt'
+  | 'treemap'
+  | 'streamgraph'
+  | 'venn';
+
+export type ResultAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
+
+export interface ChartDesignerSettings {
+  chartType: ResultChartType;
+  xField: string;
+  yField: string;
+  aggregation: ResultAggregation;
+  bins: number;
+  categoryField: string;
+  vennFields: string[];
+  bubbleSizeField: string;
+  ganttTaskField: string;
+  ganttStartField: string;
+  ganttEndField: string;
+  collapsed: boolean;
+}
+
+export interface AnalysisDataset {
   columns: string[];
   rows: any[];
+  chartSettings?: ChartDesignerSettings;
 }
+
+// 分析データに関する型定義
+export type AnalysisData = Record<string, AnalysisDataset>;
 
 // SQLクエリ結果に関する型定義
 export interface SqlResult {

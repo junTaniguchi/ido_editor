@@ -67,10 +67,9 @@ interface DataAnalysisProps {
 }
 
 const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
-  const { 
-    tabs, 
-    analysisData, 
-    setAnalysisData, 
+  const {
+    tabs,
+    setAnalysisData,
     chartSettings,
     updateChartSettings,
     paneState,
@@ -417,7 +416,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
             setOriginalData(null);
             setOriginalQueryResult(null);
             setInfoResult(null);
-            setAnalysisData({ columns: [], rows: [] });
+            setAnalysisData(tabId, { columns: [], rows: [] });
             setLoading(false);
             return;
           }
@@ -752,7 +751,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
       
       setParsedData(data);
       setColumns(cols);
-      setAnalysisData({ columns: cols, rows: data });
+      setAnalysisData(tabId, { columns: cols, rows: data });
       
       // 統計情報を計算
       const statsResult = calculateStatistics(data, true);
