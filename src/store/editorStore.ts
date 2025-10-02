@@ -24,7 +24,7 @@ import {
   HelpUserRole,
 } from '@/types';
 
-type EditorViewMode = 'editor' | 'preview' | 'data-preview' | 'analysis' | 'split' | 'gis-analysis';
+export type EditorViewMode = 'editor' | 'preview' | 'data-preview' | 'analysis' | 'split' | 'gis-analysis';
 
 interface EditorStore {
   // タブ管理
