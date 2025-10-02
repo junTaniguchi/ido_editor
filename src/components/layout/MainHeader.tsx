@@ -136,6 +136,54 @@ const MainHeader: React.FC<MainHeaderProps> = ({
       >
         <IoKeyOutline size={20} />
       </button>
+      {isGisData && (
+        <button
+          className={`p-1 rounded ml-2 ${
+            isGisModeActive ? 'bg-teal-100 text-teal-700' : 'hover:bg-gray-200 dark:hover:bg-gray-800'
+          }`}
+          onClick={onToggleGisMode}
+          aria-label="Toggle GIS Analysis Mode"
+          title={`GIS分析モードを${isGisModeActive ? '終了' : '表示'}`}
+        >
+          <IoGlobeOutline size={20} />
+        </button>
+      )}
+      <button
+        className={`p-1 rounded ml-2 ${
+          isGisModeActive
+            ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-200'
+            : 'hover:bg-gray-200 dark:hover:bg-gray-800'
+        } ${canToggleGisMode ? '' : 'opacity-40 cursor-not-allowed'}`}
+        onClick={() => {
+          if (!canToggleGisMode) {
+            return;
+          }
+          onToggleGisMode();
+        }}
+        aria-label="Toggle GIS Analysis Mode"
+        title={gisButtonLabel}
+        type="button"
+      >
+        <IoGlobeOutline size={20} />
+      </button>
+      <button
+        className={`p-1 rounded ml-2 ${
+          isGisModeActive
+            ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-200'
+            : 'hover:bg-gray-200 dark:hover:bg-gray-800'
+        } ${canToggleGisMode ? '' : 'opacity-40 cursor-not-allowed'}`}
+        onClick={() => {
+          if (!canToggleGisMode) {
+            return;
+          }
+          onToggleGisMode();
+        }}
+        aria-label="Toggle GIS Analysis Mode"
+        title={gisButtonLabel}
+        type="button"
+      >
+        <IoGlobeOutline size={20} />
+      </button>
       <button
         className={`p-1 rounded ml-2 ${
           isGisModeActive
