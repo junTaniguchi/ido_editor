@@ -217,21 +217,29 @@ const MainLayout = () => {
         if (activeTabViewMode === 'editor') return 'preview';
         if (activeTabViewMode === 'preview') return 'data-preview';
         if (activeTabViewMode === 'data-preview') return 'gis-analysis';
-        if (activeTabViewMode === 'gis-analysis') return 'split';
+        if (activeTabViewMode === 'gis-analysis') return 'analysis';
+        if (activeTabViewMode === 'analysis') return 'split';
+        if (activeTabViewMode === 'split') return 'editor';
         return 'editor';
       }
 
-      return activeTabViewMode === 'editor'
-        ? 'preview'
-        : activeTabViewMode === 'preview'
-          ? 'data-preview'
-          : activeTabViewMode === 'data-preview'
-            ? 'split'
-            : 'editor';
+      if (fileTypeFlags.isDataPreviewable) {
+        if (activeTabViewMode === 'editor') return 'preview';
+        if (activeTabViewMode === 'preview') return 'data-preview';
+        if (activeTabViewMode === 'data-preview') return 'analysis';
+        if (activeTabViewMode === 'analysis') return 'split';
+        if (activeTabViewMode === 'split') return 'editor';
+        return 'editor';
+      }
+
+      if (activeTabViewMode === 'editor') return 'preview';
+      if (activeTabViewMode === 'preview') return 'split';
+      if (activeTabViewMode === 'split') return 'editor';
+      return 'editor';
     })();
 
     setViewMode(activeTabId, nextMode);
-  }, [activeTabId, activeTabViewMode, fileTypeFlags.isGisData, setViewMode]);
+  }, [activeTabId, activeTabViewMode, fileTypeFlags.isDataPreviewable, fileTypeFlags.isGisData, setViewMode]);
 
   const handleConfirmNewFile = useCallback(
     async (fileName: string) => {

@@ -320,7 +320,7 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
       currentType === 'shapefile';
 
     // エディタ → プレビュー → データプレビュー → GIS分析 → 分割表示 → エディタ の順に切り替え
-    let newMode: 'editor' | 'preview' | 'data-preview' | 'split' | 'gis-analysis';
+    let newMode: 'editor' | 'preview' | 'data-preview' | 'analysis' | 'split' | 'gis-analysis';
     if (isGisFile) {
       if (viewMode === 'editor') {
         newMode = 'preview';
@@ -329,7 +329,11 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
       } else if (viewMode === 'data-preview') {
         newMode = 'gis-analysis';
       } else if (viewMode === 'gis-analysis') {
+        newMode = 'analysis';
+      } else if (viewMode === 'analysis') {
         newMode = 'split';
+      } else if (viewMode === 'split') {
+        newMode = 'editor';
       } else {
         newMode = 'editor';
       }
@@ -339,7 +343,11 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
       } else if (viewMode === 'preview') {
         newMode = 'data-preview';
       } else if (viewMode === 'data-preview') {
+        newMode = 'analysis';
+      } else if (viewMode === 'analysis') {
         newMode = 'split';
+      } else if (viewMode === 'split') {
+        newMode = 'editor';
       } else {
         newMode = 'editor';
       }
@@ -363,7 +371,9 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
   };
   
   const toggleAnalysisMode = () => {
-    updatePaneState({ isAnalysisVisible: !paneState.isAnalysisVisible });
+    const isCurrentlyAnalysis = viewMode === 'analysis';
+    const nextMode = isCurrentlyAnalysis ? 'editor' : 'analysis';
+    setViewMode(tabId, nextMode);
   };
 
   // ファイルの保存処理
