@@ -554,6 +554,7 @@ const MainLayoutContent: React.FC = () => {
         activeTabViewMode={activeTabViewMode}
         multiFileAnalysisEnabled={multiFileAnalysisEnabled}
         onCloseMultiFileAnalysis={() => setMultiFileAnalysisEnabled(false)}
+        onToggleMultiFileAnalysis={handleToggleMultiFile}
         aiFeaturesEnabled={aiFeaturesEnabled}
       />
 

@@ -28,6 +28,7 @@ interface WorkspaceProps {
   activeTabViewMode: 'editor' | 'preview' | 'data-preview' | 'analysis' | 'split' | 'gis-analysis';
   multiFileAnalysisEnabled: boolean;
   onCloseMultiFileAnalysis: () => void;
+  onToggleMultiFileAnalysis: () => void;
   aiFeaturesEnabled: boolean;
 }
 
@@ -38,6 +39,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
   activeTabViewMode,
   multiFileAnalysisEnabled,
   onCloseMultiFileAnalysis,
+  onToggleMultiFileAnalysis,
   aiFeaturesEnabled,
 }) => {
   const updatePaneState = useEditorStore((state) => state.updatePaneState);
@@ -348,7 +350,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
     }
 
     const shouldShowAnalysis =
-      aiFeaturesEnabled && isDataAnalyzable && (paneState.isAnalysisVisible || activeTabViewMode === 'analysis');
+      isDataAnalyzable && (paneState.isAnalysisVisible || activeTabViewMode === 'analysis');
 
     if (shouldShowAnalysis) {
       return (
@@ -363,7 +365,14 @@ const Workspace: React.FC<WorkspaceProps> = ({
 
   return (
     <div className="flex flex-1 overflow-hidden bg-white dark:bg-gray-900">
-      <ActivityBar activeItem={activeSidebar} onSelect={handleSidebarSelect} helpEnabled={aiFeaturesEnabled} />
+      <ActivityBar
+        activeItem={activeSidebar}
+        onSelect={handleSidebarSelect}
+        helpEnabled={aiFeaturesEnabled}
+        multiFileAnalysisAvailable={aiFeaturesEnabled}
+        multiFileAnalysisEnabled={multiFileAnalysisEnabled}
+        onToggleMultiFileAnalysis={onToggleMultiFileAnalysis}
+      />
       {showExplorer && (
         <div className="w-64 flex-shrink-0 border-r border-gray-200 dark:border-gray-800">
           <FileExplorer />
