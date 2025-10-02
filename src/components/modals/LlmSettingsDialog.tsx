@@ -1,134 +1,238 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { IoCloseOutline } from 'react-icons/io5';
-import {
-  deleteLlmKey,
-  fetchLlmKeyStatus,
-  saveLlmKey,
-  type LlmKeyStatus,
-} from '@/lib/llm/llmKeyClient';
 
-interface LlmSettingsDialogProps {
-  isOpen: boolean;
-  onClose: () => void;
+import { deleteLlmApiKey, saveLlmApiKey, updateActiveLlmProvider } from '@/lib/llm/llmSettingsClient';
+import { useLlmSettingsContext } from '@/components/providers/LlmSettingsProvider';
+import type { LlmProvider, LlmProviderStatus } from '@/types/llm';
+
+type ProviderKey = 'openai' | 'gemini';
+
+const PROVIDER_LABEL: Record<ProviderKey, string> = {
+  openai: 'OpenAI',
+  gemini: 'Google Gemini',
+};
+
+interface ProviderMessages {
+  success: string | null;
+  error: string | null;
+  warning: string | null;
 }
 
-const CONFIG_FILE_HINT = '~/.dataloom/settings.json';
+const INITIAL_MESSAGES: Record<ProviderKey, ProviderMessages> = {
+  openai: { success: null, error: null, warning: null },
+  gemini: { success: null, error: null, warning: null },
+};
 
-const LlmSettingsDialog: React.FC<LlmSettingsDialogProps> = ({ isOpen, onClose }) => {
-  const [status, setStatus] = useState<LlmKeyStatus | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
+function describeStatus(status: LlmProviderStatus): string {
+  if (status.source === 'env') {
+    return status.hasStoredKey
+      ? '環境変数のキーが優先されています（ローカル設定にもキーがあります）。'
+      : '環境変数に設定されたキーを使用しています。';
+  }
+
+  if (status.source === 'stored') {
+    return 'ローカル設定ファイルに保存されたキーを使用しています。';
+  }
+
+  if (status.hasStoredKey) {
+    return 'ローカル設定ファイルにキーが保存されていますが、現在は使用していません。';
+  }
+
+  return 'キーは未設定です。';
+}
+
+function quotaWarning(status: LlmProviderStatus): string | null {
+  if (!status.quota || status.quota.ok || status.quota.reason !== 'insufficient_quota') {
+    return null;
+  }
+  return status.quota.message ?? 'OpenAIの利用枠（クォータ）が不足しています。';
+}
+
+const LlmSettingsDialog: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, onClose }) => {
+  const { settings, loading, error, refresh, setSettings } = useLlmSettingsContext();
+  const [openAiInput, setOpenAiInput] = useState('');
+  const [geminiInput, setGeminiInput] = useState('');
+  const [saving, setSaving] = useState<{ openai: boolean; gemini: boolean }>({ openai: false, gemini: false });
+  const [deleting, setDeleting] = useState<{ openai: boolean; gemini: boolean }>({ openai: false, gemini: false });
+  const [providerUpdating, setProviderUpdating] = useState(false);
+  const [providerMessage, setProviderMessage] = useState<{ success?: string | null; warning?: string | null; error?: string | null }>({});
+  const [providerMessages, setProviderMessages] = useState<Record<ProviderKey, ProviderMessages>>(INITIAL_MESSAGES);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
-      setApiKeyInput('');
-      setErrorMessage(null);
-      setFeedbackMessage(null);
+      setOpenAiInput('');
+      setGeminiInput('');
+      setSaving({ openai: false, gemini: false });
+      setDeleting({ openai: false, gemini: false });
+      setProviderUpdating(false);
+      setProviderMessage({});
+      setProviderMessages(INITIAL_MESSAGES);
+      setLocalError(null);
       return;
     }
 
-    let isMounted = true;
-    setIsLoading(true);
-    setErrorMessage(null);
+    setLocalError(error);
+    void refresh();
+  }, [isOpen, error, refresh]);
 
-    fetchLlmKeyStatus()
-      .then((result) => {
-        if (!isMounted) return;
-        setStatus(result);
-      })
-      .catch((error) => {
-        console.error('Failed to load OpenAI API key status:', error);
-        if (!isMounted) return;
-        setStatus({ hasKey: false, hasStoredKey: false, source: 'none' });
-        setErrorMessage('OpenAI APIキーの状態取得に失敗しました。');
-      })
-      .finally(() => {
-        if (!isMounted) return;
-        setIsLoading(false);
-      });
+  const activeProvider: LlmProvider = settings?.activeProvider ?? 'none';
+  const openAiStatus = settings?.openai;
+  const geminiStatus = settings?.gemini;
+  const openAiQuotaWarning = openAiStatus ? quotaWarning(openAiStatus) : null;
 
-    return () => {
-      isMounted = false;
-    };
-  }, [isOpen]);
+  const isBusy = loading && !settings;
 
-  const statusDescription = useMemo(() => {
+  const updateProviderMessage = useCallback(
+    (value: { success?: string | null; warning?: string | null; error?: string | null }) => {
+      setProviderMessage(value);
+    },
+    [],
+  );
+
+  const updateProviderMessages = useCallback(
+    (provider: ProviderKey, value: ProviderMessages) => {
+      setProviderMessages((prev) => ({ ...prev, [provider]: value }));
+    },
+    [],
+  );
+
+  const handleSaveKey = useCallback(
+    async (provider: ProviderKey) => {
+      const input = provider === 'openai' ? openAiInput.trim() : geminiInput.trim();
+      if (!input) {
+        updateProviderMessages(provider, {
+          success: null,
+          warning: null,
+          error: `${PROVIDER_LABEL[provider]} のAPIキーを入力してください。`,
+        });
+        return;
+      }
+
+      setSaving((prev) => ({ ...prev, [provider]: true }));
+      updateProviderMessages(provider, { success: null, warning: null, error: null });
+
+      try {
+        const updated = await saveLlmApiKey(provider, input);
+        setSettings(updated);
+        if (provider === 'openai') {
+          setOpenAiInput('');
+        } else {
+          setGeminiInput('');
+        }
+
+        const status = provider === 'openai' ? updated.openai : updated.gemini;
+        let successMessage = `${PROVIDER_LABEL[provider]} のAPIキーを保存しました。`;
+        let warningMessage: string | null = null;
+        let errorMessage: string | null = null;
+
+        if (provider === 'openai') {
+          if (status.source === 'env') {
+            successMessage = 'OpenAI APIキーを保存しました（環境変数が優先されます）。';
+          }
+          if (status.quota && !status.quota.ok) {
+            if (status.quota.reason === 'insufficient_quota') {
+              warningMessage = status.quota.message ?? 'OpenAIの利用枠（クォータ）が不足しています。';
+              successMessage = `${successMessage}（ただし利用枠が不足しています。）`;
+            } else {
+              errorMessage = status.quota.message ?? 'OpenAI APIキーの検証で警告が発生しました。';
+            }
+          }
+        }
+
+        updateProviderMessages(provider, {
+          success: successMessage,
+          warning: warningMessage,
+          error: errorMessage,
+        });
+        updateProviderMessage({});
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'APIキーの保存に失敗しました。';
+        updateProviderMessages(provider, { success: null, warning: null, error: message });
+      } finally {
+        setSaving((prev) => ({ ...prev, [provider]: false }));
+      }
+    },
+    [geminiInput, openAiInput, setSettings, updateProviderMessage, updateProviderMessages],
+  );
+
+  const handleDeleteKey = useCallback(
+    async (provider: ProviderKey) => {
+      setDeleting((prev) => ({ ...prev, [provider]: true }));
+      updateProviderMessages(provider, { success: null, warning: null, error: null });
+
+      try {
+        const updated = await deleteLlmApiKey(provider);
+        setSettings(updated);
+        const status = provider === 'openai' ? updated.openai : updated.gemini;
+
+        let successMessage = `${PROVIDER_LABEL[provider]} のAPIキーを削除しました。`;
+        if (provider === 'openai' && status.hasKey) {
+          successMessage = 'ローカルのキーは削除しました（環境変数のキーが利用されています）。';
+        }
+
+        updateProviderMessages(provider, { success: successMessage, warning: null, error: null });
+        updateProviderMessage({});
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'APIキーの削除に失敗しました。';
+        updateProviderMessages(provider, { success: null, warning: null, error: message });
+      } finally {
+        setDeleting((prev) => ({ ...prev, [provider]: false }));
+      }
+    },
+    [setSettings, updateProviderMessage, updateProviderMessages],
+  );
+
+  const handleProviderChange = useCallback(
+    async (provider: LlmProvider) => {
+      setProviderUpdating(true);
+      updateProviderMessage({});
+
+      try {
+        const updated = await updateActiveLlmProvider(provider);
+        setSettings(updated);
+
+        if (provider === 'none') {
+          updateProviderMessage({ success: 'AI機能を使用しないように設定しました。', warning: null, error: null });
+          return;
+        }
+
+        const status = provider === 'openai' ? updated.openai : updated.gemini;
+        const label = PROVIDER_LABEL[provider];
+        let warning: string | null = null;
+
+        if (!status.hasKey) {
+          warning = `${label} のAPIキーが設定されていません。キーを登録してください。`;
+        } else if (provider === 'openai' && status.quota && !status.quota.ok && status.quota.reason === 'insufficient_quota') {
+          warning = status.quota.message ?? 'OpenAIの利用枠（クォータ）が不足しています。';
+        }
+
+        updateProviderMessage({
+          success: `${label} を利用するように設定しました。`,
+          warning,
+          error: null,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'AI設定の更新に失敗しました。';
+        updateProviderMessage({ error: message });
+      } finally {
+        setProviderUpdating(false);
+      }
+    },
+    [setSettings, updateProviderMessage],
+  );
+
+  const renderProviderDescription = useCallback((status: LlmProviderStatus | undefined, provider: ProviderKey) => {
     if (!status) {
       return '状態を確認しています…';
     }
-
-    if (status.source === 'env') {
-      return status.hasStoredKey
-        ? '環境変数 OPENAI_API_KEY が優先されています（ローカル設定にもキーが保存されています）。'
-        : '環境変数 OPENAI_API_KEY が設定されています。';
+    const description = describeStatus(status);
+    if (status.source === 'none' && provider === 'gemini') {
+      return `${description} Gemini のAPIキーは Google AI Studio で取得できます。`;
     }
-
-    if (status.source === 'stored') {
-      return 'ローカル設定ファイルに保存された OpenAI APIキーを使用しています。';
-    }
-
-    if (status.hasStoredKey) {
-      return 'ローカル設定ファイルにキーが保存されていますが、現在は利用されていません。';
-    }
-
-    return 'OpenAI APIキーは未設定です。';
-  }, [status]);
-
-  const handleSave = useCallback(async () => {
-    const trimmed = apiKeyInput.trim();
-    if (!trimmed) {
-      setErrorMessage('OpenAI APIキーを入力してください。');
-      setFeedbackMessage(null);
-      return;
-    }
-
-    setIsSaving(true);
-    setErrorMessage(null);
-    setFeedbackMessage(null);
-
-    try {
-      const result = await saveLlmKey(trimmed);
-      setStatus(result);
-      setApiKeyInput('');
-      const message =
-        result.source === 'env'
-          ? 'OpenAI APIキーを保存しました（環境変数が優先されます）。'
-          : 'OpenAI APIキーを保存しました。';
-      setFeedbackMessage(message);
-    } catch (error) {
-      console.error('Failed to save OpenAI API key from settings dialog:', error);
-      const message = error instanceof Error ? error.message : 'APIキーの保存に失敗しました。';
-      setErrorMessage(message);
-    } finally {
-      setIsSaving(false);
-    }
-  }, [apiKeyInput]);
-
-  const handleDelete = useCallback(async () => {
-    setIsDeleting(true);
-    setErrorMessage(null);
-    setFeedbackMessage(null);
-
-    try {
-      const result = await deleteLlmKey();
-      setStatus(result);
-      const message = result.hasKey
-        ? 'ローカルのキーは削除しました（環境変数のキーが利用されています）。'
-        : 'OpenAI APIキーを削除しました。';
-      setFeedbackMessage(message);
-    } catch (error) {
-      console.error('Failed to delete OpenAI API key from settings dialog:', error);
-      const message = error instanceof Error ? error.message : 'APIキーの削除に失敗しました。';
-      setErrorMessage(message);
-    } finally {
-      setIsDeleting(false);
-    }
+    return description;
   }, []);
 
   if (!isOpen) {
@@ -137,9 +241,9 @@ const LlmSettingsDialog: React.FC<LlmSettingsDialogProps> = ({ isOpen, onClose }
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg w-[32rem] max-w-full">
-        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-medium">OpenAI APIキー設定</h2>
+      <div className="w-[36rem] max-w-full rounded-lg bg-white shadow-lg dark:bg-gray-800">
+        <div className="flex items-center justify-between border-b border-gray-200 p-4 dark:border-gray-700">
+          <h2 className="text-lg font-medium">AIプロバイダー設定</h2>
           <button
             type="button"
             onClick={onClose}
@@ -150,95 +254,193 @@ const LlmSettingsDialog: React.FC<LlmSettingsDialogProps> = ({ isOpen, onClose }
           </button>
         </div>
 
-        <div className="p-4 space-y-4">
-          <div className="space-y-1 text-sm text-gray-700 dark:text-gray-200">
-            <p>{statusDescription}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              キーを保存すると {CONFIG_FILE_HINT} に暗号化なしで書き込まれ、Electron やブラウザから再利用できます。
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200" htmlFor="llm-settings-api-key">
-              OpenAI APIキー
-            </label>
-            <input
-              id="llm-settings-api-key"
-              type="password"
-              className="w-full border border-gray-300 dark:border-gray-600 rounded-md p-2 text-sm bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
-              placeholder="sk-..."
-              value={apiKeyInput}
-              onChange={(event) => {
-                setApiKeyInput(event.target.value);
-                setErrorMessage(null);
-                setFeedbackMessage(null);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  void handleSave();
-                }
-              }}
-              autoComplete="off"
-              spellCheck={false}
-              disabled={isSaving}
-            />
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  void handleSave();
-                }}
-                disabled={isSaving}
-                className="px-4 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
-              >
-                {isSaving ? '保存中…' : '保存する'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  void handleDelete();
-                }}
-                disabled={isDeleting || !status?.hasStoredKey}
-                className="px-4 py-2 text-sm rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
-              >
-                {isDeleting ? '削除中…' : 'ローカルキーを削除'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsLoading(true);
-                  setErrorMessage(null);
-                  setFeedbackMessage(null);
-                  fetchLlmKeyStatus()
-                    .then((result) => {
-                      setStatus(result);
-                    })
-                    .catch((error) => {
-                      console.error('Failed to refresh OpenAI API key status:', error);
-                      setErrorMessage('キーの状態を再取得できませんでした。');
-                    })
-                    .finally(() => {
-                      setIsLoading(false);
-                    });
-                }}
-                disabled={isLoading}
-                className="px-4 py-2 text-sm rounded-md bg-gray-200 text-gray-700 hover:bg-gray-300 disabled:opacity-60 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
-              >
-                {isLoading ? '更新中…' : '状態を再確認'}
-              </button>
+        <div className="space-y-6 p-4 text-sm text-gray-700 dark:text-gray-200">
+          {localError ? (
+            <div className="rounded border border-red-300 bg-red-50 p-3 text-xs text-red-700 dark:border-red-700 dark:bg-red-900/30 dark:text-red-200">
+              {localError}
             </div>
-          </div>
+          ) : null}
 
-          {feedbackMessage ? <p className="text-xs text-green-600">{feedbackMessage}</p> : null}
-          {errorMessage ? <p className="text-xs text-red-600">{errorMessage}</p> : null}
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold">利用するAIプロバイダー</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              利用するAIエンジンを選択してください。選択したプロバイダーに有効なAPIキーが必要です。
+            </p>
+
+            <div className="space-y-2">
+              {[
+                { value: 'openai' as LlmProvider, label: 'OpenAI', description: renderProviderDescription(openAiStatus, 'openai') },
+                { value: 'gemini' as LlmProvider, label: 'Google Gemini', description: renderProviderDescription(geminiStatus, 'gemini') },
+                { value: 'none' as LlmProvider, label: 'AI機能を使用しない', description: 'すべてのAI機能を一時的に非表示にします。' },
+              ].map((option) => (
+                <label
+                  key={option.value}
+                  className={`flex cursor-pointer flex-col rounded border p-3 transition ${
+                    activeProvider === option.value
+                      ? 'border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-900/30'
+                      : 'border-gray-200 hover:border-blue-300 dark:border-gray-700 dark:hover:border-blue-500'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="llm-provider"
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+                      value={option.value}
+                      checked={activeProvider === option.value}
+                      onChange={() => {
+                        void handleProviderChange(option.value);
+                      }}
+                      disabled={providerUpdating || isBusy}
+                    />
+                    <span className="font-medium">{option.label}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{option.description}</p>
+                </label>
+              ))}
+            </div>
+
+            {providerMessage.success ? (
+              <p className="text-xs text-green-600 dark:text-green-400">{providerMessage.success}</p>
+            ) : null}
+            {providerMessage.warning ? (
+              <p className="text-xs text-yellow-600 dark:text-yellow-400">{providerMessage.warning}</p>
+            ) : null}
+            {providerMessage.error ? (
+              <p className="text-xs text-red-600 dark:text-red-400">{providerMessage.error}</p>
+            ) : null}
+          </section>
+
+          <section className="space-y-3">
+            <header className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold">OpenAI APIキー</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{renderProviderDescription(openAiStatus, 'openai')}</p>
+              </div>
+            </header>
+
+            {openAiQuotaWarning ? (
+              <p className="text-xs text-red-600 dark:text-red-400">{openAiQuotaWarning}</p>
+            ) : null}
+
+            <div className="space-y-2">
+              <input
+                type="password"
+                className="w-full rounded border border-gray-300 p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900"
+                placeholder="sk-..."
+                value={openAiInput}
+                onChange={(event) => {
+                  setOpenAiInput(event.target.value);
+                  updateProviderMessages('openai', { success: null, warning: null, error: null });
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    void handleSaveKey('openai');
+                  }
+                }}
+                disabled={saving.openai || isBusy}
+              />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleSaveKey('openai');
+                  }}
+                  disabled={saving.openai || isBusy}
+                  className="rounded bg-blue-600 px-4 py-2 text-sm text-white transition hover:bg-blue-700 disabled:opacity-60"
+                >
+                  {saving.openai ? '保存中…' : '保存する'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleDeleteKey('openai');
+                  }}
+                  disabled={deleting.openai || !openAiStatus?.hasStoredKey || isBusy}
+                  className="rounded bg-red-600 px-4 py-2 text-sm text-white transition hover:bg-red-700 disabled:opacity-60"
+                >
+                  {deleting.openai ? '削除中…' : 'ローカルキーを削除'}
+                </button>
+              </div>
+              {providerMessages.openai.success ? (
+                <p className="text-xs text-green-600 dark:text-green-400">{providerMessages.openai.success}</p>
+              ) : null}
+              {providerMessages.openai.warning ? (
+                <p className="text-xs text-yellow-600 dark:text-yellow-400">{providerMessages.openai.warning}</p>
+              ) : null}
+              {providerMessages.openai.error ? (
+                <p className="text-xs text-red-600 dark:text-red-400">{providerMessages.openai.error}</p>
+              ) : null}
+            </div>
+          </section>
+
+          <section className="space-y-3">
+            <header className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold">Google Gemini APIキー</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{renderProviderDescription(geminiStatus, 'gemini')}</p>
+              </div>
+            </header>
+
+            <div className="space-y-2">
+              <input
+                type="password"
+                className="w-full rounded border border-gray-300 p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900"
+                placeholder="..."
+                value={geminiInput}
+                onChange={(event) => {
+                  setGeminiInput(event.target.value);
+                  updateProviderMessages('gemini', { success: null, warning: null, error: null });
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    void handleSaveKey('gemini');
+                  }
+                }}
+                disabled={saving.gemini || isBusy}
+              />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleSaveKey('gemini');
+                  }}
+                  disabled={saving.gemini || isBusy}
+                  className="rounded bg-blue-600 px-4 py-2 text-sm text-white transition hover:bg-blue-700 disabled:opacity-60"
+                >
+                  {saving.gemini ? '保存中…' : '保存する'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleDeleteKey('gemini');
+                  }}
+                  disabled={deleting.gemini || !geminiStatus?.hasStoredKey || isBusy}
+                  className="rounded bg-red-600 px-4 py-2 text-sm text-white transition hover:bg-red-700 disabled:opacity-60"
+                >
+                  {deleting.gemini ? '削除中…' : 'ローカルキーを削除'}
+                </button>
+              </div>
+              {providerMessages.gemini.success ? (
+                <p className="text-xs text-green-600 dark:text-green-400">{providerMessages.gemini.success}</p>
+              ) : null}
+              {providerMessages.gemini.warning ? (
+                <p className="text-xs text-yellow-600 dark:text-yellow-400">{providerMessages.gemini.warning}</p>
+              ) : null}
+              {providerMessages.gemini.error ? (
+                <p className="text-xs text-red-600 dark:text-red-400">{providerMessages.gemini.error}</p>
+              ) : null}
+            </div>
+          </section>
         </div>
 
-        <div className="flex justify-end gap-2 p-4 border-t border-gray-200 dark:border-gray-700">
+        <div className="flex justify-end gap-2 border-t border-gray-200 p-4 dark:border-gray-700">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-sm rounded-md bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+            className="rounded bg-gray-200 px-4 py-2 text-sm text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
           >
             閉じる
           </button>

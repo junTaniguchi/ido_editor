@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
+
 import { diagramDefinitions } from '@/lib/mermaid/diagramDefinitions';
 import type { MermaidDiagramType } from '@/lib/mermaid/types';
 import { callMermaidGenerationModel } from '@/lib/llm/mermaidGenerator';
-import { getEffectiveOpenAiApiKey } from '@/lib/server/openaiKeyStore';
+import { getActiveProviderApiKey } from '@/lib/server/llmSettingsStore';
+import { LlmProviderError } from '@/lib/server/llmProviderClient';
 
 interface MermaidApiRequestBody {
   prompt?: unknown;
@@ -37,9 +39,9 @@ function normalizeExistingCode(value: unknown): string | undefined {
 
 export async function POST(request: Request) {
   try {
-    const apiKey = await getEffectiveOpenAiApiKey();
-    if (!apiKey) {
-      return NextResponse.json({ error: 'OPENAI_API_KEY が設定されていません。' }, { status: 500 });
+    const providerConfig = await getActiveProviderApiKey();
+    if (!providerConfig) {
+      return NextResponse.json({ error: 'AIプロバイダーのAPIキーが設定されていません。設定画面から登録してください。' }, { status: 500 });
     }
 
     const body: MermaidApiRequestBody = await request.json();
@@ -51,7 +53,7 @@ export async function POST(request: Request) {
     const diagramType = normalizeDiagramType(body.diagramType);
     const existingCode = normalizeExistingCode(body.existingCode);
 
-    const result = await callMermaidGenerationModel(apiKey, {
+    const result = await callMermaidGenerationModel(providerConfig.provider, providerConfig.apiKey, {
       prompt,
       diagramType,
       existingCode,
@@ -64,8 +66,11 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error('Mermaid generation API error:', error);
+    if (error instanceof LlmProviderError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     const message = error instanceof Error ? error.message : 'Mermaidコードの生成中にエラーが発生しました。';
-    const status = /OPENAI_API_KEY/.test(message) ? 500 : 502;
+    const status = /APIキー/.test(message) ? 500 : 502;
     return NextResponse.json({ error: message }, { status });
   }
 }

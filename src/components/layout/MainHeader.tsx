@@ -32,6 +32,7 @@ interface MainHeaderProps {
   onToggleHelp: () => void;
   isHelpPaneVisible: boolean;
   onOpenLlmSettings: () => void;
+  aiFeaturesEnabled: boolean;
 }
 
 const MainHeader: React.FC<MainHeaderProps> = ({
@@ -52,6 +53,7 @@ const MainHeader: React.FC<MainHeaderProps> = ({
   onToggleHelp,
   isHelpPaneVisible,
   onOpenLlmSettings,
+  aiFeaturesEnabled,
 }) => {
   const isDark = theme === 'dark';
 
@@ -117,21 +119,23 @@ const MainHeader: React.FC<MainHeaderProps> = ({
       <button
         className="p-1 rounded hover:bg-gray-200 ml-2 dark:hover:bg-gray-800"
         onClick={onOpenLlmSettings}
-        aria-label="OpenAI APIキー設定"
-        title="OpenAI APIキー設定"
+        aria-label="AI設定"
+        title="AI設定"
       >
         <IoKeyOutline size={20} />
       </button>
-      <button
-        className={`p-1 rounded ml-2 ${
-          isHelpPaneVisible ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-200 dark:hover:bg-gray-800'
-        }`}
-        onClick={onToggleHelp}
-        aria-label="Toggle Help"
-        title={`ヘルプパネル ${isHelpPaneVisible ? '表示中' : '非表示'}`}
-      >
-        <IoHelpCircleOutline size={20} />
-      </button>
+      {aiFeaturesEnabled && (
+        <button
+          className={`p-1 rounded ml-2 ${
+            isHelpPaneVisible ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-200 dark:hover:bg-gray-800'
+          }`}
+          onClick={onToggleHelp}
+          aria-label="Toggle Help"
+          title={`ヘルプパネル ${isHelpPaneVisible ? '表示中' : '非表示'}`}
+        >
+          <IoHelpCircleOutline size={20} />
+        </button>
+      )}
       <button
         className={`p-1 rounded ml-2 ${
           isGitPaneVisible ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-200 dark:hover:bg-gray-800'
@@ -142,21 +146,23 @@ const MainHeader: React.FC<MainHeaderProps> = ({
       >
         <IoGitBranchOutline size={20} />
       </button>
-      <button
-        className={`p-1 rounded ml-2 relative ${
-          multiFileAnalysisEnabled ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-200 dark:hover:bg-gray-800'
-        }`}
-        onClick={onToggleMultiFileAnalysis}
-        aria-label="Toggle Multi-File Analysis"
-        title={`複数ファイル分析モード ${multiFileAnalysisEnabled ? 'ON' : 'OFF'}`}
-      >
-        <IoGitMergeOutline size={20} />
-        {selectedFileCount > 0 && (
-          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
-            {selectedFileCount}
-          </span>
-        )}
-      </button>
+      {aiFeaturesEnabled && (
+        <button
+          className={`p-1 rounded ml-2 relative ${
+            multiFileAnalysisEnabled ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-200 dark:hover:bg-gray-800'
+          }`}
+          onClick={onToggleMultiFileAnalysis}
+          aria-label="Toggle Multi-File Analysis"
+          title={`複数ファイル分析モード ${multiFileAnalysisEnabled ? 'ON' : 'OFF'}`}
+        >
+          <IoGitMergeOutline size={20} />
+          {selectedFileCount > 0 && (
+            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+              {selectedFileCount}
+            </span>
+          )}
+        </button>
+      )}
     </header>
   );
 };

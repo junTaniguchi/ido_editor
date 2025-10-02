@@ -1,6 +1,8 @@
 import type { MermaidDiagramType } from '@/lib/mermaid/types';
 import type { ChatCompletionMessage } from './workflowPrompt';
 
+import { callLlmModel } from '@/lib/server/llmProviderClient';
+
 export interface MermaidGenerationRequest {
   prompt: string;
   diagramType: MermaidDiagramType;
@@ -19,8 +21,8 @@ interface MermaidModelPayload {
   existingCode?: string;
 }
 
-const OPENAI_CHAT_COMPLETION_URL = 'https://api.openai.com/v1/chat/completions';
 const DEFAULT_MODEL = 'gpt-4o-mini';
+const GEMINI_MERMAID_MODEL = process.env.GEMINI_MERMAID_MODEL || process.env.GEMINI_CHAT_MODEL;
 
 const MERMAID_SYSTEM_PROMPT = [
   'You are a senior technical writer who translates requirements into valid Mermaid diagrams.',
@@ -126,40 +128,21 @@ function parseMermaidModelResponse(
 }
 
 export async function callMermaidGenerationModel(
+  provider: 'openai' | 'gemini',
   apiKey: string,
   payload: MermaidGenerationRequest,
 ): Promise<MermaidGenerationResponse> {
-  const response = await fetch(OPENAI_CHAT_COMPLETION_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: DEFAULT_MODEL,
-      temperature: 0.3,
-      messages: buildMermaidGenerationMessages(payload),
-    }),
+  const result = await callLlmModel({
+    provider,
+    apiKey,
+    messages: buildMermaidGenerationMessages(payload),
+    temperature: 0.3,
+    ...(provider === 'openai'
+      ? { model: DEFAULT_MODEL }
+      : { model: GEMINI_MERMAID_MODEL, responseMimeType: 'application/json' }),
   });
 
-  if (!response.ok) {
-    let message = 'Mermaidコードの生成に失敗しました。';
-    try {
-      const errorPayload = await response.json();
-      message = errorPayload?.error?.message || message;
-    } catch {
-      // ignore JSON parse errors
-    }
-    throw new Error(message);
-  }
-
-  const data = await response.json();
-  const content: string | undefined = data?.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error('モデルから有効な応答を取得できませんでした。');
-  }
-
-  return parseMermaidModelResponse(payload, content);
+  return parseMermaidModelResponse(payload, result.content);
 }
 
 export async function requestMermaidGeneration(

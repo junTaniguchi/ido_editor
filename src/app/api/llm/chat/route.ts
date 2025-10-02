@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
+
 import { callPairWritingModel, DEFAULT_TRANSLATION_TARGET } from '@/lib/llm/chatClient';
-import { getEffectiveOpenAiApiKey } from '@/lib/server/openaiKeyStore';
+import { getActiveProviderApiKey } from '@/lib/server/llmSettingsStore';
 import type { PairWritingPurpose } from '@/types';
 
 interface ChatApiRequestBody {
@@ -42,9 +43,9 @@ function normalizeInstruction(value: unknown): string | undefined {
 
 export async function POST(request: Request) {
   try {
-    const apiKey = await getEffectiveOpenAiApiKey();
-    if (!apiKey) {
-      return NextResponse.json({ error: 'OPENAI_API_KEY が設定されていません。' }, { status: 500 });
+    const providerConfig = await getActiveProviderApiKey();
+    if (!providerConfig) {
+      return NextResponse.json({ error: 'AIプロバイダーのAPIキーが設定されていません。設定画面から登録してください。' }, { status: 500 });
     }
 
     const body: ChatApiRequestBody = await request.json();
@@ -65,7 +66,7 @@ export async function POST(request: Request) {
       ? normalizeInstruction(body.rewriteInstruction)
       : undefined;
 
-    const response = await callPairWritingModel(apiKey, {
+    const response = await callPairWritingModel(providerConfig.provider, providerConfig.apiKey, {
       purpose,
       text,
       targetLanguage,

@@ -27,6 +27,7 @@ import { readDirectoryContents } from '@/lib/fileSystemUtils';
 import { DEFAULT_TRANSLATION_TARGET, requestPairWritingPreview } from '@/lib/llm/chatClient';
 import type { PairWritingUsage } from '@/lib/llm/chatClient';
 import type { PairWritingHistoryEntry, PairWritingPurpose, TabData } from '@/types';
+import { useLlmSettingsContext } from '@/components/providers/LlmSettingsProvider';
 
 type TableAlignment = 'left' | 'center' | 'right' | null;
 
@@ -295,6 +296,7 @@ interface MarkdownEditorExtensionProps {
 const EMPTY_HISTORY: ReadonlyArray<PairWritingSnapshot> = [];
 
 const MarkdownEditorExtension: React.FC<MarkdownEditorExtensionProps> = ({ tabId, editorRef }) => {
+  const { aiFeaturesEnabled } = useLlmSettingsContext();
   const tabs = useEditorStore((state) => state.tabs);
   const editorSettings = useEditorStore((state) => state.editorSettings);
   const updateEditorSettings = useEditorStore((state) => state.updateEditorSettings);
@@ -337,6 +339,13 @@ const MarkdownEditorExtension: React.FC<MarkdownEditorExtensionProps> = ({ tabId
 
   const currentTab = tabs.get(tabId);
 
+  useEffect(() => {
+    if (!aiFeaturesEnabled) {
+      setPairPanelOpen(false);
+      setPairError(null);
+    }
+  }, [aiFeaturesEnabled]);
+
   const getSelectionRange = useCallback((): SelectionRange | null => {
     const editor = editorRef.current;
     if (!editor) {
@@ -357,6 +366,10 @@ const MarkdownEditorExtension: React.FC<MarkdownEditorExtensionProps> = ({ tabId
   const contextSelection = contextMenuState.selection;
 
   const runPairWriting = useCallback(async (purpose: PairWritingPurpose, selection: SelectionRange) => {
+    if (!aiFeaturesEnabled) {
+      setPairError('AI機能が無効化されています。設定からAIプロバイダーを有効にしてください。');
+      return;
+    }
     if (pairLoading) {
       return;
     }
@@ -434,7 +447,14 @@ const MarkdownEditorExtension: React.FC<MarkdownEditorExtensionProps> = ({ tabId
     } finally {
       setPairLoading(false);
     }
-  }, [currentTab, hideContextMenu, pairInstruction, pairLoading, pairTargetLanguage]);
+  }, [
+    aiFeaturesEnabled,
+    currentTab,
+    hideContextMenu,
+    pairInstruction,
+    pairLoading,
+    pairTargetLanguage,
+  ]);
 
   const handleGeneratePreview = useCallback(() => {
     const selection = getSelectionRange();
@@ -582,6 +602,9 @@ const MarkdownEditorExtension: React.FC<MarkdownEditorExtensionProps> = ({ tabId
 
   useEffect(() => {
     const handleContextMenu = (event: MouseEvent) => {
+      if (!aiFeaturesEnabled) {
+        return;
+      }
       const editor = editorRef.current;
       if (!editor) {
         return;
@@ -622,7 +645,7 @@ const MarkdownEditorExtension: React.FC<MarkdownEditorExtensionProps> = ({ tabId
       document.removeEventListener('click', handleClick);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [editorRef, getSelectionRange, hideContextMenu]);
+  }, [aiFeaturesEnabled, editorRef, getSelectionRange, hideContextMenu]);
 
   useEffect(() => {
     let disposed = false;
@@ -1021,35 +1044,37 @@ const MarkdownEditorExtension: React.FC<MarkdownEditorExtensionProps> = ({ tabId
           )}
         </div>
 
-        <div className="flex space-x-1 mr-3">
-          <button
-            className={`p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 tooltip ${
-              pairPanelOpen ? 'bg-blue-100 dark:bg-blue-900' : ''
-            }`}
-            onClick={() => {
-              setPairPanelOpen(prev => !prev);
-              setPairError(null);
-              hideContextMenu();
-            }}
-            title="AIペアライティングパネルを表示"
-          >
-            <IoSparkles size={18} />
-          </button>
-          <button
-            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 tooltip"
-            onClick={() => handleContextAction('translate')}
-            title={`選択範囲を翻訳してプレビュー (${pairTargetLanguage || DEFAULT_TRANSLATION_TARGET})`}
-          >
-            <IoLanguage size={18} />
-          </button>
-          <button
-            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 tooltip"
-            onClick={() => handleContextAction('rewrite')}
-            title="選択範囲をリライトしてプレビュー"
-          >
-            <IoCreateOutline size={18} />
-          </button>
-        </div>
+        {aiFeaturesEnabled && (
+          <div className="flex space-x-1 mr-3">
+            <button
+              className={`p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 tooltip ${
+                pairPanelOpen ? 'bg-blue-100 dark:bg-blue-900' : ''
+              }`}
+              onClick={() => {
+                setPairPanelOpen(prev => !prev);
+                setPairError(null);
+                hideContextMenu();
+              }}
+              title="AIペアライティングパネルを表示"
+            >
+              <IoSparkles size={18} />
+            </button>
+            <button
+              className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 tooltip"
+              onClick={() => handleContextAction('translate')}
+              title={`選択範囲を翻訳してプレビュー (${pairTargetLanguage || DEFAULT_TRANSLATION_TARGET})`}
+            >
+              <IoLanguage size={18} />
+            </button>
+            <button
+              className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 tooltip"
+              onClick={() => handleContextAction('rewrite')}
+              title="選択範囲をリライトしてプレビュー"
+            >
+              <IoCreateOutline size={18} />
+            </button>
+          </div>
+        )}
 
         <div className="flex space-x-1">
           <button
@@ -1080,7 +1105,7 @@ const MarkdownEditorExtension: React.FC<MarkdownEditorExtensionProps> = ({ tabId
         </div>
       </div>
 
-      {pairPanelOpen && (
+      {aiFeaturesEnabled && pairPanelOpen && (
         <div className="mt-2 border border-gray-300 dark:border-gray-700 rounded-md bg-white dark:bg-gray-900 p-3 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm font-semibold">
@@ -1228,7 +1253,7 @@ const MarkdownEditorExtension: React.FC<MarkdownEditorExtensionProps> = ({ tabId
         </div>
       )}
 
-      {contextMenuState.visible && (
+      {aiFeaturesEnabled && contextMenuState.visible && (
         <div
           className="fixed z-[70] w-52 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 shadow-lg"
           style={contextMenuPosition}

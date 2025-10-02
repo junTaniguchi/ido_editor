@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
+
 import type { ChatCompletionMessage } from '@/lib/llm/workflowPrompt';
-import { getEffectiveOpenAiApiKey } from '@/lib/server/openaiKeyStore';
+import { callLlmModel, LlmProviderError } from '@/lib/server/llmProviderClient';
+import { getActiveProviderApiKey } from '@/lib/server/llmSettingsStore';
 import type {
   GitAssistApiResponse,
   GitAssistDiffPayload,
@@ -23,8 +25,8 @@ class GitAssistApiError extends Error {
   }
 }
 
-const OPENAI_CHAT_COMPLETION_URL = 'https://api.openai.com/v1/chat/completions';
 const DEFAULT_MODEL = 'gpt-4o-mini';
+const GEMINI_GIT_MODEL = process.env.GEMINI_GIT_MODEL || process.env.GEMINI_CHAT_MODEL;
 const MAX_DIFF_SNIPPET_LENGTH = 12000;
 const MAX_FILE_ENTRIES = 20;
 const VALID_INTENTS: GitAssistIntent[] = ['commit-summary', 'review-comments'];
@@ -249,7 +251,13 @@ function buildMessages(payload: GitAssistRequestPayload): ChatCompletionMessage[
     'Always return JSON that satisfies the provided schema. Do not include extra commentary.',
   ].join(' ');
 
-  const userContent = [intentInstruction, buildUserContent(payload)].join('\n\n');
+  const schemaText = JSON.stringify(gitAssistResponseSchema.schema, null, 2);
+  const userContent = [
+    intentInstruction,
+    buildUserContent(payload),
+    '必ず次のJSONスキーマに従って応答してください:',
+    schemaText,
+  ].join('\n\n');
 
   return [
     { role: 'system', content: systemPrompt },
@@ -293,54 +301,33 @@ function normalizeModelResponse(data: unknown, fallbackIntent: GitAssistIntent):
   return response;
 }
 
-async function callGitAssistModel(apiKey: string, payload: GitAssistRequestPayload): Promise<GitAssistApiResponse> {
+async function callGitAssistModel(
+  provider: 'openai' | 'gemini',
+  apiKey: string,
+  payload: GitAssistRequestPayload,
+): Promise<GitAssistApiResponse> {
   const messages = buildMessages(payload);
   const temperature = payload.intent === 'commit-summary' ? 0.2 : 0.3;
 
-  const response = await fetch(OPENAI_CHAT_COMPLETION_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: DEFAULT_MODEL,
-      temperature,
-      response_format: {
-        type: 'json_schema',
-        json_schema: gitAssistResponseSchema,
-      },
-      messages,
-    }),
+  const result = await callLlmModel({
+    provider,
+    apiKey,
+    messages,
+    temperature,
+    ...(provider === 'openai'
+      ? { model: DEFAULT_MODEL, responseFormat: { type: 'json_schema', json_schema: gitAssistResponseSchema } }
+      : { model: GEMINI_GIT_MODEL, responseMimeType: 'application/json' }),
   });
 
-  if (!response.ok) {
-    let message = 'ChatGPT APIの呼び出しに失敗しました。';
-    try {
-      const errorPayload = await response.json();
-      message = errorPayload?.error?.message || message;
-    } catch {
-      // ignore JSON parse errors
-    }
-    const status = response.status >= 400 && response.status < 500 ? response.status : 502;
-    throw new GitAssistApiError(message, status);
-  }
-
-  const data = await response.json();
-  const content: unknown = data?.choices?.[0]?.message?.content;
-  if (typeof content !== 'string' || content.trim().length === 0) {
-    throw new Error('モデルから有効な応答を取得できませんでした。');
-  }
-
-  const parsed = JSON.parse(content);
+  const parsed = JSON.parse(result.content);
   return normalizeModelResponse(parsed, payload.intent);
 }
 
 export async function POST(request: Request) {
   try {
-    const apiKey = await getEffectiveOpenAiApiKey();
-    if (!apiKey) {
-      return NextResponse.json({ error: 'OPENAI_API_KEY が設定されていません。' }, { status: 500 });
+    const providerConfig = await getActiveProviderApiKey();
+    if (!providerConfig) {
+      return NextResponse.json({ error: 'AIプロバイダーのAPIキーが設定されていません。設定画面から登録してください。' }, { status: 500 });
     }
 
     const body: Partial<GitAssistRequestPayload> = await request.json();
@@ -364,10 +351,13 @@ export async function POST(request: Request) {
       diff,
     };
 
-    const result = await callGitAssistModel(apiKey, payload);
+    const result = await callGitAssistModel(providerConfig.provider, providerConfig.apiKey, payload);
     return NextResponse.json(result);
   } catch (error) {
     console.error('Git assist API error:', error);
+    if (error instanceof LlmProviderError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     const message = error instanceof Error ? error.message : 'AIアシスト処理中にエラーが発生しました。';
     const status = error instanceof GitAssistApiError ? error.status : 502;
     return NextResponse.json({ error: message }, { status });

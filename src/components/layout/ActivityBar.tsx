@@ -8,9 +8,10 @@ type ActivityItem = 'explorer' | 'gis' | 'git' | 'help';
 interface ActivityBarProps {
   activeItem: ActivityItem | null;
   onSelect: (item: ActivityItem) => void;
+  helpEnabled: boolean;
 }
 
-const ActivityBar: React.FC<ActivityBarProps> = ({ activeItem, onSelect }) => {
+const ActivityBar: React.FC<ActivityBarProps> = ({ activeItem, onSelect, helpEnabled }) => {
   const baseButton =
     'w-10 h-10 flex items-center justify-center rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500';
   const inactiveClass = 'text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-800';
@@ -45,15 +46,17 @@ const ActivityBar: React.FC<ActivityBarProps> = ({ activeItem, onSelect }) => {
       >
         <IoGitBranchOutline size={20} />
       </button>
-      <button
-        type="button"
-        className={`${baseButton} mt-2 ${activeItem === 'help' ? activeClass : inactiveClass}`}
-        onClick={() => onSelect('help')}
-        title="ヘルプ"
-        aria-pressed={activeItem === 'help'}
-      >
-        <IoChatbubblesOutline size={20} />
-      </button>
+      {helpEnabled && (
+        <button
+          type="button"
+          className={`${baseButton} mt-2 ${activeItem === 'help' ? activeClass : inactiveClass}`}
+          onClick={() => onSelect('help')}
+          title="ヘルプ"
+          aria-pressed={activeItem === 'help'}
+        >
+          <IoChatbubblesOutline size={20} />
+        </button>
+      )}
     </nav>
   );
 };
