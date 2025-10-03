@@ -61,7 +61,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
     const markdown = fileType === 'markdown' || fileType === 'md';
     const mermaid = fileType === 'mermaid' || fileType === 'mmd';
     const html = fileType === 'html';
-    const dataPreviewable =
+    const structuredDataPreviewable =
       fileType === 'csv' ||
       fileType === 'tsv' ||
       fileType === 'json' ||
@@ -72,6 +72,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
       fileType === 'kml' ||
       fileType === 'kmz' ||
       fileType === 'shapefile';
+    const dataPreviewable = structuredDataPreviewable || mermaid;
     const gisData =
       fileType === 'geojson' ||
       fileType === 'kml' ||
@@ -84,7 +85,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
       isHtml: html,
       isPreviewableSpecialType: markdown || mermaid || html,
       isDataPreviewable: dataPreviewable,
-      isDataAnalyzable: dataPreviewable,
+      isDataAnalyzable: structuredDataPreviewable,
       isGisData: gisData,
     };
   }, [activeTab]);

@@ -1019,7 +1019,11 @@ export const useGitStore = create<GitStoreState>((set, get) => ({
               commandLines.push(`  checkout ${branchAliasValue}`);
               activeAlias = branchAliasValue;
             }
-            commandLines.push(`  merge ${mergeAlias} id: "${id}" tag: "${tag}"`);
+            if (mergeAlias === branchAliasValue) {
+              commandLines.push(`  commit id: "${id}" tag: "${tag}"`);
+            } else {
+              commandLines.push(`  merge ${mergeAlias} id: "${id}" tag: "${tag}"`);
+            }
 
             if (parents.length > 2) {
               legendLines.push(
