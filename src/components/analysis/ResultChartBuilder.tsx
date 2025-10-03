@@ -36,6 +36,13 @@ const parseDateValue = (value: any): Date | null => {
 
 const isParsableDateValue = (value: any): boolean => parseDateValue(value) !== null;
 
+const clampHoleValue = (value: number | null | undefined): number => {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return 0;
+  }
+  return Math.min(Math.max(value, 0), 0.75);
+};
+
 interface ResultChartBuilderProps {
   rows: any[];
   title?: string;
@@ -98,6 +105,8 @@ const buildPlotConfig = (
     ganttStartField?: string;
     ganttEndField?: string;
     sunburstLevels?: string[];
+    pieHole?: number;
+    sunburstHole?: number;
   }
 ): { plot?: PlotState; error?: string } => {
   if (!rows || rows.length === 0) {
@@ -303,11 +312,13 @@ const buildPlotConfig = (
         return { error: '円グラフを作成できるデータがありません' };
       }
 
+      const hole = clampHoleValue(options?.pieHole);
+
       const trace: Partial<PlotlyData> = {
         type: 'pie',
         labels,
         values,
-        hole: 0,
+        hole,
       };
 
       return {
@@ -746,6 +757,8 @@ const buildPlotConfig = (
 
       const branchValuesMode: 'total' | 'remainder' = useCount || aggregation === 'sum' ? 'total' : 'remainder';
 
+      const hole = clampHoleValue(options?.sunburstHole);
+
       return {
         plot: {
           data: [
@@ -756,6 +769,7 @@ const buildPlotConfig = (
               values,
               ids,
               branchvalues: branchValuesMode,
+              hole,
               hovertemplate: '%{label}<br>値: %{value}<extra></extra>',
             } as PlotlyData,
           ],
@@ -903,6 +917,8 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     return '';
   });
   const [sunburstLevel3Field, setSunburstLevel3Field] = useState<string>(() => resolvedInitial.sunburstLevel3Field ?? '');
+  const [pieHole, setPieHole] = useState<number>(() => clampHoleValue(resolvedInitial.pieHole));
+  const [sunburstHole, setSunburstHole] = useState<number>(() => clampHoleValue(resolvedInitial.sunburstHole));
   const [vennFields, setVennFields] = useState<string[]>(() => resolvedInitial.vennFields ?? []);
   const [bubbleSizeField, setBubbleSizeField] = useState<string>(() => resolvedInitial.bubbleSizeField ?? '');
   const [ganttTaskField, setGanttTaskField] = useState<string>(() => resolvedInitial.ganttTaskField ?? '');
@@ -1021,6 +1037,17 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
       setGanttEndField(initialSettings.ganttEndField ?? '');
     }
 
+    if (initialSettings.pieHole !== undefined && previous.pieHole !== initialSettings.pieHole) {
+      setPieHole(clampHoleValue(initialSettings.pieHole));
+    }
+
+    if (
+      initialSettings.sunburstHole !== undefined &&
+      previous.sunburstHole !== initialSettings.sunburstHole
+    ) {
+      setSunburstHole(clampHoleValue(initialSettings.sunburstHole));
+    }
+
     if (
       initialSettings.collapsed !== undefined &&
       previous.collapsed !== initialSettings.collapsed
@@ -1043,6 +1070,8 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
       ganttTaskField: initialSettings.ganttTaskField,
       ganttStartField: initialSettings.ganttStartField,
       ganttEndField: initialSettings.ganttEndField,
+      pieHole: initialSettings.pieHole,
+      sunburstHole: initialSettings.sunburstHole,
       collapsed: initialSettings.collapsed,
     };
   }, [initialSettings]);
@@ -1067,6 +1096,8 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
       ganttTaskField,
       ganttStartField,
       ganttEndField,
+      pieHole,
+      sunburstHole,
       collapsed: !expanded,
     };
 
@@ -1081,6 +1112,8 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     ganttEndField,
     ganttStartField,
     ganttTaskField,
+    pieHole,
+    sunburstHole,
     onSettingsChange,
     sunburstLevel1Field,
     sunburstLevel2Field,
@@ -1436,12 +1469,14 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
         ganttTaskField: chartType === 'gantt' ? ganttTaskField || undefined : undefined,
         ganttStartField: chartType === 'gantt' ? ganttStartField || undefined : undefined,
         ganttEndField: chartType === 'gantt' ? ganttEndField || undefined : undefined,
+        pieHole: chartType === 'pie' ? pieHole : undefined,
         sunburstLevels:
           chartType === 'sunburst'
             ? [sunburstLevel1Field, sunburstLevel2Field, sunburstLevel3Field]
                 .filter(field => field && field.trim() !== '')
                 .slice(0, 3)
             : undefined,
+        sunburstHole: chartType === 'sunburst' ? sunburstHole : undefined,
       }
     );
 
@@ -1457,6 +1492,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     yField,
     supportsCategory,
     categoryField,
+    pieHole,
     sunburstLevel1Field,
     sunburstLevel2Field,
     sunburstLevel3Field,
@@ -1466,6 +1502,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     ganttTaskField,
     ganttStartField,
     ganttEndField,
+    sunburstHole,
     rows,
     isDarkMode,
   ]);
@@ -1584,6 +1621,27 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
                     ))}
                   </select>
                 </label>
+
+                <div className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
+                  内側のくり抜き率
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="range"
+                      min={0}
+                      max={0.75}
+                      step={0.05}
+                      value={sunburstHole}
+                      onChange={(e) => setSunburstHole(clampHoleValue(Number.parseFloat(e.target.value)))}
+                      className="flex-1"
+                    />
+                    <span className="w-12 text-right text-[11px] text-gray-500 dark:text-gray-400">
+                      {Math.round(sunburstHole * 100)}%
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">
+                    0%で通常のサンバースト、数値を上げるとドーナツ状になります。
+                  </span>
+                </div>
               </>
             )}
 
@@ -1663,6 +1721,29 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
                   ))}
                 </select>
               </label>
+            )}
+
+            {chartType === 'pie' && (
+              <div className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
+                内側のくり抜き率
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={0}
+                    max={0.75}
+                    step={0.05}
+                    value={pieHole}
+                    onChange={(e) => setPieHole(clampHoleValue(Number.parseFloat(e.target.value)))}
+                    className="flex-1"
+                  />
+                  <span className="w-12 text-right text-[11px] text-gray-500 dark:text-gray-400">
+                    {Math.round(pieHole * 100)}%
+                  </span>
+                </div>
+                <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">
+                  0%で通常の円グラフ、数値を上げるとドーナツグラフになります。
+                </span>
+              </div>
             )}
 
             {chartType === 'venn' && (
