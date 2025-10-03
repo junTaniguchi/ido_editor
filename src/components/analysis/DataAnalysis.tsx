@@ -13,10 +13,9 @@ import {
   parseShapefileContent,
 } from '@/lib/gisUtils';
 import { executeQuery, calculateStatistics, aggregateData, prepareChartData, calculateInfo, downloadData } from '@/lib/dataAnalysisUtils';
-import { IoAlertCircleOutline, IoAnalyticsOutline, IoBarChartOutline, IoStatsChartOutline, IoCodeSlash, IoEye, IoLayersOutline, IoCreate, IoSave, IoGitNetwork, IoChevronUpOutline, IoChevronDownOutline, IoBookOutline, IoAddOutline, IoPlay, IoPlayForward, IoTrashOutline, IoDownloadOutline, IoSparkles } from 'react-icons/io5';
+import { IoAlertCircleOutline, IoBarChartOutline, IoStatsChartOutline, IoCodeSlash, IoLayersOutline, IoCreate, IoSave, IoGitNetwork, IoChevronUpOutline, IoChevronDownOutline, IoBookOutline, IoAddOutline, IoPlay, IoPlayForward, IoTrashOutline, IoDownloadOutline, IoSparkles } from 'react-icons/io5';
 import QueryResultTable from './QueryResultTable';
 import InfoResultTable from './InfoResultTable';
-import EditableQueryResultTable from './EditableQueryResultTable';
 import ResultChartPanel from './ResultChartPanel';
 import {
   Chart as ChartJS, 
@@ -82,15 +81,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
     setSqlNotebook
   } = useEditorStore();
 
-  const toggleViewMode = () => {
-    const tab = useEditorStore.getState().getTab(tabId);
-    if (!tab) return;
-
-    const currentMode = getViewMode(tabId);
-    const newMode = currentMode === 'editor' ? 'preview' : 'editor';
-    setViewMode(tabId, newMode);
-  };
-
   const toggleAnalysisMode = () => {
     const tab = tabs.get(tabId);
     const type = tab?.type?.toLowerCase();
@@ -128,8 +118,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
   const [infoResult, setInfoResult] = useState<Record<string, any> | null>(null);
   const [chartData, setChartData] = useState<any | null>(null);
   const [activeTab, setActiveTab] = useState<'query' | 'stats' | 'chart' | 'relationship'>('query');
-  const [isQueryEditing, setIsQueryEditing] = useState(false);
-  const [editedQueryResult, setEditedQueryResult] = useState<any[] | null>(null);
   const [notebookSnapshotMeta, setNotebookSnapshotMeta] = useState<{ name: string; exportedAt?: string } | null>(null);
   const [insightPreview, setInsightPreview] = useState<LlmReportResponse | null>(null);
   const [insightLoading, setInsightLoading] = useState(false);
@@ -2770,20 +2758,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
     );
   };
 
-  // クエリ結果の編集データの変更をハンドリング
-  const handleQueryDataChange = (newData: any[]) => {
-    setEditedQueryResult(newData);
-  };
-
-  // クエリ結果の編集を保存
-  const saveQueryEdits = () => {
-    if (!editedQueryResult) return;
-    
-    setQueryResult([...editedQueryResult]);
-    setOriginalQueryResult([...editedQueryResult]);
-    setIsQueryEditing(false);
-  };
-  
   // クエリ結果の表示
   const renderQueryResult = () => {
     if (isNotebookMode) {
@@ -2795,55 +2769,10 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
     }
     
     const dataToUse = editorSettings.dataDisplayMode === 'nested' && originalQueryResult ? originalQueryResult : queryResult;
-    
-    if (isQueryEditing) {
-      return (
-        <div className="flex flex-col h-full">
-          <div className="p-2 border-b border-gray-300 dark:border-gray-700 flex justify-between items-center">
-            <div className="flex items-center">
-              <span className="font-medium mr-2">クエリ結果編集モード</span>
-            </div>
-            <div>
-              <button
-                className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 mr-2"
-                onClick={saveQueryEdits}
-              >
-                <IoSave className="inline mr-1" /> 保存
-              </button>
-              <button
-                className="px-3 py-1 bg-gray-500 text-white rounded hover:bg-gray-600"
-                onClick={() => setIsQueryEditing(false)}
-              >
-                キャンセル
-              </button>
-            </div>
-          </div>
-          <div className="flex-1 overflow-auto">
-            <EditableQueryResultTable 
-              data={dataToUse} 
-              onDataChange={handleQueryDataChange}
-              onSave={saveQueryEdits}
-              editable={true}
-            />
-          </div>
-        </div>
-      );
-    }
-    
     return (
       <ResultChartPanel
         rows={dataToUse}
         originalRows={originalQueryResult || null}
-        isEditable
-        isEditing={isQueryEditing}
-        onToggleEdit={() => {
-          if (!isQueryEditing) {
-            setEditedQueryResult([...dataToUse]);
-          }
-          setIsQueryEditing(prev => !prev);
-        }}
-        onEditedRowsChange={handleQueryDataChange}
-        editingRows={editedQueryResult || dataToUse}
         chartTitle="クエリ結果でチャート作成"
       />
     );
@@ -4307,26 +4236,6 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
               {editorSettings.dataDisplayMode === 'flat' ? '階層表示' : 'フラット表示'}
             </span>
           </button>
-          <button
-            className="px-3 py-2 flex items-center text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
-            onClick={toggleViewMode}
-            title="エディタ/プレビュー切替"
-          >
-            {getViewMode(tabId) === 'editor' ? (
-              <IoEye className="mr-1" size={18} />
-            ) : (
-              <IoCodeSlash className="mr-1" size={18} />
-            )}
-            <span className="text-sm">{getViewMode(tabId) === 'editor' ? 'プレビュー' : 'エディタ'}</span>
-          </button>
-          <button
-            className="px-3 py-2 flex items-center text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
-            onClick={toggleAnalysisMode}
-            title="分析モード切替"
-          >
-            <IoAnalyticsOutline className="mr-1" size={18} />
-            <span className="text-sm">分析モード終了</span>
-          </button>
         </div>
       </div>
       
@@ -4472,7 +4381,9 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                       <textarea
                         value={sqlQuery}
                         onChange={(e) => setSqlQuery(e.target.value)}
-                        className="w-full h-32 p-2 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                        rows={3}
+                        style={{ fontSize: `${editorSettings.fontSize}px`, minHeight: '3rem', lineHeight: 1.5 }}
+                        className="w-full p-2 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 resize-y"
                         placeholder="SELECT * FROM ? LIMIT 10"
                       />
                       <div className="mt-2 flex justify-between items-center">

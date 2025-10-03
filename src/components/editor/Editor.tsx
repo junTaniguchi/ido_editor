@@ -16,7 +16,7 @@ import CodeMirror from '@uiw/react-codemirror';
 import { useEditorStore } from '@/store/editorStore';
 import { getLanguageByFileName, getTheme, getEditorExtensions, getFileType } from '@/lib/editorUtils';
 import { TabData } from '@/types';
-import { IoCodeSlash, IoEye, IoAnalytics, IoSave, IoGrid, IoDownload } from 'react-icons/io5';
+import { IoCodeSlash, IoEye, IoSave, IoGrid, IoDownload } from 'react-icons/io5';
 import DataPreview from '@/components/preview/DataPreview';
 import MarkdownPreview from '@/components/preview/MarkdownPreview';
 import HtmlPreview from '@/components/preview/HtmlPreview';
@@ -109,14 +109,12 @@ export interface EditorProps {
  * @param onScroll スクロールイベントコールバック
  */
 const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref) => {
-  const { 
-    tabs, 
-    updateTab, 
-    editorSettings, 
+  const {
+    tabs,
+    updateTab,
+    editorSettings,
     getViewMode,
     setViewMode,
-    paneState,
-    updatePaneState,
     rootDirHandle
   } = useEditorStore();
 
@@ -370,12 +368,6 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
     }, 50);
   };
   
-  const toggleAnalysisMode = () => {
-    const isCurrentlyAnalysis = viewMode === 'analysis';
-    const nextMode = isCurrentlyAnalysis ? 'editor' : 'analysis';
-    setViewMode(tabId, nextMode);
-  };
-
   // ファイルの保存処理
   const saveFile = useCallback(async () => {
     if (!currentTab || !currentTab.isDirty) {
@@ -580,26 +572,16 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
             {isDirty && <span className="text-sm text-amber-500 ml-2">(未保存の変更があります)</span>}
           </div>
           <div className="flex items-center">
-            {/* データファイルの場合は常に分析モードボタンを保存ボタンの左隣に表示 */}
-            {(currentTab.type === 'csv' || currentTab.type === 'tsv' || 
-              currentTab.type === 'json' || currentTab.type === 'yaml' || 
+            {(currentTab.type === 'csv' || currentTab.type === 'tsv' ||
+              currentTab.type === 'json' || currentTab.type === 'yaml' ||
               currentTab.type === 'parquet') && (
-              <>
-                <button
-                  className={`px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 mr-2 flex items-center ${paneState.isAnalysisVisible ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
-                  onClick={toggleAnalysisMode}
-                  title={paneState.isAnalysisVisible ? '分析モードを閉じる' : '分析モードに切り替え'}
-                >
-                  <IoAnalytics size={20} className="mr-1" /> 分析
-                </button>
-                <button
-                  className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 mr-2 flex items-center"
-                  onClick={handleExportButtonClick}
-                  title="データエクスポート"
-                >
-                  <IoDownload className="mr-1" size={16} /> エクスポート
-                </button>
-              </>
+              <button
+                className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 mr-2 flex items-center"
+                onClick={handleExportButtonClick}
+                title="データエクスポート"
+              >
+                <IoDownload className="mr-1" size={16} /> エクスポート
+              </button>
             )}
             <button
               className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 mr-2"

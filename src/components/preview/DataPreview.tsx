@@ -48,7 +48,7 @@ import IpynbPreview from './IpynbPreview';
 import PdfPreview from './PdfPreview';
 import ExcelPreview from './ExcelPreview';
 import ExportModal from './ExportModal';
-import { IoAlertCircleOutline, IoCodeSlash, IoEye, IoAnalytics, IoLayers, IoGrid, IoSave, IoClose, IoDownload } from 'react-icons/io5';
+import { IoAlertCircleOutline, IoCodeSlash, IoEye, IoLayers, IoGrid, IoSave, IoClose, IoDownload } from 'react-icons/io5';
 import * as XLSX from 'xlsx';
 import { Document, Packer, Paragraph } from 'docx';
 
@@ -127,8 +127,6 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     updateTab,
     getViewMode,
     setViewMode,
-    paneState,
-    updatePaneState,
     editorSettings,
     updateEditorSettings,
     analysisData,
@@ -704,11 +702,6 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     setViewMode(tabId, newMode);
   };
   
-  const toggleAnalysisMode = () => {
-    const nextMode = viewMode === 'analysis' ? 'editor' : 'analysis';
-    setViewMode(tabId, nextMode);
-  };
-  
   const toggleDisplayMode = () => {
     const newMode = dataDisplayMode === 'flat' ? 'nested' : 'flat';
     updateEditorSettings({ dataDisplayMode: newMode });
@@ -1018,16 +1011,6 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
                 title="データエクスポート"
               >
                 <IoDownload className="inline mr-1" /> エクスポート
-              </button>
-            )}
-            {/* 分析モード切替アイコン（データ系ファイルで常に表示） */}
-            {(type === 'csv' || type === 'tsv' || type === 'json' || type === 'yaml' || type === 'parquet' || type === 'excel') && (
-              <button
-                className={`px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 mr-2 flex items-center ${paneState.isAnalysisVisible ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
-                onClick={toggleAnalysisMode}
-                title={paneState.isAnalysisVisible ? '分析モードを閉じる' : '分析モードに切り替え'}
-              >
-                <IoAnalytics size={20} className="mr-1" /> 分析
               </button>
             )}
             <button
