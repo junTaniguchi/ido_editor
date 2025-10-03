@@ -1178,6 +1178,8 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     }
   }, [chartType, availableColumns, dateColumns, ganttTaskField, ganttStartField, ganttEndField]);
 
+  const isHierarchicalChart = chartType === 'sunburst' || chartType === 'treemap';
+
   const supportsCategory =
     chartType === 'bar' ||
     chartType === 'line' ||
@@ -1229,7 +1231,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     chartType === 'bubble' ||
     chartType === 'sunburst';
   const canSelectYField = chartType !== 'histogram' && chartType !== 'gantt' && chartType !== 'venn';
-  const showXField = chartType !== 'gantt' && chartType !== 'venn';
+  const showXField = chartType !== 'gantt' && chartType !== 'venn' && !isHierarchicalChart;
 
   const chartComputation = useMemo(() => {
     if (!expanded) {
@@ -1379,7 +1381,8 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
   const plot = chartComputation.plot;
 
   const aggregationDisabled = !allowAggregation || !xField || (requiresNumericY && !yField);
-  const showYField = canSelectYField && (chartType !== 'pie' || numericColumns.length > 0);
+  const showYField =
+    canSelectYField && !isHierarchicalChart && (chartType !== 'pie' || numericColumns.length > 0);
 
   return (
     <div className={className}>
@@ -1422,6 +1425,52 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
                   ))}
                 </select>
               </label>
+            )}
+
+            {isHierarchicalChart && (
+              <>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
+                  ラベルの列
+                  <select
+                    value={xField}
+                    onChange={(e) => setXField(e.target.value)}
+                    className="p-2 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="">列を選択</option>
+                    {availableColumns.map(column => (
+                      <option key={column} value={column}>{column}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
+                  親カテゴリの列（任意）
+                  <select
+                    value={categoryField}
+                    onChange={(e) => setCategoryField(e.target.value)}
+                    className="p-2 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="">親カテゴリなし</option>
+                    {availableColumns.map(column => (
+                      <option key={column} value={column}>{column}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
+                  値の列（任意）
+                  <select
+                    value={yField}
+                    onChange={(e) => setYField(e.target.value)}
+                    className="p-2 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="">値を集計しない（件数）</option>
+                    {numericColumns.map(column => (
+                      <option key={column} value={column}>{column}</option>
+                    ))}
+                  </select>
+                </label>
+              </>
             )}
 
             {showYField && (
@@ -1506,7 +1555,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
               </div>
             )}
 
-            {supportsCategory && (
+            {supportsCategory && !isHierarchicalChart && (
               <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
                 グループ分け
                 <select
