@@ -70,7 +70,7 @@ const MainLayoutContent: React.FC = () => {
     const isMarkdown = type === 'markdown' || type === 'md';
     const isMermaid = type === 'mermaid' || type === 'mmd';
     const isHtml = type === 'html';
-    const isDataPreviewable =
+    const isStructuredDataPreviewable =
       type === 'csv' ||
       type === 'tsv' ||
       type === 'json' ||
@@ -81,6 +81,7 @@ const MainLayoutContent: React.FC = () => {
       type === 'kml' ||
       type === 'kmz' ||
       type === 'shapefile';
+    const isDataPreviewable = isStructuredDataPreviewable || isMermaid;
 
     return {
       isMarkdown,
@@ -346,7 +347,7 @@ const MainLayoutContent: React.FC = () => {
       modes.push('gis-analysis');
     }
 
-    if (fileTypeFlags.isDataPreviewable || fileTypeFlags.isGisData) {
+    if ((fileTypeFlags.isDataPreviewable && !fileTypeFlags.isMermaid) || fileTypeFlags.isGisData) {
       modes.push('analysis');
     }
 
