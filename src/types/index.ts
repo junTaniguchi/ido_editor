@@ -158,6 +158,11 @@ export interface ChartDesignerSettings {
   ganttTaskField: string;
   ganttStartField: string;
   ganttEndField: string;
+  sunburstLevel1Field: string;
+  sunburstLevel2Field: string;
+  sunburstLevel3Field: string;
+  pieHole: number;
+  sunburstHole: number;
   collapsed: boolean;
 }
 
