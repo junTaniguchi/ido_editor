@@ -36,6 +36,13 @@ const parseDateValue = (value: any): Date | null => {
 
 const isParsableDateValue = (value: any): boolean => parseDateValue(value) !== null;
 
+const clampHoleValue = (value: number | null | undefined): number => {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return 0;
+  }
+  return Math.min(Math.max(value, 0), 0.75);
+};
+
 interface ResultChartBuilderProps {
   rows: any[];
   title?: string;
@@ -97,6 +104,9 @@ const buildPlotConfig = (
     ganttTaskField?: string;
     ganttStartField?: string;
     ganttEndField?: string;
+    sunburstLevels?: string[];
+    pieHole?: number;
+    sunburstHole?: number;
   }
 ): { plot?: PlotState; error?: string } => {
   if (!rows || rows.length === 0) {
@@ -302,11 +312,13 @@ const buildPlotConfig = (
         return { error: '円グラフを作成できるデータがありません' };
       }
 
+      const hole = clampHoleValue(options?.pieHole);
+
       const trace: Partial<PlotlyData> = {
         type: 'pie',
         labels,
         values,
-        hole: 0,
+        hole,
       };
 
       return {
@@ -613,38 +625,45 @@ const buildPlotConfig = (
     }
 
     if (chartType === 'sunburst') {
-      if (categoryField && categoryField === xField) {
-        return { error: 'サンバーストチャートではラベル用と親カテゴリ用に異なる列を選択してください' };
+      const configuredHierarchy = (
+        options?.sunburstLevels && options.sunburstLevels.length > 0
+          ? options.sunburstLevels
+          : [
+              ...(categoryField ? [categoryField] : []),
+              ...(xField ? [xField] : []),
+            ]
+      )
+        .filter(field => field && field.trim() !== '')
+        .slice(0, 3);
+
+      if (configuredHierarchy.length === 0) {
+        return { error: 'サンバーストチャートの階層に使用する列を選択してください' };
       }
 
       const rootLabel = '全体';
       const useCount = aggregation === 'count' || !yField;
 
-      const childStats = new Map<string, { label: string; parent: string; values: number[]; count: number }>();
-      const parentStats = new Map<string, { values: number[]; count: number }>();
+      const resolveLabel = (raw: any) => {
+        if (raw === undefined || raw === null) {
+          return '未分類';
+        }
+        const value = String(raw).trim();
+        return value === '' ? '未分類' : value;
+      };
+
+      const nodeStats = new Map<
+        string,
+        { label: string; parentKey: string; parentLabel: string; values: number[]; count: number }
+      >();
       const rootValues: number[] = [];
       let rootCount = 0;
 
-      const resolveCategory = (row: any) => {
-        if (!categoryField) return rootLabel;
-        const raw = row[categoryField];
-        if (raw === undefined || raw === null || (typeof raw === 'string' && raw.trim() === '')) {
-          return '未分類';
-        }
-        return String(raw);
-      };
-
       flattened.forEach(row => {
-        const rawLabel = row[xField];
-        if (rawLabel === undefined || rawLabel === null) {
-          return;
-        }
-        const label = String(rawLabel);
-        if (label.trim() === '') {
+        const path = configuredHierarchy.map(field => resolveLabel(row[field]));
+        if (path.length === 0) {
           return;
         }
 
-        const parentLabel = resolveCategory(row);
         const rawValue = yField ? row[yField] : undefined;
         const numericValue = typeof rawValue === 'number' && !Number.isNaN(rawValue) ? rawValue : null;
 
@@ -652,32 +671,38 @@ const buildPlotConfig = (
           return;
         }
 
-        const key = `${parentLabel}||${label}`;
-        if (!childStats.has(key)) {
-          childStats.set(key, { label, parent: parentLabel, values: [], count: 0 });
-        }
-        const childEntry = childStats.get(key)!;
-        childEntry.count += 1;
-        if (!useCount && numericValue !== null) {
-          childEntry.values.push(numericValue);
-        }
-
-        if (categoryField) {
-          if (!parentStats.has(parentLabel)) {
-            parentStats.set(parentLabel, { values: [], count: 0 });
-          }
-          const parentEntry = parentStats.get(parentLabel)!;
-          parentEntry.count += 1;
-          if (!useCount && numericValue !== null) {
-            parentEntry.values.push(numericValue);
-          }
-        }
-
         rootCount += 1;
         if (!useCount && numericValue !== null) {
           rootValues.push(numericValue);
         }
+
+        path.forEach((label, depth) => {
+          const keyPath = path.slice(0, depth + 1);
+          const nodeKey = `${depth}:${keyPath.join('||')}`;
+          const parentKey = depth === 0 ? 'root' : `${depth - 1}:${keyPath.slice(0, -1).join('||')}`;
+          const parentLabel = depth === 0 ? rootLabel : keyPath[depth - 1];
+
+          if (!nodeStats.has(nodeKey)) {
+            nodeStats.set(nodeKey, {
+              label,
+              parentKey,
+              parentLabel,
+              values: [],
+              count: 0,
+            });
+          }
+
+          const node = nodeStats.get(nodeKey)!;
+          node.count += 1;
+          if (!useCount && numericValue !== null) {
+            node.values.push(numericValue);
+          }
+        });
       });
+
+      if (nodeStats.size === 0) {
+        return { error: 'サンバーストチャートを作成できるデータがありません' };
+      }
 
       const computeAggregatedValue = (values: number[], count: number): number | null => {
         if (useCount) {
@@ -700,43 +725,39 @@ const buildPlotConfig = (
         }
       };
 
-      const childOutputs: { label: string; parent: string; value: number }[] = [];
-      childStats.forEach(entry => {
+      const rootValue = computeAggregatedValue(rootValues, rootCount);
+      if (rootValue === null) {
+        return { error: 'サンバーストチャートを作成できるデータがありません' };
+      }
+
+      const labels: string[] = [rootLabel];
+      const parents: string[] = [''];
+      const values: number[] = [rootValue];
+      const ids: string[] = ['root'];
+
+      const sortedNodes = Array.from(nodeStats.entries()).sort((a, b) => {
+        const depthA = Number.parseInt(a[0].split(':')[0], 10);
+        const depthB = Number.parseInt(b[0].split(':')[0], 10);
+        if (depthA === depthB) {
+          return a[0].localeCompare(b[0]);
+        }
+        return depthA - depthB;
+      });
+
+      sortedNodes.forEach(([key, entry]) => {
         const value = computeAggregatedValue(entry.values, entry.count);
         if (value === null) {
           return;
         }
-        const parentLabel = categoryField ? entry.parent : rootLabel;
-        childOutputs.push({ label: entry.label, parent: parentLabel, value });
-      });
-
-      if (childOutputs.length === 0) {
-        return { error: 'サンバーストチャートを作成できるデータがありません' };
-      }
-
-      const labels: string[] = [];
-      const parents: string[] = [];
-      const values: number[] = [];
-
-      if (categoryField) {
-        parentStats.forEach((entry, parentLabel) => {
-          const value = computeAggregatedValue(entry.values, entry.count);
-          if (value === null) {
-            return;
-          }
-          labels.push(parentLabel);
-          parents.push('');
-          values.push(value);
-        });
-      }
-
-      childOutputs.forEach(output => {
-        labels.push(output.label);
-        parents.push(output.parent);
-        values.push(output.value);
+        labels.push(entry.label);
+        parents.push(entry.parentLabel);
+        values.push(value);
+        ids.push(key);
       });
 
       const branchValuesMode: 'total' | 'remainder' = useCount || aggregation === 'sum' ? 'total' : 'remainder';
+
+      const hole = clampHoleValue(options?.sunburstHole);
 
       return {
         plot: {
@@ -746,7 +767,9 @@ const buildPlotConfig = (
               labels,
               parents,
               values,
+              ids,
               branchvalues: branchValuesMode,
+              hole,
               hovertemplate: '%{label}<br>値: %{value}<extra></extra>',
             } as PlotlyData,
           ],
@@ -872,6 +895,30 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
   const resolvedInitial = initialSettings ?? {};
 
   const [categoryField, setCategoryField] = useState<string>(() => resolvedInitial.categoryField ?? '');
+  const [sunburstLevel1Field, setSunburstLevel1Field] = useState<string>(() => {
+    if (resolvedInitial.sunburstLevel1Field !== undefined) {
+      return resolvedInitial.sunburstLevel1Field ?? '';
+    }
+    if (resolvedInitial.categoryField) {
+      return resolvedInitial.categoryField;
+    }
+    if (resolvedInitial.xField) {
+      return resolvedInitial.xField;
+    }
+    return '';
+  });
+  const [sunburstLevel2Field, setSunburstLevel2Field] = useState<string>(() => {
+    if (resolvedInitial.sunburstLevel2Field !== undefined) {
+      return resolvedInitial.sunburstLevel2Field ?? '';
+    }
+    if (resolvedInitial.categoryField && resolvedInitial.xField) {
+      return resolvedInitial.xField;
+    }
+    return '';
+  });
+  const [sunburstLevel3Field, setSunburstLevel3Field] = useState<string>(() => resolvedInitial.sunburstLevel3Field ?? '');
+  const [pieHole, setPieHole] = useState<number>(() => clampHoleValue(resolvedInitial.pieHole));
+  const [sunburstHole, setSunburstHole] = useState<number>(() => clampHoleValue(resolvedInitial.sunburstHole));
   const [vennFields, setVennFields] = useState<string[]>(() => resolvedInitial.vennFields ?? []);
   const [bubbleSizeField, setBubbleSizeField] = useState<string>(() => resolvedInitial.bubbleSizeField ?? '');
   const [ganttTaskField, setGanttTaskField] = useState<string>(() => resolvedInitial.ganttTaskField ?? '');
@@ -930,6 +977,27 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
       setCategoryField(initialSettings.categoryField ?? '');
     }
 
+    if (
+      initialSettings.sunburstLevel1Field !== undefined &&
+      previous.sunburstLevel1Field !== initialSettings.sunburstLevel1Field
+    ) {
+      setSunburstLevel1Field(initialSettings.sunburstLevel1Field ?? '');
+    }
+
+    if (
+      initialSettings.sunburstLevel2Field !== undefined &&
+      previous.sunburstLevel2Field !== initialSettings.sunburstLevel2Field
+    ) {
+      setSunburstLevel2Field(initialSettings.sunburstLevel2Field ?? '');
+    }
+
+    if (
+      initialSettings.sunburstLevel3Field !== undefined &&
+      previous.sunburstLevel3Field !== initialSettings.sunburstLevel3Field
+    ) {
+      setSunburstLevel3Field(initialSettings.sunburstLevel3Field ?? '');
+    }
+
     if (initialSettings.vennFields !== undefined) {
       const nextFields = initialSettings.vennFields ?? [];
       const prevFields = previous.vennFields ?? [];
@@ -969,6 +1037,17 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
       setGanttEndField(initialSettings.ganttEndField ?? '');
     }
 
+    if (initialSettings.pieHole !== undefined && previous.pieHole !== initialSettings.pieHole) {
+      setPieHole(clampHoleValue(initialSettings.pieHole));
+    }
+
+    if (
+      initialSettings.sunburstHole !== undefined &&
+      previous.sunburstHole !== initialSettings.sunburstHole
+    ) {
+      setSunburstHole(clampHoleValue(initialSettings.sunburstHole));
+    }
+
     if (
       initialSettings.collapsed !== undefined &&
       previous.collapsed !== initialSettings.collapsed
@@ -983,11 +1062,16 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
       aggregation: initialSettings.aggregation,
       bins: initialSettings.bins,
       categoryField: initialSettings.categoryField,
+      sunburstLevel1Field: initialSettings.sunburstLevel1Field,
+      sunburstLevel2Field: initialSettings.sunburstLevel2Field,
+      sunburstLevel3Field: initialSettings.sunburstLevel3Field,
       vennFields: initialSettings.vennFields ? [...initialSettings.vennFields] : undefined,
       bubbleSizeField: initialSettings.bubbleSizeField,
       ganttTaskField: initialSettings.ganttTaskField,
       ganttStartField: initialSettings.ganttStartField,
       ganttEndField: initialSettings.ganttEndField,
+      pieHole: initialSettings.pieHole,
+      sunburstHole: initialSettings.sunburstHole,
       collapsed: initialSettings.collapsed,
     };
   }, [initialSettings]);
@@ -1004,11 +1088,16 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
       aggregation,
       bins,
       categoryField,
+      sunburstLevel1Field,
+      sunburstLevel2Field,
+      sunburstLevel3Field,
       vennFields,
       bubbleSizeField,
       ganttTaskField,
       ganttStartField,
       ganttEndField,
+      pieHole,
+      sunburstHole,
       collapsed: !expanded,
     };
 
@@ -1023,7 +1112,12 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     ganttEndField,
     ganttStartField,
     ganttTaskField,
+    pieHole,
+    sunburstHole,
     onSettingsChange,
+    sunburstLevel1Field,
+    sunburstLevel2Field,
+    sunburstLevel3Field,
     vennFields,
     xField,
     yField,
@@ -1081,6 +1175,30 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
       setCategoryField('');
     }
   }, [availableColumns, categoryField]);
+
+  useEffect(() => {
+    if (sunburstLevel1Field && !availableColumns.includes(sunburstLevel1Field)) {
+      setSunburstLevel1Field('');
+    }
+  }, [availableColumns, sunburstLevel1Field]);
+
+  useEffect(() => {
+    if (sunburstLevel2Field && !availableColumns.includes(sunburstLevel2Field)) {
+      setSunburstLevel2Field('');
+    }
+  }, [availableColumns, sunburstLevel2Field]);
+
+  useEffect(() => {
+    if (sunburstLevel3Field && !availableColumns.includes(sunburstLevel3Field)) {
+      setSunburstLevel3Field('');
+    }
+  }, [availableColumns, sunburstLevel3Field]);
+
+  useEffect(() => {
+    if (chartType === 'sunburst' && !sunburstLevel1Field && availableColumns.length > 0) {
+      setSunburstLevel1Field(availableColumns[0]);
+    }
+  }, [chartType, sunburstLevel1Field, availableColumns]);
 
   useEffect(() => {
     setVennFields(prev => {
@@ -1178,6 +1296,10 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     }
   }, [chartType, availableColumns, dateColumns, ganttTaskField, ganttStartField, ganttEndField]);
 
+  const isSunburstChart = chartType === 'sunburst';
+  const isTreemapChart = chartType === 'treemap';
+  const isHierarchicalChart = isSunburstChart || isTreemapChart;
+
   const supportsCategory =
     chartType === 'bar' ||
     chartType === 'line' ||
@@ -1186,8 +1308,8 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     chartType === 'regression' ||
     chartType === 'bubble' ||
     chartType === 'histogram' ||
-    chartType === 'sunburst' ||
-    chartType === 'treemap' ||
+    isSunburstChart ||
+    isTreemapChart ||
     chartType === 'streamgraph';
 
   useEffect(() => {
@@ -1217,8 +1339,8 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     chartType === 'line' ||
     chartType === 'pie' ||
     chartType === 'stacked-bar' ||
-    chartType === 'sunburst' ||
-    chartType === 'treemap' ||
+    isSunburstChart ||
+    isTreemapChart ||
     chartType === 'streamgraph';
   const requiresNumericY =
     chartType === 'scatter' ||
@@ -1227,9 +1349,9 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     chartType === 'stacked-bar' ||
     chartType === 'regression' ||
     chartType === 'bubble' ||
-    chartType === 'sunburst';
+    isSunburstChart;
   const canSelectYField = chartType !== 'histogram' && chartType !== 'gantt' && chartType !== 'venn';
-  const showXField = chartType !== 'gantt' && chartType !== 'venn';
+  const showXField = chartType !== 'gantt' && chartType !== 'venn' && !isHierarchicalChart;
 
   const chartComputation = useMemo(() => {
     if (!expanded) {
@@ -1347,6 +1469,14 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
         ganttTaskField: chartType === 'gantt' ? ganttTaskField || undefined : undefined,
         ganttStartField: chartType === 'gantt' ? ganttStartField || undefined : undefined,
         ganttEndField: chartType === 'gantt' ? ganttEndField || undefined : undefined,
+        pieHole: chartType === 'pie' ? pieHole : undefined,
+        sunburstLevels:
+          chartType === 'sunburst'
+            ? [sunburstLevel1Field, sunburstLevel2Field, sunburstLevel3Field]
+                .filter(field => field && field.trim() !== '')
+                .slice(0, 3)
+            : undefined,
+        sunburstHole: chartType === 'sunburst' ? sunburstHole : undefined,
       }
     );
 
@@ -1362,12 +1492,17 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     yField,
     supportsCategory,
     categoryField,
+    pieHole,
+    sunburstLevel1Field,
+    sunburstLevel2Field,
+    sunburstLevel3Field,
     aggregation,
     bins,
     bubbleSizeField,
     ganttTaskField,
     ganttStartField,
     ganttEndField,
+    sunburstHole,
     rows,
     isDarkMode,
   ]);
@@ -1378,8 +1513,13 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
 
   const plot = chartComputation.plot;
 
-  const aggregationDisabled = !allowAggregation || !xField || (requiresNumericY && !yField);
-  const showYField = canSelectYField && (chartType !== 'pie' || numericColumns.length > 0);
+  const requiresXFieldForAggregation = !isSunburstChart;
+  const aggregationDisabled =
+    !allowAggregation ||
+    (requiresXFieldForAggregation && !xField) ||
+    (requiresNumericY && !yField);
+  const showYField =
+    canSelectYField && !isHierarchicalChart && (chartType !== 'pie' || numericColumns.length > 0);
 
   return (
     <div className={className}>
@@ -1424,6 +1564,133 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
               </label>
             )}
 
+            {isSunburstChart && (
+              <>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
+                  中心（第1層）の列
+                  <select
+                    value={sunburstLevel1Field}
+                    onChange={(e) => setSunburstLevel1Field(e.target.value)}
+                    className="p-2 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="">列を選択</option>
+                    {availableColumns.map(column => (
+                      <option key={column} value={column}>{column}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
+                  第2層の列（任意）
+                  <select
+                    value={sunburstLevel2Field}
+                    onChange={(e) => setSunburstLevel2Field(e.target.value)}
+                    className="p-2 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="">列を選択</option>
+                    {availableColumns.map(column => (
+                      <option key={column} value={column}>{column}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
+                  第3層の列（任意）
+                  <select
+                    value={sunburstLevel3Field}
+                    onChange={(e) => setSunburstLevel3Field(e.target.value)}
+                    className="p-2 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="">列を選択</option>
+                    {availableColumns.map(column => (
+                      <option key={column} value={column}>{column}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
+                  値の列（任意）
+                  <select
+                    value={yField}
+                    onChange={(e) => setYField(e.target.value)}
+                    className="p-2 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="">値を集計しない（件数）</option>
+                    {numericColumns.map(column => (
+                      <option key={column} value={column}>{column}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <div className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
+                  内側のくり抜き率
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="range"
+                      min={0}
+                      max={0.75}
+                      step={0.05}
+                      value={sunburstHole}
+                      onChange={(e) => setSunburstHole(clampHoleValue(Number.parseFloat(e.target.value)))}
+                      className="flex-1"
+                    />
+                    <span className="w-12 text-right text-[11px] text-gray-500 dark:text-gray-400">
+                      {Math.round(sunburstHole * 100)}%
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">
+                    0%で通常のサンバースト、数値を上げるとドーナツ状になります。
+                  </span>
+                </div>
+              </>
+            )}
+
+            {isTreemapChart && (
+              <>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
+                  ラベルの列
+                  <select
+                    value={xField}
+                    onChange={(e) => setXField(e.target.value)}
+                    className="p-2 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="">列を選択</option>
+                    {availableColumns.map(column => (
+                      <option key={column} value={column}>{column}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
+                  親カテゴリの列（任意）
+                  <select
+                    value={categoryField}
+                    onChange={(e) => setCategoryField(e.target.value)}
+                    className="p-2 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="">親カテゴリなし</option>
+                    {availableColumns.map(column => (
+                      <option key={column} value={column}>{column}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
+                  値の列（任意）
+                  <select
+                    value={yField}
+                    onChange={(e) => setYField(e.target.value)}
+                    className="p-2 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="">値を集計しない（件数）</option>
+                    {numericColumns.map(column => (
+                      <option key={column} value={column}>{column}</option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            )}
+
             {showYField && (
               <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
                 Y軸の列
@@ -1454,6 +1721,29 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
                   ))}
                 </select>
               </label>
+            )}
+
+            {chartType === 'pie' && (
+              <div className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
+                内側のくり抜き率
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={0}
+                    max={0.75}
+                    step={0.05}
+                    value={pieHole}
+                    onChange={(e) => setPieHole(clampHoleValue(Number.parseFloat(e.target.value)))}
+                    className="flex-1"
+                  />
+                  <span className="w-12 text-right text-[11px] text-gray-500 dark:text-gray-400">
+                    {Math.round(pieHole * 100)}%
+                  </span>
+                </div>
+                <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">
+                  0%で通常の円グラフ、数値を上げるとドーナツグラフになります。
+                </span>
+              </div>
             )}
 
             {chartType === 'venn' && (
@@ -1506,7 +1796,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
               </div>
             )}
 
-            {supportsCategory && (
+            {supportsCategory && !isHierarchicalChart && (
               <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
                 グループ分け
                 <select
