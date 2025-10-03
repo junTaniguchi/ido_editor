@@ -750,7 +750,7 @@ const buildPlotConfig = (
           return;
         }
         labels.push(entry.label);
-        parents.push(entry.parentLabel);
+        parents.push(entry.parentKey);
         values.push(value);
         ids.push(key);
       });
