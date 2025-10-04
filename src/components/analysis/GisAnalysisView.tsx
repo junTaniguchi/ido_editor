@@ -1526,7 +1526,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
     <div className="flex h-full w-full overflow-hidden bg-white dark:bg-gray-900">
       <main className="relative flex flex-1 flex-col">
         <div className="relative flex-1">
-          <div ref={mapContainerRef} className="h-full w-full" />
+          <div ref={mapContainerRef} className="relative z-0 h-full w-full" />
           {renderMapPlaceholder()}
         </div>
         {selectedFilePaths.length > 0 && (
@@ -1823,4 +1823,3 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
 };
 
 export default GisAnalysisView;
-

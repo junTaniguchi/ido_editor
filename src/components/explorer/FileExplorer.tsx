@@ -12,9 +12,14 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  IoFolderOutline, IoDocumentOutline, IoChevronForward, IoChevronDown,
-  IoCreateOutline, IoReloadOutline
+import {
+  IoFolderOutline,
+  IoDocumentOutline,
+  IoChevronForward,
+  IoChevronDown,
+  IoCreateOutline,
+  IoReloadOutline,
+  IoSyncOutline,
 } from 'react-icons/io5';
 import { useEditorStore } from '@/store/editorStore';
 import { useGitStore } from '@/store/gitStore';
@@ -76,6 +81,7 @@ const FileExplorer = () => {
   // individual properties instead so selectors are stable.
   const repoInitialized = useGitStore((state) => state.repoInitialized);
   const getFileHistory = useGitStore((state) => state.getFileHistory);
+  const gitLoading = useGitStore((state) => state.loading);
   
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [apiSupported, setApiSupported] = useState<boolean>(true);
@@ -751,6 +757,14 @@ const FileExplorer = () => {
       <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex justify-between items-center">
         <div className="flex items-center">
           <h2 className="font-medium text-sm">エクスプローラ</h2>
+          {gitLoading && (
+            <span
+              className="ml-2 flex items-center text-xs text-blue-600 dark:text-blue-300"
+              title="Gitリポジトリを更新しています"
+            >
+              <IoSyncOutline className="mr-1 animate-spin" size={14} /> 更新中
+            </span>
+          )}
           {multiFileAnalysisEnabled && (
             <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">
               分析モード

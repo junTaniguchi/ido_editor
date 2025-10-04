@@ -148,6 +148,7 @@ export type ResultAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
 
 export interface ChartDesignerSettings {
   chartType: ResultChartType;
+  title: string;
   xField: string;
   yField: string;
   aggregation: ResultAggregation;

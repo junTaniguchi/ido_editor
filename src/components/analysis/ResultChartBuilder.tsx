@@ -100,6 +100,7 @@ const buildPlotConfig = (
   bins: number,
   categoryField?: string,
   options?: {
+    title?: string;
     bubbleSizeField?: string;
     ganttTaskField?: string;
     ganttStartField?: string;
@@ -114,7 +115,7 @@ const buildPlotConfig = (
   }
 
   if (chartType !== 'gantt' && !xField) {
-    return { error: 'X軸に使用する列を選択してください' };
+    return { error: '表示に使用する列を選択してください' };
   }
 
   const colorPalette = [
@@ -129,9 +130,11 @@ const buildPlotConfig = (
     '#6366f1',
   ];
 
+  const layoutTitle = options?.title && options.title.trim() !== '' ? options.title.trim() : undefined;
+
   const getSeriesFromAggregation = (sourceData: any[] = flattened) => {
     if (!yField && aggregation !== 'count') {
-      return { error: 'Y軸の列が未選択の場合は集計方法に「件数」を指定してください' };
+      return { error: '値に使用する列が未選択の場合は集計方法に「件数」を指定してください' };
     }
 
     const result = aggregateData(sourceData, xField, yField || '', aggregation, false);
@@ -217,6 +220,7 @@ const buildPlotConfig = (
             xaxis: { title: xField },
             yaxis: { title: yField },
             showlegend: traces.length > 1,
+            title: layoutTitle,
           },
         },
       };
@@ -297,6 +301,7 @@ const buildPlotConfig = (
             yaxis: { title: '度数' },
             barmode: categoryField ? 'overlay' : undefined,
             showlegend: categoryField ? traces.length > 1 : false,
+            title: layoutTitle,
           },
         },
       };
@@ -329,6 +334,7 @@ const buildPlotConfig = (
             height: 320,
             margin: { t: 40, r: 20, b: 40, l: 20 },
             legend: { orientation: 'h' },
+            title: layoutTitle,
           },
         },
       };
@@ -407,6 +413,7 @@ const buildPlotConfig = (
                   ? 'stack'
                   : undefined,
             showlegend: categories.length > 1,
+            title: layoutTitle,
           },
         },
       };
@@ -511,6 +518,7 @@ const buildPlotConfig = (
             xaxis: { title: xField },
             yaxis: { title: yField },
             showlegend: traces.length > 1,
+            title: layoutTitle,
           },
         },
       };
@@ -619,6 +627,7 @@ const buildPlotConfig = (
             xaxis: { title: xField },
             yaxis: { title: yField },
             showlegend: true,
+            title: layoutTitle,
           },
         },
       };
@@ -777,6 +786,7 @@ const buildPlotConfig = (
             autosize: true,
             height: 360,
             margin: { t: 40, r: 20, b: 20, l: 20 },
+            title: layoutTitle,
           },
         },
       };
@@ -854,6 +864,7 @@ const buildPlotConfig = (
             xaxis: { title: '日付', type: 'date' },
             yaxis: { title: 'タスク', autorange: 'reversed' },
             showlegend: false,
+            title: layoutTitle,
           },
         },
       };
@@ -927,6 +938,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
 
   const [expanded, setExpanded] = useState(() => !(resolvedInitial.collapsed ?? collapsedByDefault));
   const [chartType, setChartType] = useState<ResultChartType>(() => resolvedInitial.chartType ?? 'bar');
+  const [chartTitle, setChartTitle] = useState<string>(() => resolvedInitial.title ?? '');
   const [xField, setXField] = useState<string>(() => resolvedInitial.xField ?? '');
   const [yField, setYField] = useState<string>(() => resolvedInitial.yField ?? '');
   const [aggregation, setAggregation] = useState<ResultAggregation>(() => resolvedInitial.aggregation ?? 'sum');
@@ -949,6 +961,10 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
       previous.chartType !== initialSettings.chartType
     ) {
       setChartType(initialSettings.chartType);
+    }
+
+    if (initialSettings.title !== undefined && previous.title !== initialSettings.title) {
+      setChartTitle(initialSettings.title ?? '');
     }
 
     if (initialSettings.xField !== undefined && previous.xField !== initialSettings.xField) {
@@ -1057,6 +1073,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
 
     lastInitialSettingsRef.current = {
       chartType: initialSettings.chartType,
+      title: initialSettings.title,
       xField: initialSettings.xField,
       yField: initialSettings.yField,
       aggregation: initialSettings.aggregation,
@@ -1083,6 +1100,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
 
     const payload: ChartDesignerSettings = {
       chartType,
+      title: chartTitle,
       xField,
       yField,
       aggregation,
@@ -1108,6 +1126,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     bubbleSizeField,
     categoryField,
     chartType,
+    chartTitle,
     expanded,
     ganttEndField,
     ganttStartField,
@@ -1138,7 +1157,12 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
       if (!xField && availableColumns.length > 0) {
         setXField(availableColumns[0]);
       }
-      if (!yField && numericColumns.length > 0) {
+      if (newType === 'pie') {
+        setYField('');
+        if (aggregation !== 'count') {
+          setAggregation('count');
+        }
+      } else if (!yField && numericColumns.length > 0) {
         setYField(numericColumns[0]);
       }
     }
@@ -1163,12 +1187,15 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
   }, [availableColumns]);
 
   useEffect(() => {
+    if (chartType === 'pie' && aggregation === 'count') {
+      return;
+    }
     if (numericColumns.length > 0) {
       setYField(prev => (prev && numericColumns.includes(prev) ? prev : numericColumns[0]));
     } else {
       setYField('');
     }
-  }, [numericColumns]);
+  }, [numericColumns, chartType, aggregation]);
 
   useEffect(() => {
     if (categoryField && !availableColumns.includes(categoryField)) {
@@ -1334,6 +1361,12 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     }
   }, [chartType, yField, aggregation]);
 
+  useEffect(() => {
+    if (chartType === 'pie' && aggregation === 'count' && yField) {
+      setYField('');
+    }
+  }, [chartType, aggregation, yField]);
+
   const allowAggregation =
     chartType === 'bar' ||
     chartType === 'line' ||
@@ -1405,6 +1438,9 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
       }
 
       const layout: Partial<PlotlyLayout> = { ...(plotlyMeta.layout || {}) };
+      if (chartTitle && chartTitle.trim().length > 0) {
+        layout.title = chartTitle.trim();
+      }
       if (isDarkMode) {
         layout.paper_bgcolor = 'rgba(31, 41, 55, 0)';
         layout.plot_bgcolor = 'rgba(31, 41, 55, 0)';
@@ -1412,6 +1448,18 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
           ...(layout.font || {}),
           color: '#e5e7eb',
         };
+
+        if (layout.title) {
+          layout.title = typeof layout.title === 'string'
+            ? { text: layout.title, font: { color: '#e5e7eb' } }
+            : {
+                ...layout.title,
+                font: {
+                  ...(layout.title.font || {}),
+                  color: '#e5e7eb',
+                },
+              };
+        }
 
         if (layout.annotations) {
           const annotations = Array.isArray(layout.annotations)
@@ -1465,6 +1513,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
       bins,
       supportsCategory && categoryField ? categoryField : undefined,
       {
+        title: chartTitle,
         bubbleSizeField: chartType === 'bubble' ? bubbleSizeField || undefined : undefined,
         ganttTaskField: chartType === 'gantt' ? ganttTaskField || undefined : undefined,
         ganttStartField: chartType === 'gantt' ? ganttStartField || undefined : undefined,
@@ -1479,6 +1528,49 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
         sunburstHole: chartType === 'sunburst' ? sunburstHole : undefined,
       }
     );
+
+    if (plot && chartTitle && chartTitle.trim()) {
+      plot.layout = {
+        ...(plot.layout || {}),
+        title:
+          typeof plot.layout?.title === 'string'
+            ? plot.layout?.title
+            : plot.layout?.title ?? chartTitle.trim(),
+      };
+
+      const existingTitle = plot.layout.title;
+      if (typeof existingTitle === 'string') {
+        plot.layout.title = existingTitle;
+      } else if (existingTitle && typeof existingTitle === 'object') {
+        plot.layout.title = {
+          ...existingTitle,
+          text: existingTitle.text ?? chartTitle.trim(),
+          x: existingTitle.x ?? 0,
+          xanchor: existingTitle.xanchor ?? 'left',
+          font: isDarkMode
+            ? { ...(existingTitle.font || {}), color: '#e5e7eb' }
+            : existingTitle.font,
+        };
+      }
+
+      if (typeof plot.layout.title === 'string') {
+        plot.layout.title = {
+          text: plot.layout.title,
+          x: 0,
+          xanchor: 'left',
+          ...(isDarkMode ? { font: { color: '#e5e7eb' } } : {}),
+        };
+      } else if (plot.layout.title) {
+        plot.layout.title = {
+          ...plot.layout.title,
+          x: plot.layout.title.x ?? 0,
+          xanchor: plot.layout.title.xanchor ?? 'left',
+          font: isDarkMode
+            ? { ...(plot.layout.title.font || {}), color: '#e5e7eb' }
+            : plot.layout.title.font,
+        };
+      }
+    }
 
     return { plot, error: plotError || null };
   }, [
@@ -1505,6 +1597,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     sunburstHole,
     rows,
     isDarkMode,
+    chartTitle,
   ]);
 
   useEffect(() => {
@@ -1519,7 +1612,9 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     (requiresXFieldForAggregation && !xField) ||
     (requiresNumericY && !yField);
   const showYField =
-    canSelectYField && !isHierarchicalChart && (chartType !== 'pie' || numericColumns.length > 0);
+    canSelectYField &&
+    !isHierarchicalChart &&
+    (chartType !== 'pie' ? true : aggregation !== 'count' && numericColumns.length > 0);
 
   return (
     <div className={className}>
@@ -1535,6 +1630,20 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
       {expanded && (
         <div className="mt-3 space-y-4">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1 md:col-span-3">
+              チャートタイトル
+              <input
+                type="text"
+                value={chartTitle}
+                onChange={(e) => setChartTitle(e.target.value)}
+                placeholder="例: 売上内訳"
+                className="p-2 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+              />
+              <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">
+                空欄の場合はチャート上のタイトルを表示しません。
+              </span>
+            </label>
+
             <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
               チャートタイプ
               <select
@@ -1550,7 +1659,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
 
             {showXField && (
               <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
-                X軸の列
+                {chartType === 'pie' ? 'カテゴリ列' : 'X軸の列'}
                 <select
                   value={xField}
                   onChange={(e) => setXField(e.target.value)}
@@ -1693,7 +1802,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
 
             {showYField && (
               <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
-                Y軸の列
+                {chartType === 'pie' ? '値の列' : 'Y軸の列'}
                 <select
                   value={yField}
                   onChange={(e) => setYField(e.target.value)}
@@ -1704,6 +1813,11 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
                     <option key={column} value={column}>{column}</option>
                   ))}
                 </select>
+                {chartType === 'pie' && (
+                  <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">
+                    円グラフの各扇の大きさを計算するための数値列を指定します。
+                  </span>
+                )}
               </label>
             )}
 

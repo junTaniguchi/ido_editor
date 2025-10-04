@@ -315,7 +315,9 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
       currentType === 'geojson' ||
       currentType === 'kml' ||
       currentType === 'kmz' ||
-      currentType === 'shapefile';
+      currentType === 'shapefile' ||
+      currentType === 'csv' ||
+      currentType === 'tsv';
 
     // エディタ → プレビュー → データプレビュー → GIS分析 → 分割表示 → エディタ の順に切り替え
     let newMode: 'editor' | 'preview' | 'data-preview' | 'analysis' | 'split' | 'gis-analysis';

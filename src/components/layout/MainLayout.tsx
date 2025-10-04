@@ -60,7 +60,6 @@ const MainLayoutContent: React.FC = () => {
   } | null>(null);
 
   const cloneRepository = useGitStore((state) => state.cloneRepository);
-  const gitLoading = useGitStore((state) => state.loading);
 
   const activeTab = activeTabId ? tabs.get(activeTabId) : null;
   const activeTabViewMode: EditorViewMode = activeTabId ? getViewMode(activeTabId) : 'editor';
@@ -93,7 +92,9 @@ const MainLayoutContent: React.FC = () => {
         type === 'geojson' ||
         type === 'kml' ||
         type === 'kmz' ||
-        type === 'shapefile',
+        type === 'shapefile' ||
+        type === 'csv' ||
+        type === 'tsv',
     };
   }, [activeTab]);
 
@@ -318,11 +319,8 @@ const MainLayoutContent: React.FC = () => {
     if (isCloningRepo) {
       return 'Gitリポジトリをクローンしています…';
     }
-    if (gitLoading) {
-      return 'Gitリポジトリを更新しています…';
-    }
     return undefined;
-  }, [gitLoading, isCloningRepo]);
+  }, [isCloningRepo]);
 
   const canToggleViewMode = useMemo(() => {
     return Boolean(activeTab && (fileTypeFlags.isPreviewableSpecialType || fileTypeFlags.isDataPreviewable || fileTypeFlags.isGisData));
@@ -606,7 +604,7 @@ const MainLayoutContent: React.FC = () => {
         />
       )}
 
-      <LoadingOverlay visible={gitLoading || isCloningRepo} message={loadingMessage} />
+      <LoadingOverlay visible={isCloningRepo} message={loadingMessage} />
     </div>
   );
 };
