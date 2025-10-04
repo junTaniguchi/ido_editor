@@ -130,6 +130,35 @@ const chartTypeLabels: Record<ResultChartType, string> = {
   waterfall: 'ウォーターフォールチャート',
 };
 
+const chartTypeRequiresNumericY = (type: ResultChartType): boolean =>
+  type === 'scatter' ||
+  type === 'line' ||
+  type === 'bar' ||
+  type === 'stacked-bar' ||
+  type === 'regression' ||
+  type === 'bubble' ||
+  type === 'heatmap' ||
+  type === 'sankey' ||
+  type === 'radial-bar' ||
+  type === 'radial-stacked-bar' ||
+  type === 'waterfall' ||
+  type === 'sunburst';
+
+const chartTypeSupportsAggregation = (type: ResultChartType): boolean =>
+  type === 'bar' ||
+  type === 'line' ||
+  type === 'pie' ||
+  type === 'stacked-bar' ||
+  type === 'sunburst' ||
+  type === 'treemap' ||
+  type === 'streamgraph' ||
+  type === 'heatmap' ||
+  type === 'sankey' ||
+  type === 'radial-bar' ||
+  type === 'radial-stacked-bar' ||
+  type === 'waterfall' ||
+  type === 'word-cloud';
+
 const buildPlotConfig = (
   rows: any[],
   flattened: any[],
@@ -1251,35 +1280,143 @@ const buildPlotConfig = (
     }
 
     if (chartType === 'waterfall') {
-      const series = getSeriesFromAggregation();
-      if ('error' in series) {
-        return { error: series.error };
+      const baseSeries = getSeriesFromAggregation();
+      if ('error' in baseSeries) {
+        return { error: baseSeries.error };
       }
 
-      const { labels, values } = series;
-      if (!labels || !values || labels.length === 0) {
+      const baseLabels = baseSeries.labels;
+      const baseValues = baseSeries.values;
+
+      if (!baseLabels || !baseValues || baseLabels.length === 0) {
         return { error: 'ウォーターフォールチャートを作成するデータがありません' };
       }
 
-      const measure = values.map(() => 'relative');
+      const buildTrace = (
+        traceLabel: string,
+        values: number[],
+        color: string,
+        options?: { legendKey?: string }
+      ): PlotlyData => {
+        const measure = values.map(() => 'relative');
+        const legendGroup = options?.legendKey ?? traceLabel;
+        return {
+          type: 'waterfall',
+          x: baseLabels,
+          y: values,
+          measure,
+          connector: {
+            line: { color: hexToRgba(color, 0.3), width: 1 },
+          },
+          increasing: { marker: { color, line: { color: '#ffffff', width: 1 } } },
+          decreasing: { marker: { color: hexToRgba(color, 0.55), line: { color: '#ffffff', width: 1 } } },
+          totals: { marker: { color: hexToRgba(color, 0.8), line: { color: '#ffffff', width: 1 } } },
+          hovertemplate: `${traceLabel ? `${traceLabel}<br>` : ''}%{x}<br>値: %{y}<extra></extra>`,
+          name: traceLabel || '値',
+          legendgroup: legendGroup,
+          offsetgroup: options?.legendKey,
+          alignmentgroup: options?.legendKey ? 'waterfall-group' : undefined,
+        } as PlotlyData;
+      };
 
-      const trace: PlotlyData = {
-        type: 'waterfall',
-        x: labels,
-        y: values,
-        measure,
-        connector: {
-          line: { color: 'rgba(99, 102, 241, 0.4)', width: 1 },
-        },
-        increasing: { marker: { color: '#22c55e' } },
-        decreasing: { marker: { color: '#ef4444' } },
-        totals: { marker: { color: '#3b82f6' } },
-        hovertemplate: '%{x}<br>値: %{y}<extra></extra>',
-      } as PlotlyData;
+      if (!categoryField) {
+        const sanitizedValues = baseValues.map(value =>
+          typeof value === 'number' && !Number.isNaN(value) ? value : 0
+        );
+        const trace = buildTrace('', sanitizedValues, '#3b82f6');
+
+        return {
+          plot: {
+            data: [trace],
+            layout: {
+              autosize: true,
+              height: 360,
+              margin: { t: 40, r: 20, b: 60, l: 80 },
+              title: layoutTitle,
+              xaxis: { title: xField },
+              yaxis: { title: yField || '値' },
+              showlegend: false,
+            },
+          },
+        };
+      }
+
+      const categoryInfos = (() => {
+        const map = new Map<string, string>();
+        let hasUnassigned = false;
+
+        flattened.forEach(row => {
+          const raw = row[categoryField];
+          if (isUnsetCategoryValue(raw)) {
+            hasUnassigned = true;
+            return;
+          }
+
+          const key = String(raw);
+          if (!map.has(key)) {
+            map.set(key, key);
+          }
+        });
+
+        if (map.size === 0 || hasUnassigned) {
+          map.set('__unassigned__', '未分類');
+        }
+
+        return Array.from(map.entries()).map(([key, label]) => ({ key, label }));
+      })();
+
+      const baseLabelKeys = baseLabels.map(label => String(label));
+      const traces: PlotlyData[] = [];
+
+      categoryInfos.forEach(({ key, label }, index) => {
+        const categoryRows = flattened.filter(row => {
+          const raw = row[categoryField!];
+          if (key === '__unassigned__') {
+            return isUnsetCategoryValue(raw);
+          }
+          if (isUnsetCategoryValue(raw)) {
+            return false;
+          }
+          return String(raw) === key;
+        });
+
+        if (categoryRows.length === 0) {
+          return;
+        }
+
+        const aggregated = getSeriesFromAggregation(categoryRows);
+        if ('error' in aggregated) {
+          return;
+        }
+
+        const labelToValue = new Map<string, number>();
+        aggregated.labels?.forEach((currentLabel, idx) => {
+          const numericValue = aggregated.values?.[idx];
+          if (typeof numericValue === 'number' && !Number.isNaN(numericValue)) {
+            labelToValue.set(String(currentLabel), numericValue);
+          }
+        });
+
+        if (labelToValue.size === 0) {
+          return;
+        }
+
+        const orderedValues = baseLabelKeys.map(labelKey => labelToValue.get(labelKey) ?? 0);
+        const color = colorPalette[index % colorPalette.length];
+        traces.push(
+          buildTrace(label, orderedValues, color, { legendKey: key })
+        );
+      });
+
+      if (traces.length === 0) {
+        return { error: '選択したグループに一致するデータがありません' };
+      }
+
+      const showLegend = traces.length > 1;
 
       return {
         plot: {
-          data: [trace],
+          data: traces,
           layout: {
             autosize: true,
             height: 360,
@@ -1287,6 +1424,9 @@ const buildPlotConfig = (
             title: layoutTitle,
             xaxis: { title: xField },
             yaxis: { title: yField || '値' },
+            barmode: showLegend ? 'group' : undefined,
+            showlegend: showLegend,
+            ...(showLegend ? { legend: { orientation: 'h', x: 0, y: 1.05 } } : {}),
           },
         },
       };
@@ -2131,6 +2271,8 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     setChartType(newType);
     setError(null);
 
+    const requiresNumericForNewType = chartTypeRequiresNumericY(newType);
+
     if (newType === 'venn') {
       setXField('');
       setYField('');
@@ -2147,7 +2289,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
         if (aggregation !== 'count') {
           setAggregation('count');
         }
-      } else if (!yField && numericColumns.length > 0) {
+      } else if (!yField && requiresNumericForNewType && numericColumns.length > 0) {
         setYField(numericColumns[0]);
       }
     }
@@ -2175,12 +2317,21 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     if (chartType === 'pie' && aggregation === 'count') {
       return;
     }
-    if (numericColumns.length > 0) {
-      setYField(prev => (prev && numericColumns.includes(prev) ? prev : numericColumns[0]));
-    } else {
+
+    const shouldEnsureYField =
+      chartTypeRequiresNumericY(chartType) ||
+      (chartTypeSupportsAggregation(chartType) && aggregation !== 'count' && chartType !== 'pie' && chartType !== 'kde');
+
+    if (shouldEnsureYField) {
+      if (numericColumns.length > 0) {
+        setYField(prev => (prev && numericColumns.includes(prev) ? prev : numericColumns[0]));
+      } else {
+        setYField('');
+      }
+    } else if (yField && !numericColumns.includes(yField)) {
       setYField('');
     }
-  }, [numericColumns, chartType, aggregation]);
+  }, [numericColumns, chartType, aggregation, yField]);
 
   useEffect(() => {
     if (categoryField && !availableColumns.includes(categoryField)) {
@@ -2324,6 +2475,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     chartType === 'heatmap' ||
     chartType === 'sankey' ||
     chartType === 'radial-stacked-bar' ||
+    chartType === 'waterfall' ||
     isSunburstChart ||
     isTreemapChart ||
     chartType === 'streamgraph';
@@ -2362,35 +2514,9 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     }
   }, [chartType, aggregation, yField]);
 
-  const allowAggregation =
-    chartType === 'bar' ||
-    chartType === 'line' ||
-    chartType === 'pie' ||
-    chartType === 'stacked-bar' ||
-    isSunburstChart ||
-    isTreemapChart ||
-    chartType === 'streamgraph' ||
-    chartType === 'heatmap' ||
-    chartType === 'sankey' ||
-    chartType === 'radial-bar' ||
-    chartType === 'radial-stacked-bar' ||
-    chartType === 'waterfall' ||
-    chartType === 'word-cloud';
-  const requiresNumericY =
-    chartType === 'scatter' ||
-    chartType === 'line' ||
-    chartType === 'bar' ||
-    chartType === 'stacked-bar' ||
-    chartType === 'regression' ||
-    chartType === 'bubble' ||
-    chartType === 'heatmap' ||
-    chartType === 'sankey' ||
-    chartType === 'radial-bar' ||
-    chartType === 'radial-stacked-bar' ||
-    chartType === 'waterfall' ||
-    isSunburstChart;
-  const canSelectYField =
-    chartType !== 'histogram' && chartType !== 'gantt' && chartType !== 'venn' && chartType !== 'kde';
+  const allowAggregation = chartTypeSupportsAggregation(chartType);
+  const requiresNumericY = chartTypeRequiresNumericY(chartType);
+  const canSelectYField = chartType !== 'histogram' && chartType !== 'gantt' && chartType !== 'venn';
   const showXField = chartType !== 'gantt' && chartType !== 'venn' && !isHierarchicalChart;
 
   const chartComputation = useMemo(() => {
@@ -2809,13 +2935,17 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
 
             {showYField && (
               <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
-                {chartType === 'pie' ? '値の列' : 'Y軸の列'}
+                {chartType === 'pie'
+                  ? '値の列'
+                  : chartType === 'kde'
+                    ? 'Y軸の列（任意）'
+                    : 'Y軸の列'}
                 <select
                   value={yField}
                   onChange={(e) => setYField(e.target.value)}
                   className="p-2 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
                 >
-                  <option value="">列を選択</option>
+                  <option value="">{chartType === 'kde' ? '列を選択（任意）' : '列を選択'}</option>
                   {numericColumns.map(column => (
                     <option key={column} value={column}>{column}</option>
                   ))}
