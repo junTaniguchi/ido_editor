@@ -9,17 +9,31 @@ export const normalizeMermaidSource = (value: string): string => {
   if (!unified) return '';
 
   const lines = unified.split('\n');
-  const headerPattern = /^\s*(flowchart|graph)\s+([A-Za-z]{2})(.*)$/i;
-  const headerMatch = lines[0].match(headerPattern);
+  const flowchartHeaderPattern = /^\s*(flowchart|graph)\s+([A-Za-z]{2})(.*)$/i;
+  const flowchartHeaderMatch = lines[0].match(flowchartHeaderPattern);
 
-  if (headerMatch) {
-    const [, keyword, orientation, rest] = headerMatch;
+  if (flowchartHeaderMatch) {
+    const [, keyword, orientation, rest] = flowchartHeaderMatch;
     lines[0] = `${keyword} ${orientation.toUpperCase()}`;
     if (rest && rest.trim().length > 0) {
       lines.splice(1, 0, rest.trim());
     }
   } else {
-    lines[0] = lines[0].trim();
+    const gitGraphHeaderPattern = /^\s*(gitgraph)\b(?:\s+([A-Za-z]{2}))?\s*:?(.*)$/i;
+    const gitGraphHeaderMatch = lines[0].match(gitGraphHeaderPattern);
+
+    if (gitGraphHeaderMatch) {
+      const [, keyword, orientation, rest] = gitGraphHeaderMatch;
+      const normalizedOrientation = orientation ? orientation.toUpperCase() : 'LR';
+      const headerLine = `${keyword} ${normalizedOrientation}:`;
+      lines[0] = headerLine;
+      const remainder = rest?.trim();
+      if (remainder) {
+        lines.splice(1, 0, remainder);
+      }
+    } else {
+      lines[0] = lines[0].trim();
+    }
   }
 
   return lines
