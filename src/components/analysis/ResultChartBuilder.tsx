@@ -43,6 +43,39 @@ const clampHoleValue = (value: number | null | undefined): number => {
   return Math.min(Math.max(value, 0), 0.75);
 };
 
+const isUnsetCategoryValue = (value: any): boolean => {
+  if (value === undefined || value === null) {
+    return true;
+  }
+
+  if (typeof value === 'string') {
+    return value.trim() === '';
+  }
+
+  return false;
+};
+
+const hexToRgba = (hex: string, alpha: number): string => {
+  let sanitized = hex.replace('#', '');
+
+  if (sanitized.length === 3) {
+    sanitized = sanitized
+      .split('')
+      .map(char => char.repeat(2))
+      .join('');
+  }
+
+  if (sanitized.length !== 6) {
+    return `rgba(37, 99, 235, ${alpha})`;
+  }
+
+  const r = Number.parseInt(sanitized.slice(0, 2), 16);
+  const g = Number.parseInt(sanitized.slice(2, 4), 16);
+  const b = Number.parseInt(sanitized.slice(4, 6), 16);
+
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
 interface ResultChartBuilderProps {
   rows: any[];
   title?: string;
@@ -189,6 +222,55 @@ const buildPlotConfig = (
 
   try {
     if (chartType === 'kde') {
+      const hasYField = Boolean(yField && yField.trim() !== '');
+
+      const categories = categoryField
+        ? (() => {
+            const set = new Map<string, string>();
+            let hasUnassigned = false;
+
+            flattened.forEach(row => {
+              const raw = row[categoryField];
+              if (isUnsetCategoryValue(raw)) {
+                hasUnassigned = true;
+                if (!set.has('__unassigned__')) {
+                  set.set('__unassigned__', '未分類');
+                }
+              } else {
+                const key = String(raw);
+                if (!set.has(key)) {
+                  set.set(key, key);
+                }
+              }
+            });
+
+            if (set.size === 0) {
+              set.set('__unassigned__', '未分類');
+            } else if (hasUnassigned && !set.has('__unassigned__')) {
+              set.set('__unassigned__', '未分類');
+            }
+
+            return Array.from(set.entries()).map(([key, label]) => ({ key, label }));
+          })()
+        : [{ key: '__all__', label: 'データ' }];
+
+      const rowsForCategory = (categoryKey: string) => {
+        if (!categoryField) {
+          return flattened;
+        }
+
+        return flattened.filter(row => {
+          const raw = row[categoryField!];
+          if (categoryKey === '__unassigned__') {
+            return isUnsetCategoryValue(raw);
+          }
+          if (isUnsetCategoryValue(raw)) {
+            return false;
+          }
+          return String(raw) === categoryKey;
+        });
+      };
+
       const baseValues = flattened
         .map(row => row[xField])
         .filter((value): value is number => typeof value === 'number' && !Number.isNaN(value));
@@ -197,8 +279,8 @@ const buildPlotConfig = (
         return { error: 'カーネル密度推定には2つ以上の数値データが必要です' };
       }
 
-      if (yField && yField.trim() !== '') {
-        const pairedValues = flattened
+      if (hasYField) {
+        const pairedAll = flattened
           .map(row => ({
             x: row[xField],
             y: row[yField],
@@ -210,23 +292,22 @@ const buildPlotConfig = (
             !Number.isNaN(pair.y)
           );
 
-        if (pairedValues.length < 2) {
+        if (pairedAll.length < 2) {
           return { error: '2変量のカーネル密度推定には2つ以上の数値ペアが必要です' };
         }
 
-        const xValues = pairedValues.map(pair => pair.x);
-        const yValues = pairedValues.map(pair => pair.y);
-
-        const xMin = Math.min(...xValues);
-        const xMax = Math.max(...xValues);
-        const yMin = Math.min(...yValues);
-        const yMax = Math.max(...yValues);
+        const allX = pairedAll.map(pair => pair.x);
+        const allY = pairedAll.map(pair => pair.y);
+        const xMin = Math.min(...allX);
+        const xMax = Math.max(...allX);
+        const yMin = Math.min(...allY);
+        const yMax = Math.max(...allY);
         const xRange = xMax - xMin || 1;
         const yRange = yMax - yMin || 1;
         const xPadding = xRange * 0.1;
         const yPadding = yRange * 0.1;
 
-        const gridSize = Math.min(80, Math.max(35, Math.round(Math.sqrt(pairedValues.length) * 6)));
+        const gridSize = Math.min(80, Math.max(35, Math.round(Math.sqrt(pairedAll.length) * 6)));
         const xStart = xMin - xPadding;
         const xEnd = xMax + xPadding;
         const yStart = yMin - yPadding;
@@ -234,85 +315,124 @@ const buildPlotConfig = (
         const xStep = (xEnd - xStart) / (gridSize - 1 || 1);
         const yStep = (yEnd - yStart) / (gridSize - 1 || 1);
 
-        const meanX = xValues.reduce((sum, value) => sum + value, 0) / xValues.length;
-        const meanY = yValues.reduce((sum, value) => sum + value, 0) / yValues.length;
-        const varianceX = xValues.reduce((sum, value) => sum + (value - meanX) ** 2, 0) / xValues.length;
-        const varianceY = yValues.reduce((sum, value) => sum + (value - meanY) ** 2, 0) / yValues.length;
-        const stdX = Math.sqrt(varianceX) || xRange / 6;
-        const stdY = Math.sqrt(varianceY) || yRange / 6;
-        const bandwidthFactor = Math.pow(pairedValues.length, -1 / 6);
-        const bandwidthX = Math.max(stdX * bandwidthFactor, xRange / 200);
-        const bandwidthY = Math.max(stdY * bandwidthFactor, yRange / 200);
+        const xGrid: number[] = Array.from({ length: gridSize }, (_, index) => xStart + index * xStep);
+        const yGrid: number[] = Array.from({ length: gridSize }, (_, index) => yStart + index * yStep);
 
-        const gaussianConstant =
-          1 / (2 * Math.PI * bandwidthX * bandwidthY * (pairedValues.length || 1));
+        const traces: PlotlyData[] = [];
+        let hasDensity = false;
 
-        const xGrid: number[] = [];
-        const yGrid: number[] = [];
-        for (let i = 0; i < gridSize; i += 1) {
-          xGrid.push(xStart + i * xStep);
-          yGrid.push(yStart + i * yStep);
-        }
+        categories.forEach(({ key, label }, index) => {
+          const categoryRows = rowsForCategory(key);
+          const pairs = categoryRows
+            .map(row => ({
+              x: row[xField],
+              y: row[yField!],
+            }))
+            .filter((pair): pair is { x: number; y: number } =>
+              typeof pair.x === 'number' &&
+              !Number.isNaN(pair.x) &&
+              typeof pair.y === 'number' &&
+              !Number.isNaN(pair.y)
+            );
 
-        const density: number[][] = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
-
-        for (let yi = 0; yi < gridSize; yi += 1) {
-          const y = yStart + yi * yStep;
-          for (let xi = 0; xi < gridSize; xi += 1) {
-            const x = xStart + xi * xStep;
-            let sum = 0;
-            for (const pair of pairedValues) {
-              const dx = (x - pair.x) / bandwidthX;
-              const dy = (y - pair.y) / bandwidthY;
-              sum += Math.exp(-0.5 * (dx * dx + dy * dy));
-            }
-            density[yi][xi] = gaussianConstant * sum;
+          if (pairs.length === 0) {
+            return;
           }
+
+          hasDensity = true;
+
+          const xValues = pairs.map(pair => pair.x);
+          const yValues = pairs.map(pair => pair.y);
+
+          const meanX = xValues.reduce((sum, value) => sum + value, 0) / xValues.length;
+          const meanY = yValues.reduce((sum, value) => sum + value, 0) / yValues.length;
+          const varianceX = xValues.reduce((sum, value) => sum + (value - meanX) ** 2, 0) / xValues.length;
+          const varianceY = yValues.reduce((sum, value) => sum + (value - meanY) ** 2, 0) / yValues.length;
+          const stdX = Math.sqrt(varianceX) || xRange / 6;
+          const stdY = Math.sqrt(varianceY) || yRange / 6;
+          const bandwidthFactor = Math.pow(pairs.length, -1 / 6);
+          const bandwidthX = Math.max(stdX * bandwidthFactor, xRange / 200);
+          const bandwidthY = Math.max(stdY * bandwidthFactor, yRange / 200);
+
+          const gaussianConstant = 1 / (2 * Math.PI * bandwidthX * bandwidthY * (pairs.length || 1));
+
+          const density: number[][] = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
+
+          for (let yi = 0; yi < gridSize; yi += 1) {
+            const y = yStart + yi * yStep;
+            for (let xi = 0; xi < gridSize; xi += 1) {
+              const x = xStart + xi * xStep;
+              let sum = 0;
+              for (const pair of pairs) {
+                const dx = (x - pair.x) / bandwidthX;
+                const dy = (y - pair.y) / bandwidthY;
+                sum += Math.exp(-0.5 * (dx * dx + dy * dy));
+              }
+              density[yi][xi] = gaussianConstant * sum;
+            }
+          }
+
+          const color = colorPalette[index % colorPalette.length];
+
+          if (!categoryField) {
+            traces.push({
+              type: 'heatmap',
+              x: xGrid,
+              y: yGrid,
+              z: density,
+              colorscale: 'YlOrRd',
+              hovertemplate: `${xField}: %{x}<br>${yField}: %{y}<br>密度: %{z:.4f}<extra></extra>`,
+              showscale: true,
+              name: '密度',
+            } as PlotlyData);
+          }
+
+          traces.push({
+            type: 'contour',
+            x: xGrid,
+            y: yGrid,
+            z: density,
+            contours: { coloring: 'fill', showlines: true },
+            line: { color, width: 1.2 },
+            colorscale: [
+              [0, hexToRgba(color, 0)],
+              [0.4, hexToRgba(color, categoryField ? 0.15 : 0.25)],
+              [0.7, hexToRgba(color, categoryField ? 0.35 : 0.55)],
+              [1, hexToRgba(color, categoryField ? 0.6 : 0.85)],
+            ],
+            showscale: false,
+            hovertemplate: `${categoryField ? `${label}<br>` : ''}${xField}: %{x}<br>${yField}: %{y}<br>密度: %{z:.4f}<extra></extra>`,
+            name: categoryField ? `${label} (密度)` : '等高線',
+            legendgroup: label,
+            showlegend: false,
+            opacity: categoryField ? 0.9 : 1,
+          } as PlotlyData);
+
+          traces.push({
+            type: 'scatter',
+            mode: 'markers',
+            x: xValues,
+            y: yValues,
+            marker: {
+              size: 6,
+              color: categoryField ? color : 'rgba(30, 64, 175, 0.65)',
+              opacity: 0.75,
+              line: { color: categoryField ? '#ffffff' : '#1e40af', width: 1 },
+            },
+            name: categoryField ? label : 'データ',
+            legendgroup: label,
+            hovertemplate: `${categoryField ? `${label}<br>` : ''}${xField}: %{x}<br>${yField}: %{y}<extra></extra>`,
+            showlegend: Boolean(categoryField),
+          } as PlotlyData);
+        });
+
+        if (!hasDensity) {
+          return { error: '2変量のカーネル密度推定には2つ以上の数値ペアが必要です' };
         }
-
-        const heatmapTrace: PlotlyData = {
-          type: 'heatmap',
-          x: xGrid,
-          y: yGrid,
-          z: density,
-          colorscale: 'YlOrRd',
-          hovertemplate: `${xField}: %{x}<br>${yField}: %{y}<br>密度: %{z:.4f}<extra></extra>`,
-          showscale: true,
-          name: '密度',
-        } as PlotlyData;
-
-        const contourTrace: PlotlyData = {
-          type: 'contour',
-          x: xGrid,
-          y: yGrid,
-          z: density,
-          contours: {
-            coloring: 'lines',
-            showlabels: false,
-          },
-          line: { color: 'rgba(55, 65, 81, 0.7)' },
-          showscale: false,
-          hoverinfo: 'skip',
-          name: '等高線',
-        } as PlotlyData;
-
-        const scatterTrace: PlotlyData = {
-          type: 'scatter',
-          mode: 'markers',
-          x: xValues,
-          y: yValues,
-          marker: {
-            size: 5,
-            color: 'rgba(30, 64, 175, 0.65)',
-            line: { color: '#1e40af', width: 1 },
-          },
-          name: 'データ',
-          hovertemplate: `${xField}: %{x}<br>${yField}: %{y}<extra></extra>`,
-        } as PlotlyData;
 
         return {
           plot: {
-            data: [heatmapTrace, contourTrace, scatterTrace],
+            data: traces,
             layout: {
               autosize: true,
               height: 360,
@@ -320,48 +440,68 @@ const buildPlotConfig = (
               xaxis: { title: xField },
               yaxis: { title: yField },
               title: layoutTitle,
-              showlegend: true,
+              showlegend: Boolean(categoryField),
               legend: { orientation: 'h', x: 0, y: 1.05 },
             },
           },
         };
       }
 
-      const minValue = Math.min(...baseValues);
-      const maxValue = Math.max(...baseValues);
-      const range = maxValue - minValue || 1;
-      const mean = baseValues.reduce((sum, value) => sum + value, 0) / baseValues.length;
-      const variance = baseValues.reduce((sum, value) => sum + (value - mean) ** 2, 0) / baseValues.length;
-      const stdDev = Math.sqrt(variance);
-      const bandwidth = stdDev > 0 ? 1.06 * stdDev * Math.pow(baseValues.length, -1 / 5) : range / 10;
+      const globalMin = Math.min(...baseValues);
+      const globalMax = Math.max(...baseValues);
+      const globalRange = globalMax - globalMin || 1;
+      const padding = globalRange * 0.1 || 0.1;
+      const xStart = globalMin - padding;
+      const xEnd = globalMax + padding;
       const points = Math.min(200, Math.max(50, baseValues.length * 5));
-      const step = range / (points - 1 || 1);
-      const kernel = (u: number) => Math.exp(-0.5 * u * u);
-      const density: number[] = [];
-      const xCoordinates: number[] = [];
+      const step = (xEnd - xStart) / (points - 1 || 1);
 
-      for (let i = 0; i < points; i += 1) {
-        const x = minValue - range * 0.1 + i * step;
-        const value =
-          baseValues.reduce((sum, xi) => sum + kernel((x - xi) / bandwidth), 0) /
-          (baseValues.length * bandwidth * Math.sqrt(2 * Math.PI));
-        xCoordinates.push(x);
-        density.push(value);
+      const xCoordinates: number[] = Array.from({ length: points }, (_, index) => xStart + index * step);
+      const kernel = (u: number) => Math.exp(-0.5 * u * u);
+
+      const traces: PlotlyData[] = [];
+
+      categories.forEach(({ key, label }, index) => {
+        const values = rowsForCategory(key)
+          .map(row => row[xField])
+          .filter((value): value is number => typeof value === 'number' && !Number.isNaN(value));
+
+        if (values.length === 0) {
+          return;
+        }
+
+        const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+        const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
+        const stdDev = Math.sqrt(variance);
+        const fallbackRange = globalRange || Math.abs(globalMin) || 1;
+        const baseBandwidth = stdDev > 0 ? 1.06 * stdDev * Math.pow(values.length, -1 / 5) : fallbackRange / 10;
+        const bandwidth = baseBandwidth > 0 ? baseBandwidth : fallbackRange / 10;
+
+        const density = xCoordinates.map(x =>
+          values.reduce((sum, xi) => sum + kernel((x - xi) / bandwidth), 0) /
+          (values.length * bandwidth * Math.sqrt(2 * Math.PI))
+        );
+
+        const color = colorPalette[index % colorPalette.length];
+
+        traces.push({
+          type: 'scatter',
+          mode: 'lines',
+          x: xCoordinates,
+          y: density,
+          line: { color, width: 2 },
+          hovertemplate: `${categoryField ? `${label}<br>` : ''}${xField}: %{x}<br>密度: %{y:.4f}<extra></extra>`,
+          name: categoryField ? label : '密度',
+        } as PlotlyData);
+      });
+
+      if (traces.length === 0) {
+        return { error: 'カーネル密度推定には2つ以上の数値データが必要です' };
       }
 
       return {
         plot: {
-          data: [
-            {
-              type: 'scatter',
-              mode: 'lines',
-              x: xCoordinates,
-              y: density,
-              line: { color: colorPalette[0], width: 2 },
-              hovertemplate: `${xField}: %{x}<br>密度: %{y:.4f}<extra></extra>`,
-              name: '密度',
-            } as PlotlyData,
-          ],
+          data: traces,
           layout: {
             autosize: true,
             height: 320,
@@ -369,7 +509,7 @@ const buildPlotConfig = (
             xaxis: { title: xField },
             yaxis: { title: '密度' },
             title: layoutTitle,
-            showlegend: false,
+            showlegend: categoryField ? traces.length > 1 : false,
           },
         },
       };
@@ -2178,6 +2318,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     chartType === 'scatter' ||
     chartType === 'stacked-bar' ||
     chartType === 'regression' ||
+    chartType === 'kde' ||
     chartType === 'bubble' ||
     chartType === 'histogram' ||
     chartType === 'heatmap' ||
