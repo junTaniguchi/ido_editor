@@ -386,7 +386,7 @@ const serializeGitGraph = (model: MermaidGraphModel): MermaidSerializationResult
   const config = model.config.type === 'gitGraph' ? model.config : diagramDefinitions.gitGraph.defaultConfig;
   const warnings: string[] = [];
   const orientation = config.orientation ?? 'LR';
-  const lines: string[] = [`gitGraph ${orientation}`];
+  const lines: string[] = [`gitGraph ${orientation}:`];
 
   const orderMap = new Map<string, number>();
   model.nodes.forEach((node, index) => {
