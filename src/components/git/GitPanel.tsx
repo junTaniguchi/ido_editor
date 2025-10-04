@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   IoGitBranchOutline,
   IoGitCommitOutline,
@@ -20,6 +20,11 @@ import GitAssistReviewResult from './GitAssistReviewResult';
 import { requestGitAssist } from '@/lib/llm/gitAssist';
 import type { GitAssistSkippedFile } from '@/types/git';
 import { useLlmSettingsContext } from '@/components/providers/LlmSettingsProvider';
+import {
+  DEFAULT_GIT_HISTORY_HEIGHT,
+  MIN_GIT_HISTORY_HEIGHT,
+  MIN_GIT_PANEL_MAIN_HEIGHT,
+} from '@/constants/layout';
 
 const statusLabel = (status: string) => {
   switch (status) {
@@ -77,6 +82,13 @@ const GitPanel: React.FC = () => {
   const [gitFlowError, setGitFlowError] = useState<string | null>(null);
   const [isGeneratingGitFlow, setIsGeneratingGitFlow] = useState(false);
   const [gitFlowDepthInput, setGitFlowDepthInput] = useState('20');
+  const gitHistoryHeightFromStore = useEditorStore((state) => state.paneState.gitHistoryHeight);
+  const [gitHistoryHeight, setGitHistoryHeight] = useState(
+    gitHistoryHeightFromStore ?? DEFAULT_GIT_HISTORY_HEIGHT,
+  );
+  const gitHistoryHeightRef = useRef(gitHistoryHeightFromStore ?? DEFAULT_GIT_HISTORY_HEIGHT);
+  const gitPanelContainerRef = useRef<HTMLDivElement>(null);
+  const updatePaneState = useEditorStore((state) => state.updatePaneState);
 
   useEffect(() => {
     if (!aiFeaturesEnabled) {
@@ -97,6 +109,12 @@ const GitPanel: React.FC = () => {
     }
     return Math.max(1, Math.min(parsed, 500));
   }, [gitFlowDepthInput]);
+
+  useEffect(() => {
+    const nextHeight = gitHistoryHeightFromStore ?? DEFAULT_GIT_HISTORY_HEIGHT;
+    setGitHistoryHeight(nextHeight);
+    gitHistoryHeightRef.current = nextHeight;
+  }, [gitHistoryHeightFromStore]);
 
   const addTab = useEditorStore((state) => state.addTab);
   const updateTab = useEditorStore((state) => state.updateTab);
@@ -200,6 +218,48 @@ const GitPanel: React.FC = () => {
     setReviewWarnings([]);
     setAssistError(null);
   }, []);
+
+  const handleHistoryResizeStart = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) {
+        return;
+      }
+      event.preventDefault();
+      if (!gitPanelContainerRef.current) {
+        return;
+      }
+      const containerRect = gitPanelContainerRef.current.getBoundingClientRect();
+      const containerHeight = containerRect.height;
+      const startY = event.clientY;
+      const startHeight = gitHistoryHeightRef.current;
+      const maxHeight = Math.max(
+        MIN_GIT_HISTORY_HEIGHT,
+        containerHeight - MIN_GIT_PANEL_MAIN_HEIGHT,
+      );
+
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        const deltaY = moveEvent.clientY - startY;
+        const nextHeight = Math.max(
+          MIN_GIT_HISTORY_HEIGHT,
+          Math.min(startHeight - deltaY, maxHeight),
+        );
+        gitHistoryHeightRef.current = nextHeight;
+        setGitHistoryHeight(nextHeight);
+      };
+
+      const handlePointerUp = () => {
+        document.removeEventListener('pointermove', handlePointerMove);
+        document.removeEventListener('pointerup', handlePointerUp);
+        document.body.style.userSelect = '';
+        updatePaneState({ gitHistoryHeight: Math.round(gitHistoryHeightRef.current) });
+      };
+
+      document.addEventListener('pointermove', handlePointerMove);
+      document.addEventListener('pointerup', handlePointerUp);
+      document.body.style.userSelect = 'none';
+    },
+    [updatePaneState],
+  );
 
   const handleGitFlowDepthChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const nextValue = event.target.value;
@@ -416,8 +476,11 @@ const GitPanel: React.FC = () => {
           </div>
         </div>
       ) : (
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 text-sm">
+        <div ref={gitPanelContainerRef} className="flex-1 flex flex-col overflow-hidden">
+          <div
+            className="flex-1 overflow-y-auto px-4 py-3 space-y-4 text-sm"
+            style={{ minHeight: MIN_GIT_PANEL_MAIN_HEIGHT }}
+          >
             <section>
               <div className="flex items-center gap-2 mb-2 font-semibold">
                 <IoCheckmarkCircle size={16} className="text-green-600" />
@@ -646,7 +709,19 @@ const GitPanel: React.FC = () => {
             </section>
           </div>
 
-          <div className="border-t border-gray-200 bg-gray-50 px-4 py-3 text-sm dark:border-gray-700 dark:bg-gray-900/40 max-h-64 overflow-y-auto">
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            className="relative h-2 cursor-row-resize bg-gray-200 dark:bg-gray-700"
+            onPointerDown={handleHistoryResizeStart}
+          >
+            <div className="absolute inset-x-0 top-1/2 mx-auto h-0.5 w-10 -translate-y-1/2 rounded bg-gray-500 dark:bg-gray-300" />
+          </div>
+
+          <div
+            className="border-t border-gray-200 bg-gray-50 px-4 py-3 text-sm dark:border-gray-700 dark:bg-gray-900/40 overflow-y-auto"
+            style={{ height: gitHistoryHeight }}
+          >
             <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2 font-semibold">
                 <IoGitCommitOutline size={16} />

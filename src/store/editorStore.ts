@@ -4,6 +4,10 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { createId } from '@/lib/utils/id';
 import {
+  DEFAULT_GIT_HISTORY_HEIGHT,
+  DEFAULT_SIDEBAR_WIDTHS,
+} from '@/constants/layout';
+import {
   TabData,
   FileTreeItem,
   EditorSettings,
@@ -274,6 +278,8 @@ export const useEditorStore = create<EditorStore>()(
         isAnalysisVisible: false,
         isGitVisible: false,
         isHelpVisible: false,
+        sidebarWidths: { ...DEFAULT_SIDEBAR_WIDTHS },
+        gitHistoryHeight: DEFAULT_GIT_HISTORY_HEIGHT,
       },
       updatePaneState: (state) => set((prevState) => ({
         paneState: { ...prevState.paneState, ...state }
@@ -749,6 +755,8 @@ export const useEditorStore = create<EditorStore>()(
               isAnalysisVisible: false,
               isGitVisible: false,
               isHelpVisible: false,
+              sidebarWidths: { ...DEFAULT_SIDEBAR_WIDTHS },
+              gitHistoryHeight: DEFAULT_GIT_HISTORY_HEIGHT,
             };
           } else {
             if (typeof state.paneState.activeSidebar === 'undefined') {
@@ -769,6 +777,14 @@ export const useEditorStore = create<EditorStore>()(
             }
             if (typeof state.paneState.isHelpVisible !== 'boolean') {
               state.paneState = { ...state.paneState, isHelpVisible: false };
+            }
+            const nextSidebarWidths = {
+              ...DEFAULT_SIDEBAR_WIDTHS,
+              ...(state.paneState.sidebarWidths ?? {}),
+            };
+            state.paneState = { ...state.paneState, sidebarWidths: nextSidebarWidths };
+            if (typeof state.paneState.gitHistoryHeight !== 'number') {
+              state.paneState = { ...state.paneState, gitHistoryHeight: DEFAULT_GIT_HISTORY_HEIGHT };
             }
           }
 

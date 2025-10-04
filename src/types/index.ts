@@ -93,6 +93,14 @@ export interface PaneState {
   isAnalysisVisible: boolean;
   isGitVisible: boolean;
   isHelpVisible: boolean;
+  sidebarWidths: {
+    explorer: number;
+    gis: number;
+    git: number;
+    help: number;
+    search: number;
+  };
+  gitHistoryHeight: number;
 }
 
 // コンテキストメニューに関する型定義
