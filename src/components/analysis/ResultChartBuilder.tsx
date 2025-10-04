@@ -88,6 +88,12 @@ const chartTypeLabels: Record<ResultChartType, string> = {
   treemap: 'ツリーマップ',
   streamgraph: 'ストリームグラフ',
   venn: 'ベン図',
+  kde: 'カーネル密度推定',
+  heatmap: 'ヒートマップ',
+  sankey: 'サンキー図',
+  'word-cloud': 'ワードクラウド',
+  'radial-bar': '放射状棒グラフ',
+  waterfall: 'ウォーターフォールチャート',
 };
 
 const buildPlotConfig = (
@@ -132,6 +138,26 @@ const buildPlotConfig = (
 
   const layoutTitle = options?.title && options.title.trim() !== '' ? options.title.trim() : undefined;
 
+  const aggregateNumericValues = (values: number[], aggregationMethod: ResultAggregation): number => {
+    if (values.length === 0) {
+      return 0;
+    }
+
+    switch (aggregationMethod) {
+      case 'sum':
+        return values.reduce((sum, value) => sum + value, 0);
+      case 'avg':
+        return values.reduce((sum, value) => sum + value, 0) / values.length;
+      case 'min':
+        return Math.min(...values);
+      case 'max':
+        return Math.max(...values);
+      case 'count':
+      default:
+        return values.length;
+    }
+  };
+
   const getSeriesFromAggregation = (sourceData: any[] = flattened) => {
     if (!yField && aggregation !== 'count') {
       return { error: '値に使用する列が未選択の場合は集計方法に「件数」を指定してください' };
@@ -161,6 +187,63 @@ const buildPlotConfig = (
   };
 
   try {
+    if (chartType === 'kde') {
+      const values = flattened
+        .map(row => row[xField])
+        .filter((value): value is number => typeof value === 'number' && !Number.isNaN(value));
+
+      if (values.length < 2) {
+        return { error: 'カーネル密度推定には2つ以上の数値データが必要です' };
+      }
+
+      const minValue = Math.min(...values);
+      const maxValue = Math.max(...values);
+      const range = maxValue - minValue || 1;
+      const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+      const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
+      const stdDev = Math.sqrt(variance);
+      const bandwidth = stdDev > 0 ? 1.06 * stdDev * Math.pow(values.length, -1 / 5) : range / 10;
+      const points = Math.min(200, Math.max(50, values.length * 5));
+      const step = range / (points - 1 || 1);
+
+      const kernel = (u: number) => Math.exp(-0.5 * u * u);
+      const density: number[] = [];
+      const xCoordinates: number[] = [];
+
+      for (let i = 0; i < points; i += 1) {
+        const x = minValue - range * 0.1 + i * step;
+        const value =
+          values.reduce((sum, xi) => sum + kernel((x - xi) / bandwidth), 0) /
+          (values.length * bandwidth * Math.sqrt(2 * Math.PI));
+        xCoordinates.push(x);
+        density.push(value);
+      }
+
+      return {
+        plot: {
+          data: [
+            {
+              type: 'scatter',
+              mode: 'lines',
+              x: xCoordinates,
+              y: density,
+              line: { color: colorPalette[0], width: 2 },
+              hovertemplate: `${xField}: %{x}<br>密度: %{y:.4f}<extra></extra>`,
+            } as PlotlyData,
+          ],
+          layout: {
+            autosize: true,
+            height: 320,
+            margin: { t: 40, r: 20, b: 60, l: 60 },
+            xaxis: { title: xField },
+            yaxis: { title: '密度' },
+            title: layoutTitle,
+            showlegend: false,
+          },
+        },
+      };
+    }
+
     if (chartType === 'scatter') {
       if (!yField) {
         return { error: '散布図にはY軸に使用する数値列が必要です' };
@@ -302,6 +385,398 @@ const buildPlotConfig = (
             barmode: categoryField ? 'overlay' : undefined,
             showlegend: categoryField ? traces.length > 1 : false,
             title: layoutTitle,
+          },
+        },
+      };
+    }
+
+    if (chartType === 'heatmap') {
+      if (!categoryField) {
+        return { error: 'ヒートマップにはカテゴリ列（Y軸）を指定してください' };
+      }
+
+      if (aggregation !== 'count' && !yField) {
+        return { error: 'ヒートマップには値に使用する数値列を指定してください' };
+      }
+
+      const xCategories = Array.from(
+        new Set(
+          flattened
+            .map(row => row[xField])
+            .filter(value => value !== undefined && value !== null)
+            .map(value => String(value))
+        )
+      );
+      const yCategories = Array.from(
+        new Set(
+          flattened
+            .map(row => row[categoryField])
+            .filter(value => value !== undefined && value !== null)
+            .map(value => String(value))
+        )
+      );
+
+      if (xCategories.length === 0 || yCategories.length === 0) {
+        return { error: 'ヒートマップを作成するためのカテゴリが不足しています' };
+      }
+
+      const matrix = yCategories.map(rowCategory =>
+        xCategories.map(columnCategory => {
+          const matchedRows = flattened.filter(row => {
+            const source = row[xField];
+            const target = row[categoryField];
+            return (
+              source !== undefined &&
+              source !== null &&
+              target !== undefined &&
+              target !== null &&
+              String(source) === columnCategory &&
+              String(target) === rowCategory
+            );
+          });
+
+          if (matchedRows.length === 0) {
+            return 0;
+          }
+
+          if (aggregation === 'count' || !yField) {
+            return matchedRows.length;
+          }
+
+          const numericValues = matchedRows
+            .map(row => row[yField])
+            .filter((value): value is number => typeof value === 'number' && !Number.isNaN(value));
+
+          return aggregateNumericValues(numericValues, aggregation);
+        })
+      );
+
+      const trace: PlotlyData = {
+        type: 'heatmap',
+        x: xCategories,
+        y: yCategories,
+        z: matrix,
+        colorscale: 'YlOrRd',
+        hoverongaps: false,
+        colorbar: {
+          title:
+            aggregation === 'count' || !yField
+              ? '件数'
+              : `${yField}${aggregation !== 'sum' ? ` (${aggregation})` : ''}`,
+        },
+      };
+
+      return {
+        plot: {
+          data: [trace],
+          layout: {
+            autosize: true,
+            height: 360,
+            margin: { t: 40, r: 20, b: 60, l: 80 },
+            xaxis: { title: xField },
+            yaxis: { title: categoryField },
+            title: layoutTitle,
+          },
+        },
+      };
+    }
+
+    if (chartType === 'sankey') {
+      if (!categoryField) {
+        return { error: 'サンキー図にはカテゴリ列（遷移先）を指定してください' };
+      }
+
+      const pairs = new Map<string, number[]>();
+      const counts = new Map<string, number>();
+
+      flattened.forEach(row => {
+        const sourceRaw = row[xField];
+        const targetRaw = row[categoryField];
+
+        if (sourceRaw === undefined || sourceRaw === null || targetRaw === undefined || targetRaw === null) {
+          return;
+        }
+
+        const key = `${String(sourceRaw)}|||${String(targetRaw)}`;
+        if (aggregation === 'count' || !yField) {
+          counts.set(key, (counts.get(key) ?? 0) + 1);
+          return;
+        }
+
+        const value = row[yField];
+        if (typeof value === 'number' && !Number.isNaN(value)) {
+          if (!pairs.has(key)) {
+            pairs.set(key, []);
+          }
+          pairs.get(key)!.push(value);
+        }
+      });
+
+      const uniqueNodes = new Map<string, number>();
+      const labels: string[] = [];
+      const ensureNode = (label: string) => {
+        if (!uniqueNodes.has(label)) {
+          uniqueNodes.set(label, labels.length);
+          labels.push(label);
+        }
+        return uniqueNodes.get(label)!;
+      };
+
+      const sources: number[] = [];
+      const targets: number[] = [];
+      const values: number[] = [];
+
+      const processEntry = (key: string, aggregatedValue: number) => {
+        if (aggregatedValue <= 0) {
+          return;
+        }
+        const [sourceLabel, targetLabel] = key.split('|||');
+        sources.push(ensureNode(sourceLabel));
+        targets.push(ensureNode(targetLabel));
+        values.push(aggregatedValue);
+      };
+
+      pairs.forEach((valueList, key) => {
+        const aggregated = aggregateNumericValues(valueList, aggregation);
+        processEntry(key, aggregated);
+      });
+
+      counts.forEach((countValue, key) => {
+        processEntry(key, countValue);
+      });
+
+      if (sources.length === 0 || targets.length === 0 || values.length === 0) {
+        return { error: 'サンキー図を作成するデータが不足しています' };
+      }
+
+      const trace: PlotlyData = {
+        type: 'sankey',
+        orientation: 'h',
+        node: {
+          label: labels,
+          pad: 15,
+          thickness: 20,
+          line: {
+            color: '#888',
+            width: 0.5,
+          },
+        },
+        link: {
+          source: sources,
+          target: targets,
+          value: values,
+          hovertemplate: '%{source.label} → %{target.label}<br>値: %{value}<extra></extra>',
+        },
+      } as PlotlyData;
+
+      return {
+        plot: {
+          data: [trace],
+          layout: {
+            height: 420,
+            margin: { t: 40, r: 20, b: 20, l: 20 },
+            title: layoutTitle,
+          },
+        },
+      };
+    }
+
+    if (chartType === 'word-cloud') {
+      const texts = flattened
+        .map(row => row[xField])
+        .filter((value): value is string => typeof value === 'string' && value.trim() !== '');
+
+      if (texts.length === 0) {
+        return { error: 'ワードクラウドを作成するテキストデータがありません' };
+      }
+
+      const wordMap = new Map<string, number[]>();
+      const countMap = new Map<string, number>();
+
+      flattened.forEach(row => {
+        const wordRaw = row[xField];
+        if (typeof wordRaw !== 'string' || wordRaw.trim() === '') {
+          return;
+        }
+        const normalizedWord = wordRaw.trim();
+
+        if (aggregation === 'count' || !yField) {
+          countMap.set(normalizedWord, (countMap.get(normalizedWord) ?? 0) + 1);
+          return;
+        }
+
+        const value = row[yField];
+        if (typeof value === 'number' && !Number.isNaN(value)) {
+          if (!wordMap.has(normalizedWord)) {
+            wordMap.set(normalizedWord, []);
+          }
+          wordMap.get(normalizedWord)!.push(value);
+        }
+      });
+
+      const words: string[] = [];
+      const weights: number[] = [];
+
+      const appendWord = (word: string, weight: number) => {
+        if (weight <= 0) {
+          return;
+        }
+        words.push(word);
+        weights.push(weight);
+      };
+
+      wordMap.forEach((valueList, word) => {
+        appendWord(word, aggregateNumericValues(valueList, aggregation));
+      });
+      countMap.forEach((countValue, word) => {
+        appendWord(word, countValue);
+      });
+
+      if (words.length === 0) {
+        return { error: 'ワードクラウドを作成する数値データが不足しています' };
+      }
+
+      const minWeight = Math.min(...weights);
+      const maxWeight = Math.max(...weights);
+      const normalize = (weight: number) => {
+        if (maxWeight === minWeight) {
+          return 30;
+        }
+        return 16 + ((weight - minWeight) / (maxWeight - minWeight)) * 40;
+      };
+
+      const pseudoRandom = (seed: number) => {
+        const x = Math.sin(seed) * 10000;
+        return x - Math.floor(x);
+      };
+
+      const xPositions: number[] = [];
+      const yPositions: number[] = [];
+      const textSizes: number[] = [];
+      const textColors: string[] = [];
+
+      words.forEach((_, index) => {
+        xPositions.push(pseudoRandom(index + 1) * 2 - 1);
+        yPositions.push(pseudoRandom(index + 100) * 2 - 1);
+        textSizes.push(normalize(weights[index]));
+        textColors.push(colorPalette[index % colorPalette.length]);
+      });
+
+      const trace: PlotlyData = {
+        type: 'scatter',
+        mode: 'text',
+        x: xPositions,
+        y: yPositions,
+        text: words,
+        textfont: {
+          size: textSizes,
+          color: textColors,
+        },
+        hovertemplate: '%{text}<br>値: %{customdata}<extra></extra>',
+        customdata: weights,
+      } as PlotlyData;
+
+      return {
+        plot: {
+          data: [trace],
+          layout: {
+            autosize: true,
+            height: 360,
+            margin: { t: 40, r: 20, b: 20, l: 20 },
+            xaxis: { showgrid: false, showticklabels: false, zeroline: false },
+            yaxis: { showgrid: false, showticklabels: false, zeroline: false },
+            title: layoutTitle,
+          },
+        },
+      };
+    }
+
+    if (chartType === 'radial-bar') {
+      const series = getSeriesFromAggregation();
+      if ('error' in series) {
+        return { error: series.error };
+      }
+
+      const { labels, values } = series;
+      if (!labels || !values || labels.length === 0) {
+        return { error: '放射状棒グラフを作成するデータがありません' };
+      }
+
+      const angles = labels.map((_, index) => (index / labels.length) * 360);
+
+      const trace: PlotlyData = {
+        type: 'barpolar',
+        r: values,
+        theta: angles,
+        text: labels,
+        marker: {
+          color: labels.map((_, index) => colorPalette[index % colorPalette.length]),
+          line: { color: '#ffffff', width: 1 },
+        },
+        hovertemplate: '%{text}<br>値: %{r}<extra></extra>',
+      } as PlotlyData;
+
+      return {
+        plot: {
+          data: [trace],
+          layout: {
+            autosize: true,
+            height: 360,
+            margin: { t: 40, r: 40, b: 40, l: 40 },
+            title: layoutTitle,
+            polar: {
+              angularaxis: {
+                tickmode: 'array',
+                tickvals: angles,
+                ticktext: labels,
+              },
+              radialaxis: {
+                title: yField || '値',
+              },
+            },
+            showlegend: false,
+          },
+        },
+      };
+    }
+
+    if (chartType === 'waterfall') {
+      const series = getSeriesFromAggregation();
+      if ('error' in series) {
+        return { error: series.error };
+      }
+
+      const { labels, values } = series;
+      if (!labels || !values || labels.length === 0) {
+        return { error: 'ウォーターフォールチャートを作成するデータがありません' };
+      }
+
+      const measure = values.map(() => 'relative');
+
+      const trace: PlotlyData = {
+        type: 'waterfall',
+        x: labels,
+        y: values,
+        measure,
+        connector: {
+          line: { color: 'rgba(99, 102, 241, 0.4)', width: 1 },
+        },
+        increasing: { marker: { color: '#22c55e' } },
+        decreasing: { marker: { color: '#ef4444' } },
+        totals: { marker: { color: '#3b82f6' } },
+        hovertemplate: '%{x}<br>値: %{y}<extra></extra>',
+      } as PlotlyData;
+
+      return {
+        plot: {
+          data: [trace],
+          layout: {
+            autosize: true,
+            height: 360,
+            margin: { t: 40, r: 20, b: 60, l: 80 },
+            title: layoutTitle,
+            xaxis: { title: xField },
+            yaxis: { title: yField || '値' },
           },
         },
       };
@@ -1335,6 +1810,8 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     chartType === 'regression' ||
     chartType === 'bubble' ||
     chartType === 'histogram' ||
+    chartType === 'heatmap' ||
+    chartType === 'sankey' ||
     isSunburstChart ||
     isTreemapChart ||
     chartType === 'streamgraph';
@@ -1353,7 +1830,12 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
         chartType === 'stacked-bar' ||
         chartType === 'sunburst' ||
         chartType === 'treemap' ||
-        chartType === 'streamgraph') &&
+        chartType === 'streamgraph' ||
+        chartType === 'heatmap' ||
+        chartType === 'sankey' ||
+        chartType === 'radial-bar' ||
+        chartType === 'waterfall' ||
+        chartType === 'word-cloud') &&
       !yField &&
       aggregation !== 'count'
     ) {
@@ -1374,7 +1856,12 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     chartType === 'stacked-bar' ||
     isSunburstChart ||
     isTreemapChart ||
-    chartType === 'streamgraph';
+    chartType === 'streamgraph' ||
+    chartType === 'heatmap' ||
+    chartType === 'sankey' ||
+    chartType === 'radial-bar' ||
+    chartType === 'waterfall' ||
+    chartType === 'word-cloud';
   const requiresNumericY =
     chartType === 'scatter' ||
     chartType === 'line' ||
@@ -1382,8 +1869,13 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     chartType === 'stacked-bar' ||
     chartType === 'regression' ||
     chartType === 'bubble' ||
+    chartType === 'heatmap' ||
+    chartType === 'sankey' ||
+    chartType === 'radial-bar' ||
+    chartType === 'waterfall' ||
     isSunburstChart;
-  const canSelectYField = chartType !== 'histogram' && chartType !== 'gantt' && chartType !== 'venn';
+  const canSelectYField =
+    chartType !== 'histogram' && chartType !== 'gantt' && chartType !== 'venn' && chartType !== 'kde';
   const showXField = chartType !== 'gantt' && chartType !== 'venn' && !isHierarchicalChart;
 
   const chartComputation = useMemo(() => {

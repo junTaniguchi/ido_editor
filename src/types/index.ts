@@ -142,7 +142,13 @@ export type ResultChartType =
   | 'gantt'
   | 'treemap'
   | 'streamgraph'
-  | 'venn';
+  | 'venn'
+  | 'kde'
+  | 'heatmap'
+  | 'sankey'
+  | 'word-cloud'
+  | 'radial-bar'
+  | 'waterfall';
 
 export type ResultAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
 
@@ -204,7 +210,13 @@ export interface ChartSettings {
     | 'gantt'
     | 'treemap'
     | 'streamgraph'
-    | 'venn';
+    | 'venn'
+    | 'kde'
+    | 'heatmap'
+    | 'sankey'
+    | 'word-cloud'
+    | 'radial-bar'
+    | 'waterfall';
   xAxis: string;
   yAxis: string;
   aggregation: 'sum' | 'avg' | 'count' | 'min' | 'max' | 'none';
