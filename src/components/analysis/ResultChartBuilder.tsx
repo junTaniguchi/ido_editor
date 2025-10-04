@@ -336,7 +336,6 @@ const buildPlotConfig = (
       const bandwidth = stdDev > 0 ? 1.06 * stdDev * Math.pow(baseValues.length, -1 / 5) : range / 10;
       const points = Math.min(200, Math.max(50, baseValues.length * 5));
       const step = range / (points - 1 || 1);
-
       const kernel = (u: number) => Math.exp(-0.5 * u * u);
       const density: number[] = [];
       const xCoordinates: number[] = [];
@@ -2249,7 +2248,8 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     chartType === 'radial-stacked-bar' ||
     chartType === 'waterfall' ||
     isSunburstChart;
-  const canSelectYField = chartType !== 'histogram' && chartType !== 'gantt' && chartType !== 'venn';
+  const canSelectYField =
+    chartType !== 'histogram' && chartType !== 'gantt' && chartType !== 'venn' && chartType !== 'kde';
   const showXField = chartType !== 'gantt' && chartType !== 'venn' && !isHierarchicalChart;
 
   const chartComputation = useMemo(() => {
