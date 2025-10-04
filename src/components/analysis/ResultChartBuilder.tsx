@@ -93,6 +93,7 @@ const chartTypeLabels: Record<ResultChartType, string> = {
   sankey: 'サンキー図',
   'word-cloud': 'ワードクラウド',
   'radial-bar': '放射状棒グラフ',
+  'radial-stacked-bar': '放射状積上棒グラフ',
   waterfall: 'ウォーターフォールチャート',
 };
 
@@ -188,24 +189,153 @@ const buildPlotConfig = (
 
   try {
     if (chartType === 'kde') {
-      const values = flattened
+      const baseValues = flattened
         .map(row => row[xField])
         .filter((value): value is number => typeof value === 'number' && !Number.isNaN(value));
 
-      if (values.length < 2) {
+      if (baseValues.length < 2) {
         return { error: 'カーネル密度推定には2つ以上の数値データが必要です' };
       }
 
-      const minValue = Math.min(...values);
-      const maxValue = Math.max(...values);
-      const range = maxValue - minValue || 1;
-      const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
-      const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
-      const stdDev = Math.sqrt(variance);
-      const bandwidth = stdDev > 0 ? 1.06 * stdDev * Math.pow(values.length, -1 / 5) : range / 10;
-      const points = Math.min(200, Math.max(50, values.length * 5));
-      const step = range / (points - 1 || 1);
+      if (yField && yField.trim() !== '') {
+        const pairedValues = flattened
+          .map(row => ({
+            x: row[xField],
+            y: row[yField],
+          }))
+          .filter((pair): pair is { x: number; y: number } =>
+            typeof pair.x === 'number' &&
+            !Number.isNaN(pair.x) &&
+            typeof pair.y === 'number' &&
+            !Number.isNaN(pair.y)
+          );
 
+        if (pairedValues.length < 2) {
+          return { error: '2変量のカーネル密度推定には2つ以上の数値ペアが必要です' };
+        }
+
+        const xValues = pairedValues.map(pair => pair.x);
+        const yValues = pairedValues.map(pair => pair.y);
+
+        const xMin = Math.min(...xValues);
+        const xMax = Math.max(...xValues);
+        const yMin = Math.min(...yValues);
+        const yMax = Math.max(...yValues);
+        const xRange = xMax - xMin || 1;
+        const yRange = yMax - yMin || 1;
+        const xPadding = xRange * 0.1;
+        const yPadding = yRange * 0.1;
+
+        const gridSize = Math.min(80, Math.max(35, Math.round(Math.sqrt(pairedValues.length) * 6)));
+        const xStart = xMin - xPadding;
+        const xEnd = xMax + xPadding;
+        const yStart = yMin - yPadding;
+        const yEnd = yMax + yPadding;
+        const xStep = (xEnd - xStart) / (gridSize - 1 || 1);
+        const yStep = (yEnd - yStart) / (gridSize - 1 || 1);
+
+        const meanX = xValues.reduce((sum, value) => sum + value, 0) / xValues.length;
+        const meanY = yValues.reduce((sum, value) => sum + value, 0) / yValues.length;
+        const varianceX = xValues.reduce((sum, value) => sum + (value - meanX) ** 2, 0) / xValues.length;
+        const varianceY = yValues.reduce((sum, value) => sum + (value - meanY) ** 2, 0) / yValues.length;
+        const stdX = Math.sqrt(varianceX) || xRange / 6;
+        const stdY = Math.sqrt(varianceY) || yRange / 6;
+        const bandwidthFactor = Math.pow(pairedValues.length, -1 / 6);
+        const bandwidthX = Math.max(stdX * bandwidthFactor, xRange / 200);
+        const bandwidthY = Math.max(stdY * bandwidthFactor, yRange / 200);
+
+        const gaussianConstant =
+          1 / (2 * Math.PI * bandwidthX * bandwidthY * (pairedValues.length || 1));
+
+        const xGrid: number[] = [];
+        const yGrid: number[] = [];
+        for (let i = 0; i < gridSize; i += 1) {
+          xGrid.push(xStart + i * xStep);
+          yGrid.push(yStart + i * yStep);
+        }
+
+        const density: number[][] = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
+
+        for (let yi = 0; yi < gridSize; yi += 1) {
+          const y = yStart + yi * yStep;
+          for (let xi = 0; xi < gridSize; xi += 1) {
+            const x = xStart + xi * xStep;
+            let sum = 0;
+            for (const pair of pairedValues) {
+              const dx = (x - pair.x) / bandwidthX;
+              const dy = (y - pair.y) / bandwidthY;
+              sum += Math.exp(-0.5 * (dx * dx + dy * dy));
+            }
+            density[yi][xi] = gaussianConstant * sum;
+          }
+        }
+
+        const heatmapTrace: PlotlyData = {
+          type: 'heatmap',
+          x: xGrid,
+          y: yGrid,
+          z: density,
+          colorscale: 'YlOrRd',
+          hovertemplate: `${xField}: %{x}<br>${yField}: %{y}<br>密度: %{z:.4f}<extra></extra>`,
+          showscale: true,
+          name: '密度',
+        } as PlotlyData;
+
+        const contourTrace: PlotlyData = {
+          type: 'contour',
+          x: xGrid,
+          y: yGrid,
+          z: density,
+          contours: {
+            coloring: 'lines',
+            showlabels: false,
+          },
+          line: { color: 'rgba(55, 65, 81, 0.7)' },
+          showscale: false,
+          hoverinfo: 'skip',
+          name: '等高線',
+        } as PlotlyData;
+
+        const scatterTrace: PlotlyData = {
+          type: 'scatter',
+          mode: 'markers',
+          x: xValues,
+          y: yValues,
+          marker: {
+            size: 5,
+            color: 'rgba(30, 64, 175, 0.65)',
+            line: { color: '#1e40af', width: 1 },
+          },
+          name: 'データ',
+          hovertemplate: `${xField}: %{x}<br>${yField}: %{y}<extra></extra>`,
+        } as PlotlyData;
+
+        return {
+          plot: {
+            data: [heatmapTrace, contourTrace, scatterTrace],
+            layout: {
+              autosize: true,
+              height: 360,
+              margin: { t: 40, r: 40, b: 60, l: 60 },
+              xaxis: { title: xField },
+              yaxis: { title: yField },
+              title: layoutTitle,
+              showlegend: true,
+              legend: { orientation: 'h', x: 0, y: 1.05 },
+            },
+          },
+        };
+      }
+
+      const minValue = Math.min(...baseValues);
+      const maxValue = Math.max(...baseValues);
+      const range = maxValue - minValue || 1;
+      const mean = baseValues.reduce((sum, value) => sum + value, 0) / baseValues.length;
+      const variance = baseValues.reduce((sum, value) => sum + (value - mean) ** 2, 0) / baseValues.length;
+      const stdDev = Math.sqrt(variance);
+      const bandwidth = stdDev > 0 ? 1.06 * stdDev * Math.pow(baseValues.length, -1 / 5) : range / 10;
+      const points = Math.min(200, Math.max(50, baseValues.length * 5));
+      const step = range / (points - 1 || 1);
       const kernel = (u: number) => Math.exp(-0.5 * u * u);
       const density: number[] = [];
       const xCoordinates: number[] = [];
@@ -213,8 +343,8 @@ const buildPlotConfig = (
       for (let i = 0; i < points; i += 1) {
         const x = minValue - range * 0.1 + i * step;
         const value =
-          values.reduce((sum, xi) => sum + kernel((x - xi) / bandwidth), 0) /
-          (values.length * bandwidth * Math.sqrt(2 * Math.PI));
+          baseValues.reduce((sum, xi) => sum + kernel((x - xi) / bandwidth), 0) /
+          (baseValues.length * bandwidth * Math.sqrt(2 * Math.PI));
         xCoordinates.push(x);
         density.push(value);
       }
@@ -229,6 +359,7 @@ const buildPlotConfig = (
               y: density,
               line: { color: colorPalette[0], width: 2 },
               hovertemplate: `${xField}: %{x}<br>密度: %{y:.4f}<extra></extra>`,
+              name: '密度',
             } as PlotlyData,
           ],
           layout: {
@@ -702,39 +833,278 @@ const buildPlotConfig = (
         return { error: '放射状棒グラフを作成するデータがありません' };
       }
 
-      const angles = labels.map((_, index) => (index / labels.length) * 360);
+      const combined = labels.map((label, index) => {
+        const numericValue = values[index];
+        const safeValue = typeof numericValue === 'number' && !Number.isNaN(numericValue) ? numericValue : 0;
+        const displayLabel =
+          label === undefined || label === null || (typeof label === 'string' && label.trim() === '')
+            ? `カテゴリ${index + 1}`
+            : String(label);
+        return {
+          key: `${index}::${displayLabel}`,
+          label: displayLabel,
+          value: safeValue,
+        };
+      });
+
+      if (combined.every(item => item.value === 0)) {
+        return { error: '全ての値が0のため放射状棒グラフを描画できません' };
+      }
+
+      const sortedSeries = [...combined].sort((a, b) => b.value - a.value);
+      const maxValue = Math.max(...sortedSeries.map(item => item.value), 1);
+      const innerOffset = maxValue * 0.2;
+      const ringGap = Math.max(maxValue * 0.1, maxValue === 0 ? 1 : maxValue * 0.1);
+      const thetaCenter = 90;
+      const barWidth = Math.max(160, Math.min(320, 300 - (sortedSeries.length - 1) * 12));
+
+      const baseByKey = new Map<string, number>();
+      let currentBase = innerOffset;
+      sortedSeries.forEach(item => {
+        baseByKey.set(item.key, currentBase);
+        currentBase += item.value + ringGap;
+      });
+
+      const baseArray = sortedSeries.map(item => baseByKey.get(item.key) ?? innerOffset);
+      const radialArray = sortedSeries.map((item, index) => (baseArray[index] ?? innerOffset) + item.value);
+      const thetaArray = sortedSeries.map(() => thetaCenter);
+      const widthArray = sortedSeries.map(() => barWidth);
+      const colors = sortedSeries.map((_, index) => colorPalette[index % colorPalette.length]);
+      const hoverLabel = yField || (aggregation === 'count' ? '件数' : '値');
 
       const trace: PlotlyData = {
         type: 'barpolar',
-        r: values,
-        theta: angles,
-        text: labels,
+        theta: thetaArray,
+        r: radialArray,
+        base: baseArray,
+        width: widthArray,
         marker: {
-          color: labels.map((_, index) => colorPalette[index % colorPalette.length]),
-          line: { color: '#ffffff', width: 1 },
+          color: colors,
+          line: { color: '#ffffff', width: 1.5 },
         },
-        hovertemplate: '%{text}<br>値: %{r}<extra></extra>',
+        text: sortedSeries.map(item => item.label),
+        hovertemplate: `%{text}<br>${hoverLabel}: %{customdata}<extra></extra>`,
+        customdata: sortedSeries.map(item => item.value),
+        cliponaxis: false,
+        name: hoverLabel,
       } as PlotlyData;
+
+      const radialMax = Math.max(...radialArray, innerOffset + maxValue) + ringGap * 1.2;
 
       return {
         plot: {
           data: [trace],
           layout: {
             autosize: true,
-            height: 360,
-            margin: { t: 40, r: 40, b: 40, l: 40 },
+            height: 380,
+            margin: { t: 40, r: 40, b: 30, l: 40 },
             title: layoutTitle,
             polar: {
-              angularaxis: {
-                tickmode: 'array',
-                tickvals: angles,
-                ticktext: labels,
-              },
               radialaxis: {
-                title: yField || '値',
+                visible: false,
+                range: [0, radialMax],
               },
+              angularaxis: {
+                showgrid: false,
+                showticklabels: false,
+                ticks: '',
+                rotation: 90,
+                direction: 'counterclockwise',
+              },
+              sector: [-130, 130],
             },
             showlegend: false,
+          },
+        },
+      };
+    }
+
+    if (chartType === 'radial-stacked-bar') {
+      if (!categoryField) {
+        return { error: '放射状積上棒グラフにはカテゴリ列を指定してください' };
+      }
+
+      const series = getSeriesFromAggregation();
+      if ('error' in series) {
+        return { error: series.error };
+      }
+
+      const { labels, values } = series;
+      if (!labels || !values || labels.length === 0) {
+        return { error: '放射状積上棒グラフを作成するデータがありません' };
+      }
+
+      const combined = labels.map((label, index) => {
+        const numericValue = values[index];
+        const safeValue = typeof numericValue === 'number' && !Number.isNaN(numericValue) ? numericValue : 0;
+        const displayLabel =
+          label === undefined || label === null || (typeof label === 'string' && label.trim() === '')
+            ? `カテゴリ${index + 1}`
+            : String(label);
+        return {
+          key: `${index}::${displayLabel}`,
+          label: displayLabel,
+          value: safeValue,
+        };
+      });
+
+      if (combined.every(item => item.value === 0)) {
+        return { error: '全ての値が0のため放射状積上棒グラフを描画できません' };
+      }
+
+      const sortedSeries = [...combined].sort((a, b) => b.value - a.value);
+
+      const categoriesRaw = flattened.map(row => row[categoryField]).filter(value => value !== undefined && value !== null);
+      const categorySet = new Set<string>();
+      categoriesRaw.forEach(value => {
+        const labelString = String(value);
+        categorySet.add(labelString);
+      });
+
+      const hasUnassigned = flattened.some(row => {
+        const raw = row[categoryField];
+        return (
+          raw === undefined ||
+          raw === null ||
+          (typeof raw === 'string' && raw.trim() === '')
+        );
+      });
+
+      const categoryInfos = Array.from(categorySet)
+        .sort((a, b) => a.localeCompare(b))
+        .map(label => ({
+          key: label,
+          label,
+          predicate: (row: any) => {
+            const raw = row[categoryField];
+            return raw !== undefined && raw !== null && String(raw) === label;
+          },
+        }));
+
+      if (hasUnassigned) {
+        categoryInfos.push({
+          key: '__UNASSIGNED__',
+          label: '未分類',
+          predicate: (row: any) => {
+            const raw = row[categoryField];
+            return (
+              raw === undefined ||
+              raw === null ||
+              (typeof raw === 'string' && raw.trim() === '')
+            );
+          },
+        });
+      }
+
+      if (categoryInfos.length === 0) {
+        return { error: '放射状積上棒グラフを描画するためのカテゴリが見つかりません' };
+      }
+
+      const maxValue = Math.max(...sortedSeries.map(item => item.value), 1);
+      const innerOffset = maxValue * 0.2;
+      const ringGap = Math.max(maxValue * 0.08, maxValue === 0 ? 1 : maxValue * 0.08);
+      const thetaCenter = 90;
+      const barWidth = Math.max(150, Math.min(320, 300 - (sortedSeries.length - 1) * 10));
+
+      const baseByKey = new Map<string, number>();
+      let currentBase = innerOffset;
+      sortedSeries.forEach(item => {
+        baseByKey.set(item.key, currentBase);
+        currentBase += item.value + ringGap;
+      });
+
+      const cumulativeByKey = new Map<string, number>();
+      sortedSeries.forEach(item => {
+        cumulativeByKey.set(item.key, 0);
+      });
+
+      const traces: PlotlyData[] = [];
+
+      for (let categoryIndex = 0; categoryIndex < categoryInfos.length; categoryIndex += 1) {
+        const category = categoryInfos[categoryIndex];
+        const filtered = flattened.filter(row => category.predicate(row));
+        if (filtered.length === 0) {
+          // 未分類カテゴリなどでデータが存在しない場合はスキップ
+          continue;
+        }
+
+        const aggregated = aggregateData(filtered, xField, yField || '', aggregation, false);
+        if (aggregated.error || !aggregated.data) {
+          return { error: aggregated.error || '集計に失敗しました' };
+        }
+
+        const valuesByLabel = sortedSeries.map(item => {
+          const target = aggregated.data!.find((row: any) => String(row[xField]) === item.label);
+          if (!target) {
+            return 0;
+          }
+          const rawValue = yField ? target[yField] : target.value;
+          return typeof rawValue === 'number' && !Number.isNaN(rawValue) ? rawValue : 0;
+        });
+
+        const baseArray = sortedSeries.map(item => (baseByKey.get(item.key) ?? innerOffset) + (cumulativeByKey.get(item.key) ?? 0));
+        const valueArray = valuesByLabel.map(value => (typeof value === 'number' && !Number.isNaN(value) ? value : 0));
+        if (valueArray.every(value => value === 0)) {
+          continue;
+        }
+        const radialArray = baseArray.map((baseValue, index) => baseValue + valueArray[index]);
+
+        sortedSeries.forEach((item, index) => {
+          cumulativeByKey.set(item.key, (cumulativeByKey.get(item.key) ?? 0) + valueArray[index]);
+        });
+
+        traces.push({
+          type: 'barpolar',
+          theta: sortedSeries.map(() => thetaCenter),
+          r: radialArray,
+          base: baseArray,
+          width: sortedSeries.map(() => barWidth),
+          marker: {
+            color: colorPalette[categoryIndex % colorPalette.length],
+            line: { color: '#ffffff', width: 1 },
+          },
+          text: sortedSeries.map(item => item.label),
+          hovertemplate: `%{text}<br>${category.label}: %{customdata}<extra></extra>`,
+          customdata: valueArray,
+          cliponaxis: false,
+          name: category.label,
+          textposition: categoryIndex === categoryInfos.length - 1 ? 'outside' : 'none',
+        } as PlotlyData);
+      }
+
+      if (traces.length === 0) {
+        return { error: '選択したカテゴリに一致するデータがありません' };
+      }
+
+      const radialMax = Math.max(
+        ...sortedSeries.map(item => (baseByKey.get(item.key) ?? innerOffset) + (cumulativeByKey.get(item.key) ?? 0)),
+        innerOffset + maxValue,
+      ) + ringGap * 1.2;
+
+      return {
+        plot: {
+          data: traces,
+          layout: {
+            autosize: true,
+            height: 400,
+            margin: { t: 40, r: 50, b: 30, l: 50 },
+            title: layoutTitle,
+            polar: {
+              radialaxis: {
+                visible: false,
+                range: [0, radialMax],
+              },
+              angularaxis: {
+                showgrid: false,
+                showticklabels: false,
+                ticks: '',
+                rotation: 90,
+                direction: 'counterclockwise',
+              },
+              sector: [-130, 130],
+            },
+            showlegend: true,
+            legend: { orientation: 'h', x: 0, y: 1.05 },
           },
         },
       };
@@ -1812,6 +2182,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     chartType === 'histogram' ||
     chartType === 'heatmap' ||
     chartType === 'sankey' ||
+    chartType === 'radial-stacked-bar' ||
     isSunburstChart ||
     isTreemapChart ||
     chartType === 'streamgraph';
@@ -1834,6 +2205,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
         chartType === 'heatmap' ||
         chartType === 'sankey' ||
         chartType === 'radial-bar' ||
+        chartType === 'radial-stacked-bar' ||
         chartType === 'waterfall' ||
         chartType === 'word-cloud') &&
       !yField &&
@@ -1860,6 +2232,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     chartType === 'heatmap' ||
     chartType === 'sankey' ||
     chartType === 'radial-bar' ||
+    chartType === 'radial-stacked-bar' ||
     chartType === 'waterfall' ||
     chartType === 'word-cloud';
   const requiresNumericY =
@@ -1872,6 +2245,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     chartType === 'heatmap' ||
     chartType === 'sankey' ||
     chartType === 'radial-bar' ||
+    chartType === 'radial-stacked-bar' ||
     chartType === 'waterfall' ||
     isSunburstChart;
   const canSelectYField =

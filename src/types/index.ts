@@ -148,6 +148,7 @@ export type ResultChartType =
   | 'sankey'
   | 'word-cloud'
   | 'radial-bar'
+  | 'radial-stacked-bar'
   | 'waterfall';
 
 export type ResultAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
@@ -216,6 +217,7 @@ export interface ChartSettings {
     | 'sankey'
     | 'word-cloud'
     | 'radial-bar'
+    | 'radial-stacked-bar'
     | 'waterfall';
   xAxis: string;
   yAxis: string;
