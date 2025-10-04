@@ -2389,7 +2389,8 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     chartType === 'radial-stacked-bar' ||
     chartType === 'waterfall' ||
     isSunburstChart;
-  const canSelectYField = chartType !== 'histogram' && chartType !== 'gantt' && chartType !== 'venn';
+  const canSelectYField =
+    chartType !== 'histogram' && chartType !== 'gantt' && chartType !== 'venn' && chartType !== 'kde';
   const showXField = chartType !== 'gantt' && chartType !== 'venn' && !isHierarchicalChart;
 
   const chartComputation = useMemo(() => {
