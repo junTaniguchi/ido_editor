@@ -147,8 +147,6 @@ export type ResultChartType =
   | 'heatmap'
   | 'sankey'
   | 'word-cloud'
-  | 'radial-bar'
-  | 'radial-stacked-bar'
   | 'waterfall';
 
 export type ResultAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
@@ -216,8 +214,6 @@ export interface ChartSettings {
     | 'heatmap'
     | 'sankey'
     | 'word-cloud'
-    | 'radial-bar'
-    | 'radial-stacked-bar'
     | 'waterfall';
   xAxis: string;
   yAxis: string;
