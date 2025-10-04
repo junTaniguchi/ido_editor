@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PaneState, TabData } from '@/types';
 import { useEditorStore } from '@/store/editorStore';
 import FileExplorer from '@/components/explorer/FileExplorer';
@@ -20,6 +20,8 @@ import GitHistoryView from '@/components/git/GitHistoryView';
 import GitDiffView from '@/components/git/GitDiffView';
 import GitCommitDiffView from '@/components/git/GitCommitDiffView';
 import HelpSidebar from '@/components/help/HelpSidebar';
+import ResizableSidebar from '@/components/layout/ResizableSidebar';
+import { DEFAULT_SIDEBAR_WIDTHS } from '@/constants/layout';
 
 interface WorkspaceProps {
   paneState: PaneState;
@@ -47,6 +49,58 @@ const Workspace: React.FC<WorkspaceProps> = ({
   const editorRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const [isScrollSyncEnabled, setIsScrollSyncEnabled] = useState(false);
+  const [sidebarWidths, setSidebarWidths] = useState({
+    explorer: paneState.sidebarWidths?.explorer ?? DEFAULT_SIDEBAR_WIDTHS.explorer,
+    gis: paneState.sidebarWidths?.gis ?? DEFAULT_SIDEBAR_WIDTHS.gis,
+    git: paneState.sidebarWidths?.git ?? DEFAULT_SIDEBAR_WIDTHS.git,
+    help: paneState.sidebarWidths?.help ?? DEFAULT_SIDEBAR_WIDTHS.help,
+    search: paneState.sidebarWidths?.search ?? DEFAULT_SIDEBAR_WIDTHS.search,
+  });
+
+  useEffect(() => {
+    const nextExplorer = paneState.sidebarWidths?.explorer ?? DEFAULT_SIDEBAR_WIDTHS.explorer;
+    const nextGis = paneState.sidebarWidths?.gis ?? DEFAULT_SIDEBAR_WIDTHS.gis;
+    const nextGit = paneState.sidebarWidths?.git ?? DEFAULT_SIDEBAR_WIDTHS.git;
+    const nextHelp = paneState.sidebarWidths?.help ?? DEFAULT_SIDEBAR_WIDTHS.help;
+    const nextSearch = paneState.sidebarWidths?.search ?? DEFAULT_SIDEBAR_WIDTHS.search;
+
+    setSidebarWidths((previous) => {
+      if (
+        previous.explorer === nextExplorer &&
+        previous.gis === nextGis &&
+        previous.git === nextGit &&
+        previous.help === nextHelp &&
+        previous.search === nextSearch
+      ) {
+        return previous;
+      }
+      return {
+        explorer: nextExplorer,
+        gis: nextGis,
+        git: nextGit,
+        help: nextHelp,
+        search: nextSearch,
+      };
+    });
+  }, [paneState.sidebarWidths?.explorer, paneState.sidebarWidths?.gis, paneState.sidebarWidths?.git, paneState.sidebarWidths?.help, paneState.sidebarWidths?.search]);
+
+  type SidebarKey = keyof typeof DEFAULT_SIDEBAR_WIDTHS;
+
+  const handleSidebarResize = useCallback((key: SidebarKey, width: number) => {
+    setSidebarWidths((previous) => ({ ...previous, [key]: width }));
+  }, []);
+
+  const handleSidebarResizeEnd = useCallback(
+    (key: SidebarKey, width: number) => {
+      setSidebarWidths((previous) => ({ ...previous, [key]: width }));
+      const nextSidebarWidths = {
+        ...paneState.sidebarWidths,
+        [key]: width,
+      };
+      updatePaneState({ sidebarWidths: nextSidebarWidths });
+    },
+    [paneState.sidebarWidths, updatePaneState],
+  );
 
   const {
     isMarkdown,
@@ -375,30 +429,70 @@ const Workspace: React.FC<WorkspaceProps> = ({
         onToggleMultiFileAnalysis={onToggleMultiFileAnalysis}
       />
       {showExplorer && (
-        <div className="w-64 flex-shrink-0 border-r border-gray-200 dark:border-gray-800">
+        <ResizableSidebar
+          width={sidebarWidths.explorer}
+          minWidth={200}
+          maxWidth={480}
+          onResize={(width) => handleSidebarResize('explorer', width)}
+          onResizeEnd={(width) => handleSidebarResizeEnd('explorer', width)}
+          className="border-r border-gray-200 dark:border-gray-800"
+          handleClassName="hover:bg-gray-200/60 dark:hover:bg-gray-700/60"
+        >
           <FileExplorer />
-        </div>
+        </ResizableSidebar>
       )}
       {showGisSidebar && (
-        <div className="w-72 flex-shrink-0 border-r border-gray-200 dark:border-gray-800">
+        <ResizableSidebar
+          width={sidebarWidths.gis}
+          minWidth={240}
+          maxWidth={520}
+          onResize={(width) => handleSidebarResize('gis', width)}
+          onResizeEnd={(width) => handleSidebarResizeEnd('gis', width)}
+          className="border-r border-gray-200 dark:border-gray-800"
+          handleClassName="hover:bg-gray-200/60 dark:hover:bg-gray-700/60"
+        >
           <GisSidebar />
-        </div>
+        </ResizableSidebar>
       )}
       {showGitSidebar && (
-        <div className="w-96 flex-shrink-0 border-r border-gray-200 dark:border-gray-800 overflow-hidden">
+        <ResizableSidebar
+          width={sidebarWidths.git}
+          minWidth={320}
+          maxWidth={640}
+          onResize={(width) => handleSidebarResize('git', width)}
+          onResizeEnd={(width) => handleSidebarResizeEnd('git', width)}
+          className="border-r border-gray-200 dark:border-gray-800 overflow-hidden"
+          handleClassName="hover:bg-gray-200/60 dark:hover:bg-gray-700/60"
+        >
           <GitPanel />
-        </div>
+        </ResizableSidebar>
       )}
       {showHelpSidebar && (
-        <div className="w-96 flex-shrink-0 border-r border-gray-200 dark:border-gray-800 overflow-hidden">
+        <ResizableSidebar
+          width={sidebarWidths.help}
+          minWidth={320}
+          maxWidth={640}
+          onResize={(width) => handleSidebarResize('help', width)}
+          onResizeEnd={(width) => handleSidebarResizeEnd('help', width)}
+          className="border-r border-gray-200 dark:border-gray-800 overflow-hidden"
+          handleClassName="hover:bg-gray-200/60 dark:hover:bg-gray-700/60"
+        >
           <HelpSidebar />
-        </div>
+        </ResizableSidebar>
       )}
       <div className="flex-1 flex overflow-hidden">
         {showSearchPanel && (
-          <div className="w-80 flex-shrink-0 border-r border-gray-200 dark:border-gray-800">
+          <ResizableSidebar
+            width={sidebarWidths.search}
+            minWidth={260}
+            maxWidth={520}
+            onResize={(width) => handleSidebarResize('search', width)}
+            onResizeEnd={(width) => handleSidebarResizeEnd('search', width)}
+            className="border-r border-gray-200 dark:border-gray-800"
+            handleClassName="hover:bg-gray-200/60 dark:hover:bg-gray-700/60"
+          >
             <SearchPanel />
-          </div>
+          </ResizableSidebar>
         )}
         <div className="flex-1 h-full overflow-hidden">
           {renderMainContent()}
