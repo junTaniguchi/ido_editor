@@ -54,26 +54,29 @@ import type { MermaidDiagramType } from '@/lib/mermaid/types';
  * - 右クリックメニューによる操作
  * - ダイアログによる入力・確認
  */
+const GOOGLE_DRIVE_URL = 'https://drive.google.com/drive/u/0/my-drive';
+
 const FileExplorer = () => {
   const {
     rootFileTree,
     rootDirHandle,
     rootFolderName,
     setRootDirHandle,
-    setRootFileTree, 
+    setRootFileTree,
     setRootFolderName,
     addTab,
     addTempTab,
     activeTabId,
     setActiveTabId,
-  updateTab,
+    updateTab,
     tabs,
     setContextMenuTarget,
     contextMenuTarget,
     multiFileAnalysisEnabled,
     selectedFiles,
     addSelectedFile,
-    removeSelectedFile
+    removeSelectedFile,
+    openBrowserWithUrl,
   } = useEditorStore();
   const setGitRootDirectory = useGitStore((state) => state.setRootDirectory);
   // Avoid returning an object literal from the selector which creates a new
@@ -183,6 +186,10 @@ const FileExplorer = () => {
       alert(`フォルダの選択中にエラーが発生しました: ${error instanceof Error ? error.message : '不明なエラー'}`);
     }
   };
+
+  const handleOpenGoogleDrive = useCallback(() => {
+    openBrowserWithUrl(GOOGLE_DRIVE_URL);
+  }, [openBrowserWithUrl]);
   
   // フォルダの展開状態を切り替え
   const toggleFolder = (path: string) => {
@@ -799,6 +806,21 @@ const FileExplorer = () => {
       
       {/* ファイルツリー */}
       <div className="flex-1 overflow-auto">
+        <div className="border-b border-gray-300 bg-white px-3 py-3 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-gray-700 dark:text-gray-100">クラウドストレージ</span>
+            <button
+              className="rounded border border-blue-500 bg-blue-500 px-3 py-1 text-xs font-semibold text-white transition hover:bg-blue-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 dark:border-blue-400 dark:bg-blue-500 dark:hover:bg-blue-400"
+              type="button"
+              onClick={handleOpenGoogleDrive}
+            >
+              Google Drive を開く
+            </button>
+          </div>
+          <p className="mt-2 leading-relaxed">
+            Google Drive は組み込みブラウザで開きます。最初に Google アカウントでのログインが必要な場合があります。
+          </p>
+        </div>
         {rootFileTree ? (
           <div className="py-1 text-sm">
             {renderFileTree(rootFileTree)}

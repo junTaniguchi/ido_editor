@@ -2,13 +2,13 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { IoReloadOutline, IoReturnDownForwardOutline } from 'react-icons/io5';
+import { DEFAULT_BROWSER_URL, useEditorStore } from '@/store/editorStore';
 
-const DEFAULT_URL = 'https://www.google.com/';
+const DEFAULT_URL = DEFAULT_BROWSER_URL;
 
 const QUICK_LINKS: { label: string; url: string }[] = [
-  { label: 'Google', url: 'https://www.google.com/' },
-  { label: 'Google Gemini', url: 'https://gemini.google.com/app' },
-  { label: 'ChatGPT', url: 'https://chatgpt.com/' },
+  { label: 'Google', url: DEFAULT_BROWSER_URL },
+  { label: 'Google Drive', url: 'https://drive.google.com/drive/u/0/my-drive' },
 ];
 
 const normalizeUrl = (value: string) => {
@@ -26,9 +26,18 @@ const normalizeUrl = (value: string) => {
 
 const BLOCKED_HOSTNAMES = new Set<string>(['chatgpt.com', 'gemini.google.com']);
 
+const BLOCKED_HOST_MESSAGES: Record<string, string> = {
+  'chatgpt.com':
+    'ChatGPT は X-Frame-Options などのポリシーで外部サイトからの埋め込みを禁止しているため、このパネル内では表示できません。',
+  'gemini.google.com':
+    'Google Gemini は厳格な CSP (Content-Security-Policy) を設定しており、別サイトから iframe で読み込むことができません。',
+};
+
 const BrowserPanel: React.FC = () => {
-  const [urlInput, setUrlInput] = useState(DEFAULT_URL);
-  const [currentUrl, setCurrentUrl] = useState(DEFAULT_URL);
+  const browserUrl = useEditorStore((state) => state.browserUrl);
+  const setBrowserUrl = useEditorStore((state) => state.setBrowserUrl);
+  const [urlInput, setUrlInput] = useState(browserUrl || DEFAULT_URL);
+  const [currentUrl, setCurrentUrl] = useState(browserUrl || DEFAULT_URL);
   const [isLoading, setIsLoading] = useState(true);
   const [iframeKey, setIframeKey] = useState(() => Date.now());
 
@@ -41,21 +50,38 @@ const BrowserPanel: React.FC = () => {
     }
   }, [currentUrl]);
 
-  const isLikelyBlocked = useMemo(() => {
+  const { isLikelyBlocked, blockedDescription } = useMemo(() => {
     try {
       const { hostname } = new URL(currentUrl);
-      return BLOCKED_HOSTNAMES.has(hostname);
+      if (!BLOCKED_HOSTNAMES.has(hostname)) {
+        return { isLikelyBlocked: false, blockedDescription: '' };
+      }
+
+      return {
+        isLikelyBlocked: true,
+        blockedDescription:
+          BLOCKED_HOST_MESSAGES[hostname] ??
+          'このサイトは埋め込み表示をサポートしていないため、直接アクセスする必要があります。',
+      };
     } catch {
-      return false;
+      return { isLikelyBlocked: false, blockedDescription: '' };
     }
   }, [currentUrl]);
 
-  const navigateTo = useCallback((nextUrl: string) => {
+  useEffect(() => {
+    const nextUrl = browserUrl || DEFAULT_URL;
     setCurrentUrl(nextUrl);
     setUrlInput(nextUrl);
     setIsLoading(true);
     setIframeKey(Date.now());
-  }, []);
+  }, [browserUrl]);
+
+  const navigateTo = useCallback(
+    (nextUrl: string) => {
+      setBrowserUrl(nextUrl);
+    },
+    [setBrowserUrl],
+  );
 
   const handleSubmit = useCallback(
     (event: React.FormEvent<HTMLFormElement>) => {
@@ -139,7 +165,7 @@ const BrowserPanel: React.FC = () => {
       <div className="flex flex-col gap-1 border-b border-gray-200 px-3 py-2 text-xs text-gray-600 dark:border-gray-800 dark:text-gray-300">
         <span className="font-medium">現在のサイト: {hostLabel}</span>
         <span className="text-[11px] text-gray-500 dark:text-gray-400">
-          一部のサイトはセキュリティのため埋め込み表示を許可しておらず、空白になる場合があります。その際はヘッダーのリンクまたは「新しいタブで開く」から直接アクセスしてください。
+          一部のサイト（ChatGPT や Google Gemini など）はセキュリティポリシーにより iframe での表示が禁止されています。その場合はヘッダーのショートカットまたは「新しいタブで開く」から直接アクセスしてください。
         </span>
       </div>
       <div className="relative flex-1 overflow-hidden">
@@ -155,7 +181,8 @@ const BrowserPanel: React.FC = () => {
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-white/90 px-4 text-center text-sm text-gray-700 dark:bg-slate-950/90 dark:text-gray-200">
             <p className="font-medium">このサイトは埋め込み表示が制限されています。</p>
             <p className="max-w-xs text-xs text-gray-500 dark:text-gray-400">
-              安全性の理由から iframe 内で読み込めない場合があります。下のボタンからブラウザで開いてください。
+              {blockedDescription ||
+                '安全性の理由から iframe 内で読み込めない場合があります。下のボタンからブラウザで開いてください。'}
             </p>
             <button
               type="button"

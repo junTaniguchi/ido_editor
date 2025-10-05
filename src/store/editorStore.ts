@@ -80,6 +80,11 @@ interface EditorStore {
   setIsSearching: (searching: boolean) => void;
   replaceText: string;
   setReplaceText: (text: string) => void;
+
+  // インアプリブラウザ
+  browserUrl: string;
+  setBrowserUrl: (url: string) => void;
+  openBrowserWithUrl: (url: string) => void;
   
   // 分析機能
   analysisEnabled: boolean;
@@ -139,6 +144,8 @@ interface EditorStore {
   helpSettings: HelpSettings;
   updateHelpSettings: (updates: Partial<HelpSettings>) => void;
 }
+
+export const DEFAULT_BROWSER_URL = 'https://www.google.com/';
 
 export const useEditorStore = create<EditorStore>()(
   persist(
@@ -305,6 +312,19 @@ export const useEditorStore = create<EditorStore>()(
       setIsSearching: (searching) => set({ isSearching: searching }),
       replaceText: '',
       setReplaceText: (text) => set({ replaceText: text }),
+
+      // インアプリブラウザ
+      browserUrl: DEFAULT_BROWSER_URL,
+      setBrowserUrl: (url) => set({ browserUrl: url || DEFAULT_BROWSER_URL }),
+      openBrowserWithUrl: (url) =>
+        set((state) => ({
+          browserUrl: url || DEFAULT_BROWSER_URL,
+          paneState: {
+            ...state.paneState,
+            activeSidebar: 'browser',
+            isBrowserVisible: true,
+          },
+        })),
       
       // 分析機能
       analysisEnabled: false,
@@ -650,6 +670,7 @@ export const useEditorStore = create<EditorStore>()(
           lastViewMode: state.lastViewMode,
           editorSettings: state.editorSettings,
           paneState: state.paneState,
+          browserUrl: state.browserUrl,
           searchSettings: state.searchSettings,
           analysisEnabled: state.analysisEnabled,
           chartSettings: state.chartSettings,
@@ -715,6 +736,9 @@ export const useEditorStore = create<EditorStore>()(
           // lastViewMode の復元
           if (!state.lastViewMode) {
             state.lastViewMode = 'editor';
+          }
+          if (!state.browserUrl) {
+            state.browserUrl = DEFAULT_BROWSER_URL;
           }
           if (!state.sqlNotebook) {
             state.sqlNotebook = {};
