@@ -50,6 +50,12 @@ DataLoom Studio は、ファイル管理・エディタ・プレビュー・デ�
 - `OPENAI_API_KEY` が設定されている場合はそちらが優先され、ダイアログからも状態を確認できます
 - 保存済みのキーは同ダイアログから削除・再読込が可能です
 
+## Google Drive 連携
+- エクスプローラ上で Google Drive のツリーを表示し、テキスト/表形式ファイルは直接タブで開けます（その他のファイルは Drive で開くリンクを提供）。
+- 利用には Google Identity Services の OAuth クライアントを作成し、環境変数 `NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID` にクライアントIDを設定する必要があります。
+- `npm run dev` を起動した状態でエクスプローラに表示される「Google Drive」セクションからサインインすると、`drive.readonly` スコープでアクセストークンを取得します。
+- トークンはメモリ上のみで扱われ、再読み込みまたはサインアウトで破棄されます。Electron 版でも同じ手順で利用できます。
+
  ## 主要機能（実装済み） — 完全網羅
  以下はソースコード（src/components, src/lib, src/store）をもとに整理した実装済み機能の完全一覧です。MyGPT に取り込む際は、このまま要点を納めてください。
 

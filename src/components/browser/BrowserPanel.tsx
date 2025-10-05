@@ -6,10 +6,7 @@ import { DEFAULT_BROWSER_URL, useEditorStore } from '@/store/editorStore';
 
 const DEFAULT_URL = DEFAULT_BROWSER_URL;
 
-const QUICK_LINKS: { label: string; url: string }[] = [
-  { label: 'Google', url: DEFAULT_BROWSER_URL },
-  { label: 'Google Drive', url: 'https://drive.google.com/drive/u/0/my-drive' },
-];
+const QUICK_LINKS: { label: string; url: string }[] = [{ label: 'Google', url: DEFAULT_BROWSER_URL }];
 
 const normalizeUrl = (value: string) => {
   const trimmed = value.trim();

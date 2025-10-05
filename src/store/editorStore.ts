@@ -84,7 +84,6 @@ interface EditorStore {
   // インアプリブラウザ
   browserUrl: string;
   setBrowserUrl: (url: string) => void;
-  openBrowserWithUrl: (url: string) => void;
   
   // 分析機能
   analysisEnabled: boolean;
@@ -316,15 +315,6 @@ export const useEditorStore = create<EditorStore>()(
       // インアプリブラウザ
       browserUrl: DEFAULT_BROWSER_URL,
       setBrowserUrl: (url) => set({ browserUrl: url || DEFAULT_BROWSER_URL }),
-      openBrowserWithUrl: (url) =>
-        set((state) => ({
-          browserUrl: url || DEFAULT_BROWSER_URL,
-          paneState: {
-            ...state.paneState,
-            activeSidebar: 'browser',
-            isBrowserVisible: true,
-          },
-        })),
       
       // 分析機能
       analysisEnabled: false,
