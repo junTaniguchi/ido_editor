@@ -45,6 +45,7 @@ import InputDialog from '@/components/modals/InputDialog';
 import ConfirmDialog from '@/components/modals/ConfirmDialog';
 import MermaidTemplateDialog from '@/components/modals/MermaidTemplateDialog';
 import type { MermaidDiagramType } from '@/lib/mermaid/types';
+import GoogleDriveExplorer from './GoogleDriveExplorer';
 
 /**
  * FileExplorerコンポーネント
@@ -60,20 +61,20 @@ const FileExplorer = () => {
     rootDirHandle,
     rootFolderName,
     setRootDirHandle,
-    setRootFileTree, 
+    setRootFileTree,
     setRootFolderName,
     addTab,
     addTempTab,
     activeTabId,
     setActiveTabId,
-  updateTab,
+    updateTab,
     tabs,
     setContextMenuTarget,
     contextMenuTarget,
     multiFileAnalysisEnabled,
     selectedFiles,
     addSelectedFile,
-    removeSelectedFile
+    removeSelectedFile,
   } = useEditorStore();
   const setGitRootDirectory = useGitStore((state) => state.setRootDirectory);
   // Avoid returning an object literal from the selector which creates a new
@@ -183,7 +184,7 @@ const FileExplorer = () => {
       alert(`フォルダの選択中にエラーが発生しました: ${error instanceof Error ? error.message : '不明なエラー'}`);
     }
   };
-  
+
   // フォルダの展開状態を切り替え
   const toggleFolder = (path: string) => {
     const newExpandedFolders = new Set(expandedFolders);
@@ -799,6 +800,7 @@ const FileExplorer = () => {
       
       {/* ファイルツリー */}
       <div className="flex-1 overflow-auto">
+        <GoogleDriveExplorer />
         {rootFileTree ? (
           <div className="py-1 text-sm">
             {renderFileTree(rootFileTree)}
