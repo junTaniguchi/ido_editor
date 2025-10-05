@@ -1,15 +1,18 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   IoChevronDown,
   IoChevronForward,
   IoCloudOutline,
   IoDocumentOutline,
+  IoInformationCircleOutline,
   IoLinkOutline,
   IoLogInOutline,
   IoLogOutOutline,
   IoReloadOutline,
+  IoSaveOutline,
+  IoTrashOutline,
   IoWarningOutline,
 } from 'react-icons/io5';
 import { useEditorStore } from '@/store/editorStore';
@@ -122,7 +125,17 @@ const SUPPORTED_MIME_AS_BLOB = new Map<GoogleDriveMime, { exportMime?: string; t
 ]);
 
 const GoogleDriveExplorer: React.FC = () => {
-  const clientId = process.env.NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID;
+  const envClientId = process.env.NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID || '';
+  const storedClientId = useEditorStore((state) => state.googleDriveClientId);
+  const setGoogleDriveClientId = useEditorStore((state) => state.setGoogleDriveClientId);
+  const clientId = useMemo(() => {
+    const trimmedStored = storedClientId?.trim();
+    if (trimmedStored) {
+      return trimmedStored;
+    }
+    const trimmedEnv = envClientId.trim();
+    return trimmedEnv || '';
+  }, [envClientId, storedClientId]);
   const addTab = useEditorStore((state) => state.addTab);
   const updateTab = useEditorStore((state) => state.updateTab);
   const setActiveTabId = useEditorStore((state) => state.setActiveTabId);
@@ -139,9 +152,29 @@ const GoogleDriveExplorer: React.FC = () => {
   const [folderErrors, setFolderErrors] = useState<Record<string, string>>({});
   const [previewingId, setPreviewingId] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [clientIdInput, setClientIdInput] = useState<string>(storedClientId || '');
 
   const isSignedIn = Boolean(accessToken);
   const isBrowser = typeof window !== 'undefined';
+  const appOrigin = isBrowser ? window.location.origin : 'http://localhost:3000';
+  const isUsingEnvClientId = !storedClientId?.trim() && Boolean(envClientId.trim());
+
+  useEffect(() => {
+    setClientIdInput(storedClientId || '');
+  }, [storedClientId]);
+
+  useEffect(() => {
+    setAccessToken(null);
+    setTokenClient(null);
+    setAuthError(null);
+    setAuthInProgress(false);
+    setDriveChildren({});
+    setExpandedFolders(new Set<string>());
+    setLoadingFolders(new Set<string>());
+    setFolderErrors({});
+    setPreviewingId(null);
+    setPreviewError(null);
+  }, [clientId]);
 
   useEffect(() => {
     if (!isBrowser || !clientId) {
@@ -189,6 +222,23 @@ const GoogleDriveExplorer: React.FC = () => {
       setAuthError(error instanceof Error ? error.message : String(error));
     }
   }, [clientId, gisReady, isBrowser]);
+
+  const handleClientIdSubmit = useCallback(
+    (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      setGoogleDriveClientId(clientIdInput.trim());
+    },
+    [clientIdInput, setGoogleDriveClientId],
+  );
+
+  const handleClientIdClear = useCallback(() => {
+    setGoogleDriveClientId('');
+    setClientIdInput('');
+  }, [setGoogleDriveClientId]);
+
+  const hasClientIdChanges = useMemo(() => {
+    return clientIdInput.trim() !== (storedClientId || '').trim();
+  }, [clientIdInput, storedClientId]);
 
   const normalizeDriveItem = useCallback((item: any): DriveTreeItem => {
     const isShortcut = item.mimeType === 'application/vnd.google-apps.shortcut';
@@ -640,12 +690,61 @@ const GoogleDriveExplorer: React.FC = () => {
           )}
         </div>
       </div>
+      <form className="mt-3 space-y-2" onSubmit={handleClientIdSubmit}>
+        <label className="flex items-center gap-2 text-[11px] font-semibold text-gray-700 dark:text-gray-200">
+          <IoInformationCircleOutline size={14} className="text-blue-500" />
+          Google OAuth クライアント ID
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            value={clientIdInput}
+            onChange={(event) => setClientIdInput(event.target.value)}
+            placeholder="例: 1234567890-abcdefghijklmnop.apps.googleusercontent.com"
+            className="flex-1 rounded border border-gray-300 px-2 py-1 text-[11px] text-gray-800 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:focus:border-blue-300"
+            spellCheck={false}
+          />
+          <button
+            type="submit"
+            disabled={!clientIdInput.trim() || !hasClientIdChanges}
+            className="flex items-center gap-1 rounded border border-blue-500 bg-blue-500 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-blue-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-blue-400 dark:bg-blue-500 dark:hover:bg-blue-400"
+          >
+            <IoSaveOutline size={12} />
+            保存
+          </button>
+          <button
+            type="button"
+            onClick={handleClientIdClear}
+            disabled={!storedClientId}
+            className="flex items-center gap-1 rounded border border-gray-400 px-2 py-1 text-[11px] font-semibold text-gray-600 transition hover:bg-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+          >
+            <IoTrashOutline size={12} />
+            クリア
+          </button>
+        </div>
+        <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] leading-relaxed text-blue-700 dark:border-blue-500/60 dark:bg-blue-500/10 dark:text-blue-100">
+          <p>
+            Google Cloud Console で「OAuth 2.0 クライアント ID」を「ウェブアプリケーション」タイプとして作成し、承認済みの JavaScript 生成元に
+            <code className="mx-1 rounded bg-white/80 px-1 py-0.5 text-[10px] font-mono dark:bg-gray-900/60">{appOrigin}</code>
+            を追加してください。
+          </p>
+          <p className="mt-1">
+            発行されたクライアント ID を上記フィールド、または環境変数
+            <code className="mx-1 rounded bg-white/80 px-1 py-0.5 text-[10px] font-mono dark:bg-gray-900/60">NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID</code>
+            に設定すると、Google Drive 連携を利用できます。
+          </p>
+          {isUsingEnvClientId && (
+            <p className="mt-1 text-[10px] text-blue-600 dark:text-blue-200">
+              現在は環境変数に設定されたクライアント ID が使用されています。別の ID を利用したい場合は上記に入力して保存してください。
+            </p>
+          )}
+        </div>
+      </form>
       <p className="mt-2 leading-relaxed">
         Google Drive 上のファイルとフォルダをローカルフォルダと同じようにブラウズできます。テキスト系ファイルはタブで開き、その他のファイルは Drive で直接表示してください。
       </p>
       {!clientId && (
         <p className="mt-3 rounded border border-yellow-400 bg-yellow-50 px-3 py-2 text-[11px] font-medium text-yellow-700 dark:border-yellow-500 dark:bg-yellow-500/10 dark:text-yellow-200">
-          環境変数 <code className="rounded bg-yellow-100 px-1 py-0.5 dark:bg-yellow-500/40">NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID</code> を設定すると、Google Drive 連携を利用できます。
+          Google OAuth クライアント ID が未設定のため、サインインボタンは無効化されています。上のフィールドにクライアント ID を登録すると利用可能になります。
         </p>
       )}
       {authError && (

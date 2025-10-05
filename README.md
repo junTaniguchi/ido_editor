@@ -52,7 +52,8 @@ DataLoom Studio は、ファイル管理・エディタ・プレビュー・デ�
 
 ## Google Drive 連携
 - エクスプローラ上で Google Drive のツリーを表示し、テキスト/表形式ファイルは直接タブで開けます（その他のファイルは Drive で開くリンクを提供）。
-- 利用には Google Identity Services の OAuth クライアントを作成し、環境変数 `NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID` にクライアントIDを設定する必要があります。
+- 利用には Google Identity Services の OAuth クライアント（アプリケーション種別: ウェブアプリケーション）を作成し、承認済みの JavaScript 生成元に本アプリの URL（例: `http://localhost:3000`）を登録する必要があります。
+- 発行されたクライアント ID（例: `1234567890-abcdefghijklmnop.apps.googleusercontent.com`）をエクスプローラ内の「Google OAuth クライアント ID」欄に入力するか、環境変数 `NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID` に設定すると連携が有効になります。
 - `npm run dev` を起動した状態でエクスプローラに表示される「Google Drive」セクションからサインインすると、`drive.readonly` スコープでアクセストークンを取得します。
 - トークンはメモリ上のみで扱われ、再読み込みまたはサインアウトで破棄されます。Electron 版でも同じ手順で利用できます。
 

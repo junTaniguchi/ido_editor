@@ -84,6 +84,10 @@ interface EditorStore {
   // インアプリブラウザ
   browserUrl: string;
   setBrowserUrl: (url: string) => void;
+
+  // Google Drive 連携
+  googleDriveClientId: string;
+  setGoogleDriveClientId: (clientId: string) => void;
   
   // 分析機能
   analysisEnabled: boolean;
@@ -315,6 +319,11 @@ export const useEditorStore = create<EditorStore>()(
       // インアプリブラウザ
       browserUrl: DEFAULT_BROWSER_URL,
       setBrowserUrl: (url) => set({ browserUrl: url || DEFAULT_BROWSER_URL }),
+
+      // Google Drive 連携
+      googleDriveClientId: process.env.NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID || '',
+      setGoogleDriveClientId: (clientId) =>
+        set({ googleDriveClientId: clientId.trim() }),
       
       // 分析機能
       analysisEnabled: false,
@@ -661,6 +670,7 @@ export const useEditorStore = create<EditorStore>()(
           editorSettings: state.editorSettings,
           paneState: state.paneState,
           browserUrl: state.browserUrl,
+          googleDriveClientId: state.googleDriveClientId,
           searchSettings: state.searchSettings,
           analysisEnabled: state.analysisEnabled,
           chartSettings: state.chartSettings,
@@ -729,6 +739,9 @@ export const useEditorStore = create<EditorStore>()(
           }
           if (!state.browserUrl) {
             state.browserUrl = DEFAULT_BROWSER_URL;
+          }
+          if (typeof state.googleDriveClientId !== 'string') {
+            state.googleDriveClientId = process.env.NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID || '';
           }
           if (!state.sqlNotebook) {
             state.sqlNotebook = {};
