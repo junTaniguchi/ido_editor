@@ -55,6 +55,8 @@ import GoogleDriveExplorer from './GoogleDriveExplorer';
  * - 右クリックメニューによる操作
  * - ダイアログによる入力・確認
  */
+const GOOGLE_DRIVE_URL = 'https://drive.google.com/drive/u/0/my-drive';
+
 const FileExplorer = () => {
   const {
     rootFileTree,
