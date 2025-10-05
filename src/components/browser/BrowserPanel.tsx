@@ -24,6 +24,8 @@ const normalizeUrl = (value: string) => {
   return `https://${trimmed}`;
 };
 
+const BLOCKED_HOSTNAMES = new Set<string>(['chatgpt.com', 'gemini.google.com']);
+
 const BrowserPanel: React.FC = () => {
   const [urlInput, setUrlInput] = useState(DEFAULT_URL);
   const [currentUrl, setCurrentUrl] = useState(DEFAULT_URL);
@@ -36,6 +38,15 @@ const BrowserPanel: React.FC = () => {
       return parsed.hostname;
     } catch {
       return currentUrl;
+    }
+  }, [currentUrl]);
+
+  const isLikelyBlocked = useMemo(() => {
+    try {
+      const { hostname } = new URL(currentUrl);
+      return BLOCKED_HOSTNAMES.has(hostname);
+    } catch {
+      return false;
     }
   }, [currentUrl]);
 
@@ -67,7 +78,20 @@ const BrowserPanel: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (isLikelyBlocked) {
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
+  }, [currentUrl, isLikelyBlocked]);
+
+  const handleOpenExternally = useCallback(() => {
+    if (!currentUrl) {
+      return;
+    }
+
+    window.open(currentUrl, '_blank', 'noopener,noreferrer');
   }, [currentUrl]);
 
   return (
@@ -115,7 +139,7 @@ const BrowserPanel: React.FC = () => {
       <div className="flex flex-col gap-1 border-b border-gray-200 px-3 py-2 text-xs text-gray-600 dark:border-gray-800 dark:text-gray-300">
         <span className="font-medium">現在のサイト: {hostLabel}</span>
         <span className="text-[11px] text-gray-500 dark:text-gray-400">
-          一部のサイトはセキュリティのため埋め込み表示を許可しておらず、空白になる場合があります。その際はヘッダーのリンクから直接アクセスしてください。
+          一部のサイトはセキュリティのため埋め込み表示を許可しておらず、空白になる場合があります。その際はヘッダーのリンクまたは「新しいタブで開く」から直接アクセスしてください。
         </span>
       </div>
       <div className="relative flex-1 overflow-hidden">
@@ -127,6 +151,21 @@ const BrowserPanel: React.FC = () => {
           onLoad={() => setIsLoading(false)}
           allow="clipboard-read; clipboard-write; geolocation *; microphone *; camera *; autoplay *"
         />
+        {isLikelyBlocked && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-white/90 px-4 text-center text-sm text-gray-700 dark:bg-slate-950/90 dark:text-gray-200">
+            <p className="font-medium">このサイトは埋め込み表示が制限されています。</p>
+            <p className="max-w-xs text-xs text-gray-500 dark:text-gray-400">
+              安全性の理由から iframe 内で読み込めない場合があります。下のボタンからブラウザで開いてください。
+            </p>
+            <button
+              type="button"
+              onClick={handleOpenExternally}
+              className="rounded border border-blue-500 bg-blue-500 px-4 py-1.5 text-xs font-medium text-white transition hover:bg-blue-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 dark:border-blue-400 dark:bg-blue-500 dark:hover:bg-blue-400"
+            >
+              新しいタブで開く
+            </button>
+          </div>
+        )}
         {isLoading && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-white/60 dark:bg-slate-950/60">
             <div className="rounded-full border border-gray-300 bg-white px-4 py-1 text-sm font-medium text-gray-700 shadow dark:border-gray-700 dark:bg-slate-900 dark:text-gray-200">
