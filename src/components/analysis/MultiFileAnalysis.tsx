@@ -190,7 +190,7 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
     return {
       id: generateCellId(),
       title: `セル ${index}`,
-      query: index === 1 ? 'SELECT * FROM combined LIMIT 100' : 'SELECT * FROM combined LIMIT 100',
+      query: index === 1 ? 'SELECT * FROM combined LIMIT 10000' : 'SELECT * FROM combined LIMIT 10000',
       status: 'idle',
       error: null,
       result: null,
@@ -438,7 +438,7 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         return {
           id: typeof (cellObj as any).id === 'string' && (cellObj as any).id ? (cellObj as any).id : generateCellId(),
           title: typeof (cellObj as any).title === 'string' && (cellObj as any).title ? (cellObj as any).title : `セル ${index + 1}`,
-          query: typeof (cellObj as any).query === 'string' && (cellObj as any).query ? (cellObj as any).query : 'SELECT * FROM combined LIMIT 100',
+          query: typeof (cellObj as any).query === 'string' && (cellObj as any).query ? (cellObj as any).query : 'SELECT * FROM combined LIMIT 10000',
           status: hasPreview ? 'success' : 'idle',
           error: null,
           result: hasPreview ? previewRows : null,
@@ -1215,7 +1215,7 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
                   value={cell.query}
                   onChange={(e) => updateNotebookCellQuery(cell.id, e.target.value)}
                   className="w-full min-h-[120px] p-3 border border-gray-300 rounded font-mono text-sm"
-                  placeholder="SELECT * FROM combined LIMIT 100"
+                  placeholder="SELECT * FROM combined LIMIT 10000"
                   spellCheck={false}
                   disabled={isRunning}
                 />

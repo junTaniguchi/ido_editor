@@ -161,7 +161,7 @@ Parquet は限定サポートの旨を明記してください（バイナリ処
     {
       "id": "cell-1",
       "type": "sql",
-      "source": "SELECT * FROM combined LIMIT 10;",
+      "source": "SELECT * FROM combined LIMIT 100000;",
       "result": null,
       "status": "idle",
       "chartSettings": null

@@ -200,7 +200,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
     return {
       id: generateCellId(),
       title: `セル ${index}`,
-      query: 'SELECT * FROM ? LIMIT 10',
+      query: 'SELECT * FROM ? LIMIT 1000',
       status: 'idle',
       error: null,
       result: null,
@@ -377,7 +377,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
               return {
                 id: typeof (cellObj as any).id === 'string' && (cellObj as any).id ? (cellObj as any).id : generateCellId(),
                 title: typeof (cellObj as any).title === 'string' && (cellObj as any).title ? (cellObj as any).title : `セル ${index + 1}`,
-                query: typeof (cellObj as any).query === 'string' && (cellObj as any).query ? (cellObj as any).query : 'SELECT * FROM ? LIMIT 10',
+                query: typeof (cellObj as any).query === 'string' && (cellObj as any).query ? (cellObj as any).query : 'SELECT * FROM ? LIMIT 1000',
                 status: hasPreview ? 'success' : 'idle',
                 error: null,
                 result: hasPreview ? previewRows : null,
@@ -750,10 +750,10 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
       }
       
       // デフォルトクエリを設定
-      setSqlQuery(`SELECT * FROM ? LIMIT 10`);
+      setSqlQuery(`SELECT * FROM ? LIMIT 1000`);
       
       // デフォルトクエリを実行
-      const queryResult = executeQuery(data, `SELECT * FROM ? LIMIT 10`, true);
+      const queryResult = executeQuery(data, `SELECT * FROM ? LIMIT 1000`, true);
       if (queryResult.error) {
         console.error(queryResult.error);
       } else {
@@ -2710,7 +2710,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                   value={cell.query}
                   onChange={(e) => updateNotebookCellQuery(cell.id, e.target.value)}
                   className="w-full min-h-[120px] p-3 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-mono text-sm"
-                  placeholder="SELECT * FROM ? LIMIT 10"
+                  placeholder="SELECT * FROM ? LIMIT 1000"
                   spellCheck={false}
                   disabled={isRunning}
                 />
@@ -4384,7 +4384,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
                         rows={3}
                         style={{ fontSize: `${editorSettings.fontSize}px`, minHeight: '3rem', lineHeight: 1.5 }}
                         className="w-full p-2 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 resize-y"
-                        placeholder="SELECT * FROM ? LIMIT 10"
+                        placeholder="SELECT * FROM ? LIMIT 1000"
                       />
                       <div className="mt-2 flex justify-between items-center">
                         <div className="text-sm text-gray-500 dark:text-gray-400">

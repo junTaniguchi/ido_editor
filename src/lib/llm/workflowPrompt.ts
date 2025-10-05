@@ -28,7 +28,7 @@ export const workflowOutputExample = {
   cells: [
     {
       title: '売上トップ10',
-      sql: 'SELECT product, SUM(amount) AS total_amount FROM ? GROUP BY product ORDER BY total_amount DESC LIMIT 10;',
+      sql: 'SELECT product, SUM(amount) AS total_amount FROM ? GROUP BY product ORDER BY total_amount DESC LIMIT 1000;',
       description: '商品別売上ランキングを取得します。',
       runImmediately: true,
     },
