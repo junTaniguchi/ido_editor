@@ -80,6 +80,11 @@ interface EditorStore {
   setIsSearching: (searching: boolean) => void;
   replaceText: string;
   setReplaceText: (text: string) => void;
+
+  // インアプリブラウザ
+  browserUrl: string;
+  setBrowserUrl: (url: string) => void;
+  openBrowserWithUrl: (url: string) => void;
   
   // 分析機能
   analysisEnabled: boolean;
@@ -139,6 +144,8 @@ interface EditorStore {
   helpSettings: HelpSettings;
   updateHelpSettings: (updates: Partial<HelpSettings>) => void;
 }
+
+export const DEFAULT_BROWSER_URL = 'https://www.google.com/';
 
 export const useEditorStore = create<EditorStore>()(
   persist(
@@ -270,6 +277,7 @@ export const useEditorStore = create<EditorStore>()(
       paneState: {
         activeSidebar: 'explorer',
         isExplorerVisible: true,
+        isBrowserVisible: false,
         isGisVisible: false,
         isEditorVisible: true,
         isPreviewVisible: true,
@@ -304,6 +312,19 @@ export const useEditorStore = create<EditorStore>()(
       setIsSearching: (searching) => set({ isSearching: searching }),
       replaceText: '',
       setReplaceText: (text) => set({ replaceText: text }),
+
+      // インアプリブラウザ
+      browserUrl: DEFAULT_BROWSER_URL,
+      setBrowserUrl: (url) => set({ browserUrl: url || DEFAULT_BROWSER_URL }),
+      openBrowserWithUrl: (url) =>
+        set((state) => ({
+          browserUrl: url || DEFAULT_BROWSER_URL,
+          paneState: {
+            ...state.paneState,
+            activeSidebar: 'browser',
+            isBrowserVisible: true,
+          },
+        })),
       
       // 分析機能
       analysisEnabled: false,
@@ -649,6 +670,7 @@ export const useEditorStore = create<EditorStore>()(
           lastViewMode: state.lastViewMode,
           editorSettings: state.editorSettings,
           paneState: state.paneState,
+          browserUrl: state.browserUrl,
           searchSettings: state.searchSettings,
           analysisEnabled: state.analysisEnabled,
           chartSettings: state.chartSettings,
@@ -715,6 +737,9 @@ export const useEditorStore = create<EditorStore>()(
           if (!state.lastViewMode) {
             state.lastViewMode = 'editor';
           }
+          if (!state.browserUrl) {
+            state.browserUrl = DEFAULT_BROWSER_URL;
+          }
           if (!state.sqlNotebook) {
             state.sqlNotebook = {};
           } else {
@@ -747,6 +772,7 @@ export const useEditorStore = create<EditorStore>()(
             state.paneState = {
               activeSidebar: 'explorer',
               isExplorerVisible: true,
+              isBrowserVisible: false,
               isGisVisible: false,
               isEditorVisible: true,
               isPreviewVisible: true,
@@ -762,10 +788,14 @@ export const useEditorStore = create<EditorStore>()(
             if (typeof state.paneState.activeSidebar === 'undefined') {
               const inferredSidebar = state.paneState.isExplorerVisible
                 ? 'explorer'
+                : state.paneState.isBrowserVisible
+                  ? 'browser'
                 : state.paneState.isGisVisible
                   ? 'gis'
                 : state.paneState.isGitVisible
                   ? 'git'
+                : state.paneState.isHelpVisible
+                  ? 'help'
                   : null;
               state.paneState = { ...state.paneState, activeSidebar: inferredSidebar };
             }
@@ -774,6 +804,9 @@ export const useEditorStore = create<EditorStore>()(
             }
             if (typeof state.paneState.isGitVisible !== 'boolean') {
               state.paneState = { ...state.paneState, isGitVisible: false };
+            }
+            if (typeof state.paneState.isBrowserVisible !== 'boolean') {
+              state.paneState = { ...state.paneState, isBrowserVisible: false };
             }
             if (typeof state.paneState.isHelpVisible !== 'boolean') {
               state.paneState = { ...state.paneState, isHelpVisible: false };
