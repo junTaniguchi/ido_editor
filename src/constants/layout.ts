@@ -1,5 +1,6 @@
 export const DEFAULT_SIDEBAR_WIDTHS = {
   explorer: 256,
+  browser: 420,
   gis: 288,
   git: 384,
   help: 384,

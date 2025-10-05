@@ -3,13 +3,14 @@
 import React from 'react';
 import {
   IoFolderOpenOutline,
+  IoBrowsersOutline,
   IoGlobeOutline,
   IoGitBranchOutline,
   IoChatbubblesOutline,
   IoGitMergeOutline,
 } from 'react-icons/io5';
 
-type ActivityItem = 'explorer' | 'gis' | 'git' | 'help';
+type ActivityItem = 'explorer' | 'browser' | 'gis' | 'git' | 'help';
 
 interface ActivityBarProps {
   activeItem: ActivityItem | null;
@@ -43,6 +44,15 @@ const ActivityBar: React.FC<ActivityBarProps> = ({
         aria-pressed={activeItem === 'explorer'}
       >
         <IoFolderOpenOutline size={20} />
+      </button>
+      <button
+        type="button"
+        className={`${baseButton} mt-2 ${activeItem === 'browser' ? activeClass : inactiveClass}`}
+        onClick={() => onSelect('browser')}
+        title="ブラウザ"
+        aria-pressed={activeItem === 'browser'}
+      >
+        <IoBrowsersOutline size={20} />
       </button>
       {multiFileAnalysisAvailable && (
         <button

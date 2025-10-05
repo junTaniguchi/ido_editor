@@ -12,6 +12,7 @@ import {
   IoDownloadOutline,
   IoKeyOutline,
   IoHelpCircleOutline,
+  IoBrowsersOutline,
 } from 'react-icons/io5';
 
 interface MainHeaderProps {
@@ -23,6 +24,8 @@ interface MainHeaderProps {
   onToggleTheme: () => void;
   onNewFile: () => void;
   onToggleSearch: () => void;
+  onToggleBrowser: () => void;
+  isBrowserPaneVisible: boolean;
   multiFileAnalysisEnabled: boolean;
   onToggleMultiFileAnalysis: () => void;
   selectedFileCount: number;
@@ -44,6 +47,8 @@ const MainHeader: React.FC<MainHeaderProps> = ({
   onToggleTheme,
   onNewFile,
   onToggleSearch,
+  onToggleBrowser,
+  isBrowserPaneVisible,
   multiFileAnalysisEnabled,
   onToggleMultiFileAnalysis,
   selectedFileCount,
@@ -115,6 +120,16 @@ const MainHeader: React.FC<MainHeaderProps> = ({
         aria-label="Toggle Search"
       >
         <IoSearch size={20} />
+      </button>
+      <button
+        className={`p-1 rounded ml-2 ${
+          isBrowserPaneVisible ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-200 dark:hover:bg-gray-800'
+        }`}
+        onClick={onToggleBrowser}
+        aria-label="Toggle Browser Panel"
+        title={`ブラウザパネル ${isBrowserPaneVisible ? '表示中' : '非表示'}`}
+      >
+        <IoBrowsersOutline size={20} />
       </button>
       <button
         className="p-1 rounded hover:bg-gray-200 ml-2 dark:hover:bg-gray-800"
