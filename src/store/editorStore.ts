@@ -270,6 +270,7 @@ export const useEditorStore = create<EditorStore>()(
       paneState: {
         activeSidebar: 'explorer',
         isExplorerVisible: true,
+        isBrowserVisible: false,
         isGisVisible: false,
         isEditorVisible: true,
         isPreviewVisible: true,
@@ -747,6 +748,7 @@ export const useEditorStore = create<EditorStore>()(
             state.paneState = {
               activeSidebar: 'explorer',
               isExplorerVisible: true,
+              isBrowserVisible: false,
               isGisVisible: false,
               isEditorVisible: true,
               isPreviewVisible: true,
@@ -762,10 +764,14 @@ export const useEditorStore = create<EditorStore>()(
             if (typeof state.paneState.activeSidebar === 'undefined') {
               const inferredSidebar = state.paneState.isExplorerVisible
                 ? 'explorer'
+                : state.paneState.isBrowserVisible
+                  ? 'browser'
                 : state.paneState.isGisVisible
                   ? 'gis'
                 : state.paneState.isGitVisible
                   ? 'git'
+                : state.paneState.isHelpVisible
+                  ? 'help'
                   : null;
               state.paneState = { ...state.paneState, activeSidebar: inferredSidebar };
             }
@@ -774,6 +780,9 @@ export const useEditorStore = create<EditorStore>()(
             }
             if (typeof state.paneState.isGitVisible !== 'boolean') {
               state.paneState = { ...state.paneState, isGitVisible: false };
+            }
+            if (typeof state.paneState.isBrowserVisible !== 'boolean') {
+              state.paneState = { ...state.paneState, isBrowserVisible: false };
             }
             if (typeof state.paneState.isHelpVisible !== 'boolean') {
               state.paneState = { ...state.paneState, isHelpVisible: false };

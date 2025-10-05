@@ -83,8 +83,9 @@ export interface EditorSettings {
 
 // パネル表示状態に関する型定義
 export interface PaneState {
-  activeSidebar: 'explorer' | 'gis' | 'git' | 'help' | null;
+  activeSidebar: 'explorer' | 'browser' | 'gis' | 'git' | 'help' | null;
   isExplorerVisible: boolean;
+  isBrowserVisible: boolean;
   isGisVisible: boolean;
   isEditorVisible: boolean;
   isPreviewVisible: boolean;
@@ -95,6 +96,7 @@ export interface PaneState {
   isHelpVisible: boolean;
   sidebarWidths: {
     explorer: number;
+    browser: number;
     gis: number;
     git: number;
     help: number;

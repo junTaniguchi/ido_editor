@@ -12,7 +12,9 @@ import {
   IoDownloadOutline,
   IoKeyOutline,
   IoHelpCircleOutline,
+  IoBrowsersOutline,
 } from 'react-icons/io5';
+import { SiGooglegemini, SiOpenai } from 'react-icons/si';
 
 interface MainHeaderProps {
   onToggleExplorer: () => void;
@@ -23,6 +25,8 @@ interface MainHeaderProps {
   onToggleTheme: () => void;
   onNewFile: () => void;
   onToggleSearch: () => void;
+  onToggleBrowser: () => void;
+  isBrowserPaneVisible: boolean;
   multiFileAnalysisEnabled: boolean;
   onToggleMultiFileAnalysis: () => void;
   selectedFileCount: number;
@@ -44,6 +48,8 @@ const MainHeader: React.FC<MainHeaderProps> = ({
   onToggleTheme,
   onNewFile,
   onToggleSearch,
+  onToggleBrowser,
+  isBrowserPaneVisible,
   multiFileAnalysisEnabled,
   onToggleMultiFileAnalysis,
   selectedFileCount,
@@ -117,6 +123,16 @@ const MainHeader: React.FC<MainHeaderProps> = ({
         <IoSearch size={20} />
       </button>
       <button
+        className={`p-1 rounded ml-2 ${
+          isBrowserPaneVisible ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-200 dark:hover:bg-gray-800'
+        }`}
+        onClick={onToggleBrowser}
+        aria-label="Toggle Browser Panel"
+        title={`ブラウザパネル ${isBrowserPaneVisible ? '表示中' : '非表示'}`}
+      >
+        <IoBrowsersOutline size={20} />
+      </button>
+      <button
         className="p-1 rounded hover:bg-gray-200 ml-2 dark:hover:bg-gray-800"
         onClick={onOpenLlmSettings}
         aria-label="AI設定"
@@ -161,6 +177,28 @@ const MainHeader: React.FC<MainHeaderProps> = ({
           </span>
         )}
       </button>
+      <div className="ml-3 flex items-center space-x-2">
+        <a
+          href="https://gemini.google.com/app"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="p-1 rounded text-gray-600 transition hover:bg-gray-200 hover:text-blue-600 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-blue-300"
+          title="Google Gemini を開く"
+          aria-label="Google Gemini へアクセス"
+        >
+          <SiGooglegemini size={20} />
+        </a>
+        <a
+          href="https://chatgpt.com/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="p-1 rounded text-gray-600 transition hover:bg-gray-200 hover:text-green-600 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-green-300"
+          title="ChatGPT を開く"
+          aria-label="ChatGPT へアクセス"
+        >
+          <SiOpenai size={20} />
+        </a>
+      </div>
     </header>
   );
 };
