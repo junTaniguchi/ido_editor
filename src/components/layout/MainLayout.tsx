@@ -102,6 +102,7 @@ const MainLayoutContent: React.FC = () => {
     (pane: keyof typeof paneState) => {
       if (
         pane === 'isExplorerVisible' ||
+        pane === 'isBrowserVisible' ||
         pane === 'isGisVisible' ||
         pane === 'isGitVisible' ||
         pane === 'isHelpVisible' ||
@@ -119,6 +120,19 @@ const MainLayoutContent: React.FC = () => {
     updatePaneState({
       activeSidebar: isActive ? null : 'explorer',
       isExplorerVisible: !isActive,
+      isBrowserVisible: false,
+      isGisVisible: false,
+      isGitVisible: false,
+      isHelpVisible: false,
+    });
+  }, [paneState.activeSidebar, updatePaneState]);
+
+  const handleToggleBrowserPane = useCallback(() => {
+    const isActive = paneState.activeSidebar === 'browser';
+    updatePaneState({
+      activeSidebar: isActive ? null : 'browser',
+      isBrowserVisible: !isActive,
+      isExplorerVisible: false,
       isGisVisible: false,
       isGitVisible: false,
       isHelpVisible: false,
@@ -132,6 +146,7 @@ const MainLayoutContent: React.FC = () => {
       isGitVisible: !isActive,
       isExplorerVisible: false,
       isGisVisible: false,
+      isBrowserVisible: false,
       isHelpVisible: false,
     });
   }, [paneState.activeSidebar, updatePaneState]);
@@ -146,6 +161,7 @@ const MainLayoutContent: React.FC = () => {
       isHelpVisible: !isActive,
       isExplorerVisible: false,
       isGisVisible: false,
+      isBrowserVisible: false,
       isGitVisible: false,
     });
   }, [aiFeaturesEnabled, paneState.activeSidebar, updatePaneState]);
@@ -515,6 +531,8 @@ const MainLayoutContent: React.FC = () => {
         onToggleTheme={handleToggleTheme}
         onNewFile={() => setShowNewFileDialog(true)}
         onToggleSearch={() => togglePane('isSearchVisible')}
+        onToggleBrowser={handleToggleBrowserPane}
+        isBrowserPaneVisible={paneState.isBrowserVisible}
         multiFileAnalysisEnabled={multiFileAnalysisEnabled}
         onToggleMultiFileAnalysis={handleToggleMultiFile}
         selectedFileCount={selectedFiles.size}
