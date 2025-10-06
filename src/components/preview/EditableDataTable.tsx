@@ -33,6 +33,80 @@ import {
 import { IoCaretDown, IoCaretUp, IoEyeOutline, IoEyeOffOutline, IoOptionsOutline, IoAdd, IoTrash, IoSave } from 'react-icons/io5';
 import ObjectViewer from './ObjectViewer';
 
+const MAX_HISTORY_LENGTH = 100;
+
+const cloneValue = (value: any): any => {
+  if (value === null || typeof value !== 'object') {
+    return value;
+  }
+  if (value instanceof Date) {
+    return new Date(value.getTime());
+  }
+  if (Array.isArray(value)) {
+    return value.map(cloneValue);
+  }
+  const result: Record<string, any> = {};
+  for (const key of Object.keys(value as Record<string, any>)) {
+    result[key] = cloneValue((value as Record<string, any>)[key]);
+  }
+  return result;
+};
+
+const cloneTableData = (data: any[]): any[] => data.map(row => cloneValue(row));
+
+const areValuesEqual = (a: any, b: any): boolean => {
+  if (a === b) {
+    return true;
+  }
+
+  if (a instanceof Date && b instanceof Date) {
+    return a.getTime() === b.getTime();
+  }
+
+  if (typeof a !== typeof b) {
+    return false;
+  }
+
+  if (a === null || b === null) {
+    return a === b;
+  }
+
+  if (typeof a === 'object' && typeof b === 'object') {
+    if (Array.isArray(a)) {
+      if (!Array.isArray(b) || a.length !== b.length) {
+        return false;
+      }
+      return a.every((value, index) => areValuesEqual(value, (b as any[])[index]));
+    }
+    if (Array.isArray(b)) {
+      return false;
+    }
+    const keysA = Object.keys(a as Record<string, any>);
+    const keysB = Object.keys(b as Record<string, any>);
+    if (keysA.length !== keysB.length) {
+      return false;
+    }
+    return keysA.every(key => areValuesEqual((a as Record<string, any>)[key], (b as Record<string, any>)[key]));
+  }
+
+  return false;
+};
+
+const tablesAreEqual = (a: any[], b: any[]): boolean => {
+  if (a === b) {
+    return true;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let index = 0; index < a.length; index += 1) {
+    if (!areValuesEqual(a[index], b[index])) {
+      return false;
+    }
+  }
+  return true;
+};
+
 /**
  * EditableDataTableProps
  * 編集可能テーブルコンポーネントのプロパティ型定義
@@ -142,6 +216,8 @@ const EditableDataTable: React.FC<EditableDataTableProps> = ({
    * データが変更されたときにテーブルデータを更新（内部更新フラグを使用）
    */
   const isInternalUpdate = useRef(false);
+  const undoStackRef = useRef<any[][]>([]);
+  const redoStackRef = useRef<any[][]>([]);
   /**
    * アクティブなセル（選択中セル）
    */
@@ -163,6 +239,78 @@ const EditableDataTable: React.FC<EditableDataTableProps> = ({
    * マウスドラッグによる選択フラグ
    */
   const [isMouseSelecting, setIsMouseSelecting] = useState(false);
+
+  const commitTableDataChange = useCallback(
+    (nextDataOrUpdater: any[] | ((currentData: any[]) => any[])) => {
+      setTableData(prevData => {
+        const nextData =
+          typeof nextDataOrUpdater === 'function'
+            ? (nextDataOrUpdater as (currentData: any[]) => any[])(prevData)
+            : nextDataOrUpdater;
+
+        if (!nextData || tablesAreEqual(prevData, nextData)) {
+          return prevData;
+        }
+
+        undoStackRef.current.push(cloneTableData(prevData));
+        if (undoStackRef.current.length > MAX_HISTORY_LENGTH) {
+          undoStackRef.current.shift();
+        }
+        redoStackRef.current = [];
+        isInternalUpdate.current = true;
+        return nextData;
+      });
+    },
+    [],
+  );
+
+  const handleUndo = useCallback(() => {
+    if (undoStackRef.current.length === 0) {
+      return;
+    }
+
+    setTableData(prevData => {
+      const snapshot = undoStackRef.current.pop();
+      if (!snapshot) {
+        return prevData;
+      }
+      redoStackRef.current.push(cloneTableData(prevData));
+      if (redoStackRef.current.length > MAX_HISTORY_LENGTH) {
+        redoStackRef.current.shift();
+      }
+      isInternalUpdate.current = true;
+      return cloneTableData(snapshot);
+    });
+
+    setSelectedRange(null);
+    selectionAnchorRef.current = null;
+    setActiveCell(null);
+    setSelectedRows(new Set());
+  }, []);
+
+  const handleRedo = useCallback(() => {
+    if (redoStackRef.current.length === 0) {
+      return;
+    }
+
+    setTableData(prevData => {
+      const snapshot = redoStackRef.current.pop();
+      if (!snapshot) {
+        return prevData;
+      }
+      undoStackRef.current.push(cloneTableData(prevData));
+      if (undoStackRef.current.length > MAX_HISTORY_LENGTH) {
+        undoStackRef.current.shift();
+      }
+      isInternalUpdate.current = true;
+      return cloneTableData(snapshot);
+    });
+
+    setSelectedRange(null);
+    selectionAnchorRef.current = null;
+    setActiveCell(null);
+    setSelectedRows(new Set());
+  }, []);
   
   /**
    * 外部data変更時に内部テーブルデータを同期
@@ -414,10 +562,28 @@ const EditableDataTable: React.FC<EditableDataTableProps> = ({
    */
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
+      const isCtrlLike = event.ctrlKey || event.metaKey;
+
+      if (isCtrlLike) {
+        const key = event.key.toLowerCase();
+        if (key === 'z') {
+          event.preventDefault();
+          if (event.shiftKey) {
+            handleRedo();
+          } else {
+            handleUndo();
+          }
+          return;
+        }
+        if (!event.shiftKey && key === 'y') {
+          event.preventDefault();
+          handleRedo();
+          return;
+        }
+      }
+
       if (!activeCell) return;
       if (editingCell) return;
-
-      const isCtrlLike = event.ctrlKey || event.metaKey;
 
       switch (event.key) {
         case 'ArrowUp':
@@ -460,16 +626,22 @@ const EditableDataTable: React.FC<EditableDataTableProps> = ({
           event.preventDefault();
           if (!selectedRange) return;
           const normalized = normalizeRange(selectedRange);
-          const newData = tableData.map(row => ({ ...row }));
-          for (let row = normalized.startRow; row <= normalized.endRow; row += 1) {
-            for (let col = normalized.startCol; col <= normalized.endCol; col += 1) {
-              const columnId = columns[col];
-              if (!columnId) continue;
-              newData[row][columnId] = null;
+          commitTableDataChange(prev => {
+            const next = prev.map(row => ({ ...row }));
+            for (let row = normalized.startRow; row <= normalized.endRow; row += 1) {
+              if (!next[row]) {
+                continue;
+              }
+              for (let col = normalized.startCol; col <= normalized.endCol; col += 1) {
+                const columnId = columns[col];
+                if (!columnId) {
+                  continue;
+                }
+                next[row][columnId] = null;
+              }
             }
-          }
-          isInternalUpdate.current = true;
-          setTableData(newData);
+            return next;
+          });
           return;
         }
         default:
@@ -484,7 +656,20 @@ const EditableDataTable: React.FC<EditableDataTableProps> = ({
         event.preventDefault();
       }
     },
-    [activeCell, columns, editingCell, handleCellDoubleClick, moveActiveCell, normalizeRange, selectedRange, setEditValue, tableData],
+    [
+      activeCell,
+      columns,
+      editingCell,
+      handleCellDoubleClick,
+      handleRedo,
+      handleUndo,
+      moveActiveCell,
+      normalizeRange,
+      selectedRange,
+      setEditValue,
+      tableData,
+      commitTableDataChange,
+    ],
   );
 
   /**
@@ -533,40 +718,51 @@ const EditableDataTable: React.FC<EditableDataTableProps> = ({
 
       event.preventDefault();
 
+      if (tableData.length === 0) return;
+
       const rowStrings = text.replace(/\r/g, '').split('\n');
       const cleanedRows = rowStrings.filter((row, index) => !(row === '' && index === rowStrings.length - 1));
       const rows = cleanedRows.map(row => row.split('\t')).filter(row => row.length > 0);
 
       if (rows.length === 0) return;
 
-      const newData = tableData.map(row => ({ ...row }));
       const startRow = activeCell.rowIndex;
       const startCol = activeCell.columnIndex;
+      const totalRows = tableData.length;
       let maxRowOffset = 0;
       let maxColOffset = 0;
+      let applied = false;
 
-      rows.forEach((rowValues, rowOffset) => {
-        const targetRow = startRow + rowOffset;
-        if (targetRow >= newData.length) return;
-        maxRowOffset = Math.max(maxRowOffset, rowOffset);
-        rowValues.forEach((value, colOffset) => {
-          const targetCol = startCol + colOffset;
-          if (targetCol >= columns.length) return;
-          maxColOffset = Math.max(maxColOffset, colOffset);
-          const columnId = columns[targetCol];
-          if (!columnId) return;
-          newData[targetRow][columnId] = parseInputValue(value);
+      commitTableDataChange(prev => {
+        const next = prev.map(row => ({ ...row }));
+        rows.forEach((rowValues, rowOffset) => {
+          const targetRow = startRow + rowOffset;
+          if (targetRow >= next.length) return;
+          if (rowValues.length === 0) return;
+          maxRowOffset = Math.max(maxRowOffset, rowOffset);
+          rowValues.forEach((value, colOffset) => {
+            const targetCol = startCol + colOffset;
+            if (targetCol >= columns.length) return;
+            maxColOffset = Math.max(maxColOffset, colOffset);
+            const columnId = columns[targetCol];
+            if (!columnId) return;
+            next[targetRow][columnId] = parseInputValue(value);
+            applied = true;
+          });
         });
+
+        if (!applied) {
+          return prev;
+        }
+
+        return next;
       });
 
-      if (maxRowOffset === 0 && maxColOffset === 0 && rows[0][0] === undefined) {
+      if (!applied) {
         return;
       }
 
-      isInternalUpdate.current = true;
-      setTableData(newData);
-
-      const endRow = Math.min(startRow + maxRowOffset, tableData.length - 1);
+      const endRow = Math.min(startRow + maxRowOffset, Math.max(0, totalRows - 1));
       const endCol = Math.min(startCol + maxColOffset, columns.length - 1);
       const range = normalizeRange({
         startRow,
@@ -577,7 +773,7 @@ const EditableDataTable: React.FC<EditableDataTableProps> = ({
       setSelectedRange(range);
       selectionAnchorRef.current = { rowIndex: range.startRow, columnIndex: range.startCol };
     },
-    [activeCell, columns, normalizeRange, parseInputValue, tableData],
+    [activeCell, columns, commitTableDataChange, normalizeRange, parseInputValue, tableData],
   );
 
   /**
@@ -596,19 +792,22 @@ const EditableDataTable: React.FC<EditableDataTableProps> = ({
             endCol: activeCell!.columnIndex,
           };
 
-      const newData = tableData.map(row => ({ ...row }));
-      for (let row = range.startRow; row <= range.endRow; row += 1) {
-        for (let col = range.startCol; col <= range.endCol; col += 1) {
-          const columnId = columns[col];
-          if (!columnId) continue;
-          newData[row][columnId] = null;
+      commitTableDataChange(prev => {
+        const next = prev.map(row => ({ ...row }));
+        for (let row = range.startRow; row <= range.endRow; row += 1) {
+          if (!next[row]) {
+            continue;
+          }
+          for (let col = range.startCol; col <= range.endCol; col += 1) {
+            const columnId = columns[col];
+            if (!columnId) continue;
+            next[row][columnId] = null;
+          }
         }
-      }
-
-      isInternalUpdate.current = true;
-      setTableData(newData);
+        return next;
+      });
     },
-    [activeCell, columns, handleCopy, normalizeRange, selectedRange, tableData],
+    [activeCell, columns, commitTableDataChange, handleCopy, normalizeRange, selectedRange],
   );
 
   /**
@@ -906,15 +1105,20 @@ const EditableDataTable: React.FC<EditableDataTableProps> = ({
   const finishEditing = () => {
     if (editingCell) {
       const { rowIndex, columnId } = editingCell;
-      const updatedRow = { ...tableData[rowIndex] };
-      try {
-        updatedRow[columnId] = parseInputValue(editValue);
-        const newData = [...tableData];
-        newData[rowIndex] = updatedRow;
-        isInternalUpdate.current = true;
-        setTableData(newData);
-      } catch (error) {
-        console.error('Error updating data:', error);
+      const currentValue = tableData[rowIndex]?.[columnId];
+      const nextValue = parseInputValue(editValue);
+
+      if (!areValuesEqual(currentValue, nextValue)) {
+        commitTableDataChange(prev => {
+          if (rowIndex < 0 || rowIndex >= prev.length) {
+            return prev;
+          }
+          const next = [...prev];
+          const updatedRow = { ...next[rowIndex] };
+          updatedRow[columnId] = nextValue;
+          next[rowIndex] = updatedRow;
+          return next;
+        });
       }
     }
 
@@ -932,13 +1136,16 @@ const EditableDataTable: React.FC<EditableDataTableProps> = ({
    * 新しい行を追加する関数
    */
   const addNewRow = () => {
+    if (columns.length === 0) {
+      return;
+    }
+
     const newRow: Record<string, any> = {};
     columns.forEach(col => {
       newRow[col] = null;
     });
-    
-    isInternalUpdate.current = true;
-    setTableData([...tableData, newRow]);
+
+    commitTableDataChange(prev => [...prev, newRow]);
   };
   
   /**
@@ -946,10 +1153,8 @@ const EditableDataTable: React.FC<EditableDataTableProps> = ({
    */
   const deleteSelectedRows = () => {
     if (selectedRows.size === 0) return;
-    
-    const newData = tableData.filter((_, index) => !selectedRows.has(index));
-    isInternalUpdate.current = true;
-    setTableData(newData);
+
+    commitTableDataChange(prev => prev.filter((_, index) => !selectedRows.has(index)));
     setSelectedRows(new Set());
   };
   

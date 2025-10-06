@@ -1904,7 +1904,6 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
 
   const lastInitialSettingsRef = useRef<Partial<ChartDesignerSettings> | undefined>(undefined);
-  const suppressSettingsChangeRef = useRef(false);
 
   useEffect(() => {
     if (!initialSettings) {
@@ -1918,116 +1917,54 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
       return;
     }
 
-    let didUpdate = false;
-
     if (initialSettings.chartType !== undefined) {
       const nextChartType = initialSettings.chartType;
-      setChartType(prev => {
-        if (prev === nextChartType) {
-          return prev;
-        }
-        didUpdate = true;
-        return nextChartType;
-      });
+      setChartType(prev => (prev === nextChartType ? prev : nextChartType));
     }
 
     if (initialSettings.title !== undefined) {
       const nextTitle = initialSettings.title ?? '';
-      setChartTitle(prev => {
-        if (prev === nextTitle) {
-          return prev;
-        }
-        didUpdate = true;
-        return nextTitle;
-      });
+      setChartTitle(prev => (prev === nextTitle ? prev : nextTitle));
     }
 
     if (initialSettings.xField !== undefined) {
       const nextXField = initialSettings.xField ?? '';
-      setXField(prev => {
-        if (prev === nextXField) {
-          return prev;
-        }
-        didUpdate = true;
-        return nextXField;
-      });
+      setXField(prev => (prev === nextXField ? prev : nextXField));
     }
 
     if (initialSettings.yField !== undefined) {
       const nextYField = initialSettings.yField ?? '';
-      setYField(prev => {
-        if (prev === nextYField) {
-          return prev;
-        }
-        didUpdate = true;
-        return nextYField;
-      });
+      setYField(prev => (prev === nextYField ? prev : nextYField));
     }
 
     if (initialSettings.aggregation !== undefined) {
       const nextAggregation = initialSettings.aggregation;
-      setAggregation(prev => {
-        if (prev === nextAggregation) {
-          return prev;
-        }
-        didUpdate = true;
-        return nextAggregation;
-      });
+      setAggregation(prev => (prev === nextAggregation ? prev : nextAggregation));
     }
 
     if (initialSettings.bins !== undefined) {
       const nextBins = initialSettings.bins;
-      setBins(prev => {
-        if (prev === nextBins) {
-          return prev;
-        }
-        didUpdate = true;
-        return nextBins;
-      });
+      setBins(prev => (prev === nextBins ? prev : nextBins));
     }
 
     if (initialSettings.categoryField !== undefined) {
       const nextCategoryField = initialSettings.categoryField ?? '';
-      setCategoryField(prev => {
-        if (prev === nextCategoryField) {
-          return prev;
-        }
-        didUpdate = true;
-        return nextCategoryField;
-      });
+      setCategoryField(prev => (prev === nextCategoryField ? prev : nextCategoryField));
     }
 
     if (initialSettings.sunburstLevel1Field !== undefined) {
       const nextSunburstLevel1 = initialSettings.sunburstLevel1Field ?? '';
-      setSunburstLevel1Field(prev => {
-        if (prev === nextSunburstLevel1) {
-          return prev;
-        }
-        didUpdate = true;
-        return nextSunburstLevel1;
-      });
+      setSunburstLevel1Field(prev => (prev === nextSunburstLevel1 ? prev : nextSunburstLevel1));
     }
 
     if (initialSettings.sunburstLevel2Field !== undefined) {
       const nextSunburstLevel2 = initialSettings.sunburstLevel2Field ?? '';
-      setSunburstLevel2Field(prev => {
-        if (prev === nextSunburstLevel2) {
-          return prev;
-        }
-        didUpdate = true;
-        return nextSunburstLevel2;
-      });
+      setSunburstLevel2Field(prev => (prev === nextSunburstLevel2 ? prev : nextSunburstLevel2));
     }
 
     if (initialSettings.sunburstLevel3Field !== undefined) {
       const nextSunburstLevel3 = initialSettings.sunburstLevel3Field ?? '';
-      setSunburstLevel3Field(prev => {
-        if (prev === nextSunburstLevel3) {
-          return prev;
-        }
-        didUpdate = true;
-        return nextSunburstLevel3;
-      });
+      setSunburstLevel3Field(prev => (prev === nextSunburstLevel3 ? prev : nextSunburstLevel3));
     }
 
     if (initialSettings.vennFields !== undefined) {
@@ -2039,101 +1976,48 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
         if (matchesCurrent) {
           return prev;
         }
-        didUpdate = true;
         return [...nextFields];
       });
     }
 
     if (initialSettings.bubbleSizeField !== undefined) {
       const nextBubbleSizeField = initialSettings.bubbleSizeField ?? '';
-      setBubbleSizeField(prev => {
-        if (prev === nextBubbleSizeField) {
-          return prev;
-        }
-        didUpdate = true;
-        return nextBubbleSizeField;
-      });
+      setBubbleSizeField(prev => (prev === nextBubbleSizeField ? prev : nextBubbleSizeField));
     }
 
     if (initialSettings.ganttTaskField !== undefined) {
       const nextGanttTask = initialSettings.ganttTaskField ?? '';
-      setGanttTaskField(prev => {
-        if (prev === nextGanttTask) {
-          return prev;
-        }
-        didUpdate = true;
-        return nextGanttTask;
-      });
+      setGanttTaskField(prev => (prev === nextGanttTask ? prev : nextGanttTask));
     }
 
     if (initialSettings.ganttStartField !== undefined) {
       const nextGanttStart = initialSettings.ganttStartField ?? '';
-      setGanttStartField(prev => {
-        if (prev === nextGanttStart) {
-          return prev;
-        }
-        didUpdate = true;
-        return nextGanttStart;
-      });
+      setGanttStartField(prev => (prev === nextGanttStart ? prev : nextGanttStart));
     }
 
     if (initialSettings.ganttEndField !== undefined) {
       const nextGanttEnd = initialSettings.ganttEndField ?? '';
-      setGanttEndField(prev => {
-        if (prev === nextGanttEnd) {
-          return prev;
-        }
-        didUpdate = true;
-        return nextGanttEnd;
-      });
+      setGanttEndField(prev => (prev === nextGanttEnd ? prev : nextGanttEnd));
     }
 
     if (initialSettings.pieHole !== undefined) {
       const nextPieHole = clampHoleValue(initialSettings.pieHole);
-      setPieHole(prev => {
-        if (prev === nextPieHole) {
-          return prev;
-        }
-        didUpdate = true;
-        return nextPieHole;
-      });
+      setPieHole(prev => (prev === nextPieHole ? prev : nextPieHole));
     }
 
     if (initialSettings.sunburstHole !== undefined) {
       const nextSunburstHole = clampHoleValue(initialSettings.sunburstHole);
-      setSunburstHole(prev => {
-        if (prev === nextSunburstHole) {
-          return prev;
-        }
-        didUpdate = true;
-        return nextSunburstHole;
-      });
+      setSunburstHole(prev => (prev === nextSunburstHole ? prev : nextSunburstHole));
     }
 
     if (initialSettings.wordCloudLimit !== undefined) {
       const nextLimit = initialSettings.wordCloudLimit ?? DEFAULT_WORD_CLOUD_LIMIT;
-      setWordCloudLimit(prev => {
-        if (prev === nextLimit) {
-          return prev;
-        }
-        didUpdate = true;
-        return nextLimit;
-      });
+      setWordCloudLimit(prev => (prev === nextLimit ? prev : nextLimit));
     }
 
     if (initialSettings.collapsed !== undefined) {
       const nextExpanded = !initialSettings.collapsed;
-      setExpanded(prev => {
-        if (prev === nextExpanded) {
-          return prev;
-        }
-        didUpdate = true;
-        return nextExpanded;
-      });
-    }
-
-    if (didUpdate) {
-      suppressSettingsChangeRef.current = true;
+      setExpanded(prev => (prev === nextExpanded ? prev : nextExpanded));
     }
 
     lastInitialSettingsRef.current = snapshot;
@@ -2141,11 +2025,6 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
 
   useEffect(() => {
     if (!onSettingsChange) {
-      return;
-    }
-
-    if (suppressSettingsChangeRef.current) {
-      suppressSettingsChangeRef.current = false;
       return;
     }
 
@@ -2171,7 +2050,13 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
       wordCloudLimit,
     };
 
+    const payloadSnapshot = cloneInitialSettingsSnapshot(payload);
+    if (initialSettingsSnapshotsEqual(lastInitialSettingsRef.current, payloadSnapshot)) {
+      return;
+    }
+
     onSettingsChange(payload);
+    lastInitialSettingsRef.current = payloadSnapshot;
   }, [
     aggregation,
     bins,
