@@ -178,6 +178,7 @@ export interface ChartDesignerSettings {
   pieHole: number;
   sunburstHole: number;
   collapsed: boolean;
+  wordCloudLimit?: number;
 }
 
 export interface AnalysisDataset {

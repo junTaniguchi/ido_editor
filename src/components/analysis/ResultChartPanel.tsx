@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import ResultChartBuilder from './ResultChartBuilder';
 import QueryResultTable from './QueryResultTable';
 import EditableQueryResultTable from './EditableQueryResultTable';
 import { IoBarChartOutline, IoCodeSlash } from 'react-icons/io5';
+import type { ChartDesignerSettings } from '@/types';
 
 interface ResultChartPanelProps {
   rows: any[];
@@ -36,6 +37,7 @@ const ResultChartPanel: React.FC<ResultChartPanelProps> = ({
   onViewChange,
 }) => {
   const [internalView, setInternalView] = useState<'table' | 'chart'>(initialView);
+  const [persistedChartSettings, setPersistedChartSettings] = useState<ChartDesignerSettings | undefined>(undefined);
   const effectiveRows = useMemo(() => (isEditing && editingRows ? editingRows : rows), [isEditing, editingRows, rows]);
 
   const handleToggleView = (view: 'table' | 'chart') => {
@@ -45,6 +47,22 @@ const ResultChartPanel: React.FC<ResultChartPanelProps> = ({
       setInternalView(view);
     }
   };
+
+  const handleChartSettingsChange = useCallback((settings: ChartDesignerSettings) => {
+    setPersistedChartSettings(previous => {
+      if (!previous) {
+        return settings;
+      }
+
+      const keys = new Set([...Object.keys(previous), ...Object.keys(settings)]);
+      for (const key of keys) {
+        if ((previous as Record<string, unknown>)[key] !== (settings as Record<string, unknown>)[key]) {
+          return settings;
+        }
+      }
+      return previous;
+    });
+  }, []);
 
   const currentView = activeView ?? internalView;
 
@@ -93,12 +111,14 @@ const ResultChartPanel: React.FC<ResultChartPanelProps> = ({
             <QueryResultTable data={effectiveRows} />
           )
         ) : (
-          <div className="p-3">
+          <div className="p-3 h-full overflow-auto">
             <ResultChartBuilder
               rows={originalRows ?? rows}
               title={chartTitle}
               collapsedByDefault={false}
-              className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded"
+              className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded h-full flex flex-col"
+              initialSettings={persistedChartSettings}
+              onSettingsChange={handleChartSettingsChange}
             />
           </div>
         )}

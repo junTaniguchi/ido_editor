@@ -106,6 +106,8 @@ const defaultPlotlyConfig: Partial<PlotlyConfig> = {
   displaylogo: false,
   modeBarButtonsToRemove: ['lasso2d', 'select2d'],
   doubleClickDelay: 1000,
+  scrollZoom: true,
+  doubleClick: 'reset',
 };
 
 const chartTypeLabels: Record<ResultChartType, string> = {
@@ -128,6 +130,25 @@ const chartTypeLabels: Record<ResultChartType, string> = {
   'word-cloud': 'ワードクラウド',
   waterfall: 'ウォーターフォールチャート',
 };
+
+const DEFAULT_CHART_HEIGHT = 480;
+const DEFAULT_WORD_CLOUD_LIMIT = 50;
+const wordCloudLimitOptions = [10, 20, 30, 50, 100];
+const zoomEnabledChartTypes: ResultChartType[] = [
+  'bar',
+  'line',
+  'scatter',
+  'histogram',
+  'stacked-bar',
+  'regression',
+  'bubble',
+  'kde',
+  'heatmap',
+  'waterfall',
+  'streamgraph',
+  'gantt',
+  'word-cloud',
+];
 
 const chartTypeRequiresNumericY = (type: ResultChartType): boolean =>
   type === 'scatter' ||
@@ -172,6 +193,7 @@ const buildPlotConfig = (
     sunburstLevels?: string[];
     pieHole?: number;
     sunburstHole?: number;
+    wordCloudLimit?: number;
   }
 ): { plot?: PlotState; error?: string } => {
   if (!rows || rows.length === 0) {
@@ -920,27 +942,33 @@ const buildPlotConfig = (
         return { error: '文章から抽出できる名詞・動詞が見つかりませんでした' };
       }
 
-      const words: string[] = [];
-      const weights: number[] = [];
+      const aggregatedWeights = new Map<string, number>();
 
-      const appendWord = (word: string, weight: number) => {
-        if (weight <= 0) {
+      const registerWord = (word: string, weight: number | undefined | null) => {
+        if (typeof weight !== 'number' || Number.isNaN(weight) || weight <= 0) {
           return;
         }
-        words.push(word);
-        weights.push(weight);
+        const current = aggregatedWeights.get(word) ?? 0;
+        aggregatedWeights.set(word, current + weight);
       };
 
       wordMap.forEach((valueList, word) => {
-        appendWord(word, aggregateNumericValues(valueList, aggregation));
+        registerWord(word, aggregateNumericValues(valueList, aggregation));
       });
       countMap.forEach((countValue, word) => {
-        appendWord(word, countValue);
+        registerWord(word, countValue);
       });
 
-      if (words.length === 0) {
+      const sortedEntries = Array.from(aggregatedWeights.entries()).sort((a, b) => b[1] - a[1]);
+      const limit = options?.wordCloudLimit && options.wordCloudLimit > 0 ? options.wordCloudLimit : sortedEntries.length;
+      const limitedEntries = sortedEntries.slice(0, Math.max(1, limit));
+
+      if (limitedEntries.length === 0) {
         return { error: 'ワードクラウドのスコアを計算できませんでした' };
       }
+
+      const words = limitedEntries.map(([word]) => word);
+      const weights = limitedEntries.map(([, weight]) => weight);
 
       const minWeight = Math.min(...weights);
       const maxWeight = Math.max(...weights);
@@ -1786,6 +1814,9 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
   const [yField, setYField] = useState<string>(() => resolvedInitial.yField ?? '');
   const [aggregation, setAggregation] = useState<ResultAggregation>(() => resolvedInitial.aggregation ?? 'sum');
   const [bins, setBins] = useState<number>(() => resolvedInitial.bins ?? 20);
+  const [wordCloudLimit, setWordCloudLimit] = useState<number>(
+    () => resolvedInitial.wordCloudLimit ?? DEFAULT_WORD_CLOUD_LIMIT
+  );
   const [error, setError] = useState<string | null>(null);
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
 
@@ -1908,6 +1939,15 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     }
 
     if (
+      initialSettings.wordCloudLimit !== undefined &&
+      previous.wordCloudLimit !== initialSettings.wordCloudLimit
+    ) {
+      setWordCloudLimit(
+        initialSettings.wordCloudLimit ?? DEFAULT_WORD_CLOUD_LIMIT
+      );
+    }
+
+    if (
       initialSettings.collapsed !== undefined &&
       previous.collapsed !== initialSettings.collapsed
     ) {
@@ -1933,6 +1973,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
       pieHole: initialSettings.pieHole,
       sunburstHole: initialSettings.sunburstHole,
       collapsed: initialSettings.collapsed,
+      wordCloudLimit: initialSettings.wordCloudLimit,
     };
   }, [initialSettings]);
 
@@ -1960,6 +2001,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
       pieHole,
       sunburstHole,
       collapsed: !expanded,
+      wordCloudLimit,
     };
 
     onSettingsChange(payload);
@@ -1983,6 +2025,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     vennFields,
     xField,
     yField,
+    wordCloudLimit,
   ]);
 
   const handleChartTypeChange = (newType: ResultChartType) => {
@@ -2341,6 +2384,15 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
         ...(plotlyMeta.config || {}),
       };
 
+      if (!layout.height || layout.height < DEFAULT_CHART_HEIGHT) {
+        layout.height = DEFAULT_CHART_HEIGHT;
+      }
+
+      if (chartType === 'streamgraph') {
+        layout.dragmode = layout.dragmode ?? 'zoom';
+        layout.hovermode = layout.hovermode ?? 'closest';
+      }
+
       return {
         plot: {
           data: adjustedData,
@@ -2374,6 +2426,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
                 .slice(0, 3)
             : undefined,
         sunburstHole: chartType === 'sunburst' ? sunburstHole : undefined,
+        wordCloudLimit: chartType === 'word-cloud' ? wordCloudLimit : undefined,
       }
     );
 
@@ -2420,6 +2473,25 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
       }
     }
 
+    if (plot) {
+      const layout: Partial<PlotlyLayout> = { ...(plot.layout || {}) };
+
+      if (!layout.height || layout.height < DEFAULT_CHART_HEIGHT) {
+        layout.height = DEFAULT_CHART_HEIGHT;
+      }
+
+      if (zoomEnabledChartTypes.includes(chartType)) {
+        layout.dragmode = layout.dragmode ?? 'zoom';
+        layout.hovermode = layout.hovermode ?? 'closest';
+      }
+
+      plot.layout = layout;
+      plot.config = {
+        ...defaultPlotlyConfig,
+        ...(plot.config || {}),
+      };
+    }
+
     return { plot, error: plotError || null };
   }, [
     expanded,
@@ -2443,6 +2515,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     ganttStartField,
     ganttEndField,
     sunburstHole,
+    wordCloudLimit,
     rows,
     isDarkMode,
     chartTitle,
@@ -2493,7 +2566,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
       </button>
 
       {expanded && (
-        <div className="mt-3 space-y-4">
+        <div className="mt-3 space-y-4 flex-1 flex flex-col">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1 md:col-span-3">
               チャートタイトル
@@ -2540,6 +2613,26 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
                     ワードクラウドに表示したい文章が含まれる列を選択してください。
                   </span>
                 )}
+              </label>
+            )}
+
+            {isWordCloudChart && (
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
+                表示する単語数
+                <select
+                  value={wordCloudLimit}
+                  onChange={(event) => setWordCloudLimit(Number(event.target.value) || DEFAULT_WORD_CLOUD_LIMIT)}
+                  className="p-2 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                >
+                  {wordCloudLimitOptions.map(option => (
+                    <option key={option} value={option}>
+                      上位 {option} 語
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">
+                  頻度の高い順に単語を抽出して表示します。
+                </span>
               </label>
             )}
 
@@ -2888,7 +2981,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
               {error}
             </div>
           ) : plot ? (
-            <div className="border border-gray-200 dark:border-gray-800 rounded">
+            <div className="border border-gray-200 dark:border-gray-800 rounded min-h-[480px] flex-1">
               <Plot
                 data={plot.data}
                 layout={plot.layout}
