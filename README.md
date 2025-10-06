@@ -15,9 +15,11 @@ DataLoom Studio（旧: ido_editor）は、Next.js 15 と React 19 を基盤に�
 ### エディタとプレビュー
 - CodeMirror 6 ベースのエディタで、拡張子から言語を推定しながら編集・保存・ペースト処理を行い、タブごとにエディタ/プレビュー/分割ビューを切り替えられます。
 - Markdown、HTML、Mermaid、Jupyter Notebook、PDF、Excel、各種データ形式のプレビューを組み合わせたタブ別ビューを提供します。
+- Excel ファイルは SpreadJS ベースのスプレッドシートビューアで読み込み、複数シートをそのまま編集できます。
 
 ### データプレビューと加工
 - CSV/TSV/JSON/YAML/Parquet/Excel/GeoJSON などの解析結果をフラット/ネスト表示、テーブル編集、統計列抽出として扱い、データ表示モードを保持します。
+- テーブル編集モードは SpreadJS グリッドを採用し、Excel ライクなセル編集・行列追加・ドラッグ操作を備えています。
 - Markdown からの Word（.docx）出力や構造化データからの Excel エクスポートなど、タブ内容のエクスポート機能を備えています。
 
 ### データ分析ワークフロー
@@ -65,6 +67,11 @@ DataLoom Studio（旧: ido_editor）は、Next.js 15 と React 19 を基盤に�
 - `docs/` ディレクトリにアーキテクチャや開発手順の補足資料がまとまっています。
 - `docs/mygpt-knowledge.md` は MyGPT 向けのナレッジパックです。
 - `llms.txt` / `llms-full.txt` は LLM 参照用の技術サマリです。
+
+## SpreadJS 連携について
+- `@grapecity/spread-sheets` / `@grapecity/spread-excelio` / `@grapecity/spread-sheets-react` を利用し、Excel ファイルと表形式データの編集 UI を提供します。
+- データプレビューの「テーブル編集モード」では SpreadJS グリッドが表示され、セル編集やドラッグフィル、列幅調整などの操作が可能です。
+- Excel ファイルは SpreadJS の ExcelIO 経由で読み込み、SpreadJS ワークブックとしてレンダリングします。再読み込みボタンで元ファイルからいつでも読み直せます。
 
 ## 既知の制限
 - File System Access API 非対応ブラウザではローカルファイルとの直接連携が制限されます。
