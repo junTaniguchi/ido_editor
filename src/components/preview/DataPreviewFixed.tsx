@@ -11,14 +11,26 @@
  */
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useEditorStore } from '@/store/editorStore';
 import { parseCSV, parseJSON, parseYAML, parseParquet, flattenNestedObjects } from '@/lib/dataPreviewUtils';
 import { formatData } from '@/lib/dataFormatUtils';
 import DataTable from './DataTable';
-import EditableDataTable from './EditableDataTable';
 import ObjectViewer from './ObjectViewer';
 import { IoAlertCircleOutline, IoCodeSlash, IoEye, IoAnalytics, IoLayers, IoGrid, IoSave, IoClose, IoOptionsOutline } from 'react-icons/io5';
+
+const SpreadSheetEditor = dynamic(
+  () => import('@/components/spread/SpreadSheetEditor'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full items-center justify-center rounded border border-dashed border-gray-300 p-4 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+        SpreadJSエディタを読み込み中...
+      </div>
+    ),
+  },
+);
 
 interface DataPreviewProps {
   tabId: string;
@@ -47,6 +59,15 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   const [isTableEditing, setIsTableEditing] = useState(false);
   const [editedData, setEditedData] = useState<any>(null);
   const [showColumnSelector, setShowColumnSelector] = useState(false);
+  const tableEditingColumns = useMemo(() => {
+    if (Array.isArray(editedData) && editedData.length > 0 && typeof editedData[0] === 'object' && editedData[0] !== null) {
+      return Object.keys(editedData[0]);
+    }
+    if (columns.length > 0) {
+      return columns;
+    }
+    return [];
+  }, [editedData, columns]);
   
   const viewMode = getViewMode(tabId);
   const dataDisplayMode = editorSettings.dataDisplayMode || 'flat';
@@ -422,9 +443,9 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   };
   
   // テーブル編集データの変更をハンドリング
-  const handleDataChange = (newData: any[]) => {
+  const handleDataChange = useCallback((newData: any[]) => {
     setEditedData(newData);
-    
+
     // エディタコンテンツも同期的に更新
     if (type) {
       try {
@@ -434,7 +455,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
         console.error('Error syncing table edits to text editor:', err);
       }
     }
-  };
+  }, [type]);
   
   // テーブル編集モードからテキスト編集モードへ切り替え
   const switchToTextEditing = () => {
@@ -598,19 +619,17 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
               </button>
             </div>
           </div>
-          <div className="flex-1 overflow-auto p-2">
-            {((type === 'csv' || type === 'tsv' || type === 'parquet' || 
-               type === 'json' || type === 'yaml') && 
-               Array.isArray(editedData) && editedData.length > 0 && 
-               typeof editedData[0] === 'object') ? (
-              <EditableDataTable 
-                data={editedData} 
-                columns={Object.keys(editedData[0])}
-                isNested={dataDisplayMode === 'nested'}
-                onDataChange={handleDataChange}
-                onSave={saveTableEdits}
-                fileType={type}
-              />
+          <div className="flex-1 overflow-hidden p-2">
+            {((type === 'csv' || type === 'tsv' || type === 'parquet' ||
+               type === 'json' || type === 'yaml') &&
+               Array.isArray(editedData)) ? (
+              <div className="h-full rounded border border-gray-200 dark:border-gray-700">
+                <SpreadSheetEditor
+                  data={Array.isArray(editedData) ? editedData : []}
+                  columns={tableEditingColumns}
+                  onDataChange={handleDataChange}
+                />
+              </div>
             ) : (
               <div className="text-center p-4 text-yellow-500">
                 このデータ形式はテーブル編集に対応していません。テキスト編集モードを使用してください。
