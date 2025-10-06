@@ -358,6 +358,9 @@ export const extractWordsFromText = (text: string): string[] => {
     }
 
     if (hasJapaneseCharacters(token)) {
+      if (japaneseParticleSet.has(token)) {
+        return;
+      }
       if (isJapaneseVerb(token)) {
         results.push(token);
         return;
