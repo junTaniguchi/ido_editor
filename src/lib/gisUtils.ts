@@ -1,17 +1,10 @@
 import type { Feature, FeatureCollection } from 'geojson';
 import { unzipSync, strFromU8 } from 'fflate';
+
+import { loadShapefileFromArrayBuffer } from './shapefileLoader';
 import { flattenNestedObjects } from './dataPreviewUtils';
 
-type ShpModule = typeof import('shpjs');
 type TogeojsonModule = typeof import('@tmcw/togeojson');
-
-let shpModulePromise: Promise<ShpModule> | null = null;
-const loadShpModule = async (): Promise<ShpModule> => {
-  if (!shpModulePromise) {
-    shpModulePromise = import('shpjs');
-  }
-  return shpModulePromise;
-};
 
 let togeojsonModulePromise: Promise<TogeojsonModule> | null = null;
 const loadTogeojsonModule = async (): Promise<TogeojsonModule> => {
@@ -220,9 +213,8 @@ export const parseKmzContent = async (buffer: ArrayBuffer): Promise<GisParseResu
 
 export const parseShapefileContent = async (buffer: ArrayBuffer): Promise<GisParseResult> => {
   try {
-    const { default: shp } = await loadShpModule();
-    const result = await shp(buffer);
-    const dataset = buildGisDatasetFromObject(result);
+    const { featureCollection, warning } = await loadShapefileFromArrayBuffer(buffer);
+    const dataset = buildGisDatasetFromObject(featureCollection);
     if (!dataset) {
       return {
         rows: [],
@@ -230,19 +222,43 @@ export const parseShapefileContent = async (buffer: ArrayBuffer): Promise<GisPar
         error: 'シェープファイルからフィーチャを抽出できませんでした',
       };
     }
-    return dataset;
+    return warning ? { ...dataset, warning } : dataset;
   } catch (error) {
-    if (error instanceof Error && /Cannot find module/.test(error.message)) {
+    console.warn('Failed to parse shapefile with loaders.gl, attempting fallback via shpjs:', error);
+    try {
+      const { default: shp } = await import('shpjs');
+      const fallbackResult = await shp(buffer);
+      const dataset = buildGisDatasetFromObject(fallbackResult);
+      if (!dataset) {
+        return {
+          rows: [],
+          columns: [],
+          error: 'シェープファイルからフィーチャを抽出できませんでした',
+        };
+      }
+      return dataset;
+    } catch (fallbackError) {
+      const messageSource = fallbackError instanceof Error ? fallbackError : error;
+      const message =
+        messageSource instanceof Error
+          ? messageSource.message
+          : 'シェープファイルの解析に失敗しました';
+      if (
+        messageSource instanceof Error &&
+        /Cannot find module/.test(messageSource.message)
+      ) {
+        return {
+          rows: [],
+          columns: [],
+          error:
+            'シェープファイル解析用ライブラリ(@loaders.gl/shapefile または shpjs)を読み込めませんでした。依存関係をインストールしてください。',
+        };
+      }
       return {
         rows: [],
         columns: [],
-        error: 'シェープファイル解析用ライブラリ(shpjs)を読み込めませんでした。依存関係をインストールしてください。',
+        error: message,
       };
     }
-    return {
-      rows: [],
-      columns: [],
-      error: error instanceof Error ? error.message : 'シェープファイルの解析に失敗しました',
-    };
   }
 };
