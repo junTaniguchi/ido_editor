@@ -17,7 +17,7 @@
 
 'use client';
 
-import React, { useMemo, useState, useRef, useEffect } from 'react';
+import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import {
   createColumnHelper,
   flexRender,
@@ -30,7 +30,7 @@ import {
   VisibilityState,
   Row,
 } from '@tanstack/react-table';
-import { IoCaretDown, IoCaretUp, IoEyeOutline, IoEyeOffOutline, IoOptionsOutline, IoGrid, IoAdd, IoTrash, IoSave } from 'react-icons/io5';
+import { IoCaretDown, IoCaretUp, IoEyeOutline, IoEyeOffOutline, IoOptionsOutline, IoAdd, IoTrash, IoSave } from 'react-icons/io5';
 import ObjectViewer from './ObjectViewer';
 
 /**
@@ -135,9 +135,34 @@ const EditableDataTable: React.FC<EditableDataTableProps> = ({
    */
   const editInputRef = useRef<HTMLInputElement>(null);
   /**
+   * テーブル全体へのフォーカス制御用ref
+   */
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  /**
    * データが変更されたときにテーブルデータを更新（内部更新フラグを使用）
    */
   const isInternalUpdate = useRef(false);
+  /**
+   * アクティブなセル（選択中セル）
+   */
+  const [activeCell, setActiveCell] = useState<{ rowIndex: number; columnIndex: number } | null>(null);
+  /**
+   * 選択範囲（矩形選択）
+   */
+  const [selectedRange, setSelectedRange] = useState<{
+    startRow: number;
+    endRow: number;
+    startCol: number;
+    endCol: number;
+  } | null>(null);
+  /**
+   * 選択の起点セル
+   */
+  const selectionAnchorRef = useRef<{ rowIndex: number; columnIndex: number } | null>(null);
+  /**
+   * マウスドラッグによる選択フラグ
+   */
+  const [isMouseSelecting, setIsMouseSelecting] = useState(false);
   
   /**
    * 外部data変更時に内部テーブルデータを同期
@@ -174,6 +199,478 @@ const EditableDataTable: React.FC<EditableDataTableProps> = ({
       editInputRef.current.focus();
     }
   }, [editingCell]);
+
+  /**
+   * 列名とインデックスの対応マップ
+   */
+  const columnIndexMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    columns.forEach((col, index) => {
+      map[col] = index;
+    });
+    return map;
+  }, [columns]);
+
+  /**
+   * 範囲情報を正規化（start <= end）
+   */
+  const normalizeRange = useCallback(
+    (range: { startRow: number; endRow: number; startCol: number; endCol: number }) => {
+      const startRow = Math.min(range.startRow, range.endRow);
+      const endRow = Math.max(range.startRow, range.endRow);
+      const startCol = Math.min(range.startCol, range.endCol);
+      const endCol = Math.max(range.startCol, range.endCol);
+      return { startRow, endRow, startCol, endCol };
+    },
+    [],
+  );
+
+  /**
+   * セル選択状態を更新
+   */
+  const updateSelection = useCallback(
+    (target: { rowIndex: number; columnIndex: number }, extend: boolean) => {
+      const rowCount = tableData.length;
+      const colCount = columns.length;
+
+      if (rowCount === 0 || colCount === 0) {
+        setActiveCell(null);
+        setSelectedRange(null);
+        selectionAnchorRef.current = null;
+        return;
+      }
+
+      const clampedRow = Math.max(0, Math.min(target.rowIndex, rowCount - 1));
+      const clampedCol = Math.max(0, Math.min(target.columnIndex, colCount - 1));
+      const normalizedTarget = { rowIndex: clampedRow, columnIndex: clampedCol };
+
+      if (!extend || !selectionAnchorRef.current) {
+        selectionAnchorRef.current = normalizedTarget;
+        setSelectedRange({
+          startRow: normalizedTarget.rowIndex,
+          endRow: normalizedTarget.rowIndex,
+          startCol: normalizedTarget.columnIndex,
+          endCol: normalizedTarget.columnIndex,
+        });
+      } else {
+        const anchor = selectionAnchorRef.current;
+        setSelectedRange(
+          normalizeRange({
+            startRow: anchor.rowIndex,
+            endRow: normalizedTarget.rowIndex,
+            startCol: anchor.columnIndex,
+            endCol: normalizedTarget.columnIndex,
+          }),
+        );
+      }
+
+      setActiveCell(normalizedTarget);
+    },
+    [columns.length, normalizeRange, tableData.length],
+  );
+
+  /**
+   * アクティブセルの移動
+   */
+  const moveActiveCell = useCallback(
+    (rowDelta: number, colDelta: number, extend = false, allowRowWrap = false) => {
+      if (!activeCell) return;
+
+      const rowCount = tableData.length;
+      const colCount = columns.length;
+      if (rowCount === 0 || colCount === 0) return;
+
+      let nextRow = activeCell.rowIndex + rowDelta;
+      let nextCol = activeCell.columnIndex + colDelta;
+
+      if (allowRowWrap) {
+        if (nextCol >= colCount) {
+          nextCol = 0;
+          nextRow += 1;
+        } else if (nextCol < 0) {
+          nextCol = colCount - 1;
+          nextRow -= 1;
+        }
+      }
+
+      nextRow = Math.max(0, Math.min(nextRow, rowCount - 1));
+      nextCol = Math.max(0, Math.min(nextCol, colCount - 1));
+
+      updateSelection({ rowIndex: nextRow, columnIndex: nextCol }, extend);
+    },
+    [activeCell, columns.length, tableData.length, updateSelection],
+  );
+
+  /**
+   * セル編集時の初期値整形
+   */
+  const getInitialEditValue = useCallback((value: any) => {
+    if (value === null || value === undefined) return '-';
+    if (typeof value === 'object') {
+      try {
+        return JSON.stringify(value);
+      } catch (error) {
+        console.error('Failed to stringify value:', error);
+        return String(value);
+      }
+    }
+    return String(value);
+  }, []);
+
+  /**
+   * 文字列から値へ変換
+   */
+  const parseInputValue = useCallback((input: string) => {
+    if (input.startsWith('{') || input.startsWith('[')) {
+      try {
+        return JSON.parse(input);
+      } catch (e) {
+        return input;
+      }
+    }
+    if (input === '-') {
+      return null;
+    }
+    if (!isNaN(Number(input)) && input.trim() !== '') {
+      return Number(input);
+    }
+    if (input.toLowerCase() === 'true') {
+      return true;
+    }
+    if (input.toLowerCase() === 'false') {
+      return false;
+    }
+    return input;
+  }, []);
+
+  /**
+   * クリップボード出力用の値整形
+   */
+  const formatValueForClipboard = useCallback((value: any) => {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'object') {
+      try {
+        return JSON.stringify(value);
+      } catch (error) {
+        console.error('Failed to stringify value for clipboard:', error);
+        return String(value);
+      }
+    }
+    return String(value);
+  }, []);
+
+  /**
+   * セルマウスダウン時の処理
+   */
+  const handleCellMouseDown = useCallback(
+    (event: React.MouseEvent, rowIndex: number, columnIndex: number) => {
+      if (columnIndex < 0) return;
+      if (event.button !== 0) return;
+      event.preventDefault();
+      tableContainerRef.current?.focus();
+      updateSelection({ rowIndex, columnIndex }, event.shiftKey);
+      setIsMouseSelecting(true);
+    },
+    [updateSelection],
+  );
+
+  /**
+   * セルマウスエンター時の処理（ドラッグ選択）
+   */
+  const handleCellMouseEnter = useCallback(
+    (rowIndex: number, columnIndex: number) => {
+      if (columnIndex < 0) return;
+      if (!isMouseSelecting || !selectionAnchorRef.current) return;
+      const anchor = selectionAnchorRef.current;
+      setSelectedRange(
+        normalizeRange({
+          startRow: anchor.rowIndex,
+          endRow: rowIndex,
+          startCol: anchor.columnIndex,
+          endCol: columnIndex,
+        }),
+      );
+    },
+    [isMouseSelecting, normalizeRange],
+  );
+
+  /**
+   * セルダブルクリック時の編集開始
+   */
+  const handleCellDoubleClick = useCallback(
+    (rowIndex: number, columnId: string, currentValue: any) => {
+      const columnIndex = columnIndexMap[columnId];
+      if (columnIndex === undefined) return;
+      updateSelection({ rowIndex, columnIndex }, false);
+      const initialValue = getInitialEditValue(currentValue);
+      setEditingCell({ rowIndex, columnId });
+      setEditValue(initialValue);
+    },
+    [columnIndexMap, getInitialEditValue, updateSelection],
+  );
+
+  /**
+   * キーボード操作
+   */
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!activeCell) return;
+      if (editingCell) return;
+
+      const isCtrlLike = event.ctrlKey || event.metaKey;
+
+      switch (event.key) {
+        case 'ArrowUp':
+          event.preventDefault();
+          moveActiveCell(-1, 0, event.shiftKey);
+          return;
+        case 'ArrowDown':
+          event.preventDefault();
+          moveActiveCell(1, 0, event.shiftKey);
+          return;
+        case 'ArrowLeft':
+          event.preventDefault();
+          moveActiveCell(0, -1, event.shiftKey);
+          return;
+        case 'ArrowRight':
+          event.preventDefault();
+          moveActiveCell(0, 1, event.shiftKey);
+          return;
+        case 'Tab': {
+          event.preventDefault();
+          moveActiveCell(0, event.shiftKey ? -1 : 1, false, true);
+          return;
+        }
+        case 'Enter': {
+          event.preventDefault();
+          const columnId = columns[activeCell.columnIndex];
+          const currentValue = tableData[activeCell.rowIndex]?.[columnId];
+          handleCellDoubleClick(activeCell.rowIndex, columnId, currentValue);
+          return;
+        }
+        case 'F2': {
+          event.preventDefault();
+          const columnId = columns[activeCell.columnIndex];
+          const currentValue = tableData[activeCell.rowIndex]?.[columnId];
+          handleCellDoubleClick(activeCell.rowIndex, columnId, currentValue);
+          return;
+        }
+        case 'Delete':
+        case 'Backspace': {
+          event.preventDefault();
+          if (!selectedRange) return;
+          const normalized = normalizeRange(selectedRange);
+          const newData = tableData.map(row => ({ ...row }));
+          for (let row = normalized.startRow; row <= normalized.endRow; row += 1) {
+            for (let col = normalized.startCol; col <= normalized.endCol; col += 1) {
+              const columnId = columns[col];
+              if (!columnId) continue;
+              newData[row][columnId] = null;
+            }
+          }
+          isInternalUpdate.current = true;
+          setTableData(newData);
+          return;
+        }
+        default:
+          break;
+      }
+
+      if (!isCtrlLike && event.key.length === 1) {
+        const columnId = columns[activeCell.columnIndex];
+        if (!columnId) return;
+        handleCellDoubleClick(activeCell.rowIndex, columnId, event.key);
+        setEditValue(event.key);
+        event.preventDefault();
+      }
+    },
+    [activeCell, columns, editingCell, handleCellDoubleClick, moveActiveCell, normalizeRange, selectedRange, setEditValue, tableData],
+  );
+
+  /**
+   * クリップボードへコピー
+   */
+  const handleCopy = useCallback(
+    (event: React.ClipboardEvent<HTMLDivElement>) => {
+      if (!selectedRange && !activeCell) return;
+      const range = selectedRange
+        ? normalizeRange(selectedRange)
+        : {
+            startRow: activeCell!.rowIndex,
+            endRow: activeCell!.rowIndex,
+            startCol: activeCell!.columnIndex,
+            endCol: activeCell!.columnIndex,
+          };
+
+      event.preventDefault();
+
+      const lines: string[] = [];
+      for (let row = range.startRow; row <= range.endRow; row += 1) {
+        const cells: string[] = [];
+        for (let col = range.startCol; col <= range.endCol; col += 1) {
+          const columnId = columns[col];
+          if (!columnId) continue;
+          const value = tableData[row]?.[columnId];
+          cells.push(formatValueForClipboard(value));
+        }
+        lines.push(cells.join('\t'));
+      }
+
+      const text = lines.join('\n');
+      event.clipboardData.setData('text/plain', text);
+    },
+    [activeCell, columns, formatValueForClipboard, normalizeRange, selectedRange, tableData],
+  );
+
+  /**
+   * クリップボードから貼り付け
+   */
+  const handlePaste = useCallback(
+    (event: React.ClipboardEvent<HTMLDivElement>) => {
+      if (!activeCell) return;
+      const text = event.clipboardData.getData('text/plain');
+      if (!text) return;
+
+      event.preventDefault();
+
+      const rowStrings = text.replace(/\r/g, '').split('\n');
+      const cleanedRows = rowStrings.filter((row, index) => !(row === '' && index === rowStrings.length - 1));
+      const rows = cleanedRows.map(row => row.split('\t')).filter(row => row.length > 0);
+
+      if (rows.length === 0) return;
+
+      const newData = tableData.map(row => ({ ...row }));
+      const startRow = activeCell.rowIndex;
+      const startCol = activeCell.columnIndex;
+      let maxRowOffset = 0;
+      let maxColOffset = 0;
+
+      rows.forEach((rowValues, rowOffset) => {
+        const targetRow = startRow + rowOffset;
+        if (targetRow >= newData.length) return;
+        maxRowOffset = Math.max(maxRowOffset, rowOffset);
+        rowValues.forEach((value, colOffset) => {
+          const targetCol = startCol + colOffset;
+          if (targetCol >= columns.length) return;
+          maxColOffset = Math.max(maxColOffset, colOffset);
+          const columnId = columns[targetCol];
+          if (!columnId) return;
+          newData[targetRow][columnId] = parseInputValue(value);
+        });
+      });
+
+      if (maxRowOffset === 0 && maxColOffset === 0 && rows[0][0] === undefined) {
+        return;
+      }
+
+      isInternalUpdate.current = true;
+      setTableData(newData);
+
+      const endRow = Math.min(startRow + maxRowOffset, tableData.length - 1);
+      const endCol = Math.min(startCol + maxColOffset, columns.length - 1);
+      const range = normalizeRange({
+        startRow,
+        endRow,
+        startCol,
+        endCol,
+      });
+      setSelectedRange(range);
+      selectionAnchorRef.current = { rowIndex: range.startRow, columnIndex: range.startCol };
+    },
+    [activeCell, columns, normalizeRange, parseInputValue, tableData],
+  );
+
+  /**
+   * 切り取り操作
+   */
+  const handleCut = useCallback(
+    (event: React.ClipboardEvent<HTMLDivElement>) => {
+      if (!selectedRange && !activeCell) return;
+      handleCopy(event);
+      const range = selectedRange
+        ? normalizeRange(selectedRange)
+        : {
+            startRow: activeCell!.rowIndex,
+            endRow: activeCell!.rowIndex,
+            startCol: activeCell!.columnIndex,
+            endCol: activeCell!.columnIndex,
+          };
+
+      const newData = tableData.map(row => ({ ...row }));
+      for (let row = range.startRow; row <= range.endRow; row += 1) {
+        for (let col = range.startCol; col <= range.endCol; col += 1) {
+          const columnId = columns[col];
+          if (!columnId) continue;
+          newData[row][columnId] = null;
+        }
+      }
+
+      isInternalUpdate.current = true;
+      setTableData(newData);
+    },
+    [activeCell, columns, handleCopy, normalizeRange, selectedRange, tableData],
+  );
+
+  /**
+   * マウスアップ時にドラッグ選択を解除
+   */
+  useEffect(() => {
+    const handleMouseUp = () => {
+      setIsMouseSelecting(false);
+    };
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
+  /**
+   * データ・列の変化に応じてアクティブセルを調整
+   */
+  useEffect(() => {
+    if (tableData.length === 0 || columns.length === 0) {
+      setActiveCell(null);
+      setSelectedRange(null);
+      selectionAnchorRef.current = null;
+      return;
+    }
+
+    if (!activeCell) {
+      const initialCell = { rowIndex: 0, columnIndex: 0 };
+      selectionAnchorRef.current = initialCell;
+      setActiveCell(initialCell);
+      setSelectedRange({
+        startRow: 0,
+        endRow: 0,
+        startCol: 0,
+        endCol: 0,
+      });
+      return;
+    }
+
+    const rowIndex = Math.min(activeCell.rowIndex, tableData.length - 1);
+    const columnIndex = Math.min(activeCell.columnIndex, columns.length - 1);
+    if (rowIndex !== activeCell.rowIndex || columnIndex !== activeCell.columnIndex) {
+      const adjusted = { rowIndex, columnIndex };
+      selectionAnchorRef.current = adjusted;
+      setActiveCell(adjusted);
+      setSelectedRange({
+        startRow: rowIndex,
+        endRow: rowIndex,
+        startCol: columnIndex,
+        endCol: columnIndex,
+      });
+    }
+  }, [activeCell, columns.length, tableData.length]);
+
+  /**
+   * アクティブセルが変更されたらテーブルにフォーカス
+   */
+  useEffect(() => {
+    if (editingCell) return;
+    if (!activeCell) return;
+    tableContainerRef.current?.focus();
+  }, [activeCell, editingCell]);
   
   /**
    * react-tableのカラムヘルパー
@@ -232,7 +729,9 @@ const EditableDataTable: React.FC<EditableDataTableProps> = ({
    * @returns {ColumnDef<any, any>[]} カラム定義配列
    */
   const tableColumns = useMemo(
-    () => [
+    () => {
+      const normalizedSelection = selectedRange ? normalizeRange(selectedRange) : null;
+      return [
       selectionColumn,
       ...columns.map(col => columnHelper.accessor(col, {
         header: col,
@@ -240,100 +739,143 @@ const EditableDataTable: React.FC<EditableDataTableProps> = ({
         cell: info => {
           const rowIndex = info.row.index;
           const columnId = info.column.id;
+          const columnIndex = columnIndexMap[columnId] ?? -1;
           const isEditing = editingCell?.rowIndex === rowIndex && editingCell?.columnId === columnId;
           const value = info.getValue();
-          
-          if (isEditing) {
-            return (
-              <input
-                ref={editInputRef}
-                type="text"
-                value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
-                onBlur={() => finishEditing()}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    finishEditing();
-                  } else if (e.key === 'Escape') {
-                    cancelEditing();
-                  }
-                }}
-                className="w-full p-1 border border-blue-400 dark:border-blue-600 bg-white dark:bg-gray-800 rounded"
-              />
-            );
+
+          const isActive =
+            columnIndex >= 0 &&
+            activeCell?.rowIndex === rowIndex &&
+            activeCell?.columnIndex === columnIndex;
+          const isInSelection = (() => {
+            if (!normalizedSelection || columnIndex < 0) return false;
+            const { startRow, endRow, startCol, endCol } = normalizedSelection;
+            return rowIndex >= startRow && rowIndex <= endRow && columnIndex >= startCol && columnIndex <= endCol;
+          })();
+
+          const baseClasses = [
+            'min-h-[34px]',
+            'px-2',
+            'py-1',
+            'text-sm',
+            'flex',
+            'items-center',
+            'whitespace-nowrap',
+            'border',
+            'transition-colors',
+            'cursor-cell',
+          ];
+
+          if (isActive) {
+            baseClasses.push('border-blue-500', 'dark:border-blue-400', 'bg-blue-100', 'dark:bg-blue-900/40');
+          } else if (isInSelection) {
+            baseClasses.push('border-blue-200', 'dark:border-blue-700', 'bg-blue-50', 'dark:bg-blue-900/30');
+          } else {
+            baseClasses.push('border-transparent');
           }
-          
-          if (value === null || value === undefined) {
-            return (
-              <div
-                className="text-gray-400 cursor-pointer"
-                onClick={() => startEditing(rowIndex, columnId, '-')}
-              >
-                -
-              </div>
-            );
-          }
-          
-          // オブジェクト型またはネスト構造の表示
-          if (typeof value === 'object') {
-            if (isNested) {
+
+          const combinedClassName = baseClasses.join(' ');
+
+          const renderValue = () => {
+            if (value === null || value === undefined) {
+              return <span className="text-gray-400">-</span>;
+            }
+
+            if (Array.isArray(value)) {
+              if (isNested) {
+                return (
+                  <div className="max-w-xs overflow-hidden">
+                    <ObjectViewer data={value} expandByDefault={false} expandLevel={0} compactMode={true} />
+                  </div>
+                );
+              }
+              const json = JSON.stringify(value);
               return (
-                <div 
-                  className="max-w-xs overflow-hidden cursor-pointer"
-                  onClick={() => startEditing(rowIndex, columnId, JSON.stringify(value))}
-                >
-                  <ObjectViewer data={value} expandByDefault={false} expandLevel={0} compactMode={true} />
-                </div>
-              );
-            } else {
-              return (
-                <div 
-                  className="text-blue-600 dark:text-blue-400 cursor-pointer" 
-                  title={JSON.stringify(value)}
-                  onClick={() => startEditing(rowIndex, columnId, JSON.stringify(value))}
-                >
-                  {JSON.stringify(value).substring(0, 50) + (JSON.stringify(value).length > 50 ? '...' : '')}
-                </div>
+                <span className="text-blue-600 dark:text-blue-400" title={json}>
+                  [{value.length}] {json.substring(0, 50) + (json.length > 50 ? '...' : '')}
+                </span>
               );
             }
-          }
-          
-          // 配列の表示
-          if (Array.isArray(value)) {
-            if (isNested) {
+
+            if (typeof value === 'object') {
+              if (isNested) {
+                return (
+                  <div className="max-w-xs overflow-hidden">
+                    <ObjectViewer data={value} expandByDefault={false} expandLevel={0} compactMode={true} />
+                  </div>
+                );
+              }
+              const json = JSON.stringify(value);
               return (
-                <div 
-                  className="max-w-xs overflow-hidden cursor-pointer"
-                  onClick={() => startEditing(rowIndex, columnId, JSON.stringify(value))}
-                >
-                  <ObjectViewer data={value} expandByDefault={false} expandLevel={0} compactMode={true} />
-                </div>
-              );
-            } else {
-              return (
-                <div 
-                  className="text-blue-600 dark:text-blue-400 cursor-pointer" 
-                  title={JSON.stringify(value)}
-                  onClick={() => startEditing(rowIndex, columnId, JSON.stringify(value))}
-                >
-                  [{value.length}] {JSON.stringify(value).substring(0, 50) + (JSON.stringify(value).length > 50 ? '...' : '')}
-                </div>
+                <span className="text-blue-600 dark:text-blue-400" title={json}>
+                  {json.substring(0, 50) + (json.length > 50 ? '...' : '')}
+                </span>
               );
             }
-          }
-          
+
+            return <span>{String(value)}</span>;
+          };
+
           return (
             <div
-              className="cursor-pointer"
-              onClick={() => startEditing(rowIndex, columnId, String(value))}
+              className={combinedClassName}
+              onMouseDown={(event) => handleCellMouseDown(event, rowIndex, columnIndex)}
+              onMouseEnter={() => handleCellMouseEnter(rowIndex, columnIndex)}
+              onDoubleClick={() => handleCellDoubleClick(rowIndex, columnId, value)}
             >
-              {String(value)}
+              {isEditing ? (
+                <input
+                  ref={editInputRef}
+                  type="text"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onBlur={() => finishEditing()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      finishEditing();
+                      setTimeout(() => {
+                        moveActiveCell(e.shiftKey ? -1 : 1, 0);
+                      }, 0);
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      cancelEditing();
+                    } else if (e.key === 'Tab') {
+                      e.preventDefault();
+                      finishEditing();
+                      setTimeout(() => {
+                        moveActiveCell(0, e.shiftKey ? -1 : 1, false, true);
+                      }, 0);
+                    }
+                  }}
+                  className="w-full bg-transparent outline-none focus:ring-0"
+                />
+              ) : (
+                renderValue()
+              )}
             </div>
           );
         },
       }))
+    ];
+    },
+    [
+      selectionColumn,
+      columns,
+      columnHelper,
+      columnIndexMap,
+      columnWidths,
+      editingCell,
+      editValue,
+      activeCell,
+      selectedRange,
+      normalizeRange,
+      handleCellMouseDown,
+      handleCellMouseEnter,
+      handleCellDoubleClick,
+      moveActiveCell,
+      isNested,
     ],
-    [columns, columnHelper, isNested, columnWidths, editingCell, editValue, selectedRows]
   );
   
   /**
@@ -358,57 +900,24 @@ const EditableDataTable: React.FC<EditableDataTableProps> = ({
   });
   
   /**
-   * 編集開始関数
-   * @param {number} rowIndex 行インデックス
-   * @param {string} columnId カラムID
-   * @param {string} initialValue 初期値
-   */
-  const startEditing = (rowIndex: number, columnId: string, initialValue: string) => {
-    setEditingCell({ rowIndex, columnId });
-    setEditValue(initialValue);
-  };
-  
-  /**
    * 編集完了関数
    * 編集内容を反映し、型変換も行う
    */
   const finishEditing = () => {
     if (editingCell) {
       const { rowIndex, columnId } = editingCell;
-      const newData = [...tableData];
-      
+      const updatedRow = { ...tableData[rowIndex] };
       try {
-        // JSONオブジェクトや配列の場合はパースする
-        if (editValue.startsWith('{') || editValue.startsWith('[')) {
-          try {
-            newData[rowIndex][columnId] = JSON.parse(editValue);
-          } catch (e) {
-            // パースに失敗した場合は文字列として扱う
-            newData[rowIndex][columnId] = editValue;
-          }
-        } else if (editValue === '-') {
-          // '-'はnullとして扱う
-          newData[rowIndex][columnId] = null;
-        } else if (!isNaN(Number(editValue)) && editValue.trim() !== '') {
-          // 数値の場合は数値型に変換
-          newData[rowIndex][columnId] = Number(editValue);
-        } else if (editValue.toLowerCase() === 'true') {
-          newData[rowIndex][columnId] = true;
-        } else if (editValue.toLowerCase() === 'false') {
-          newData[rowIndex][columnId] = false;
-        } else {
-          // それ以外は文字列
-          newData[rowIndex][columnId] = editValue;
-        }
-        
-        // 内部更新フラグを設定してからテーブルデータを更新
+        updatedRow[columnId] = parseInputValue(editValue);
+        const newData = [...tableData];
+        newData[rowIndex] = updatedRow;
         isInternalUpdate.current = true;
         setTableData(newData);
       } catch (error) {
         console.error('Error updating data:', error);
       }
     }
-    
+
     setEditingCell(null);
   };
   
@@ -568,7 +1077,15 @@ const EditableDataTable: React.FC<EditableDataTableProps> = ({
   }
   
   return (
-    <div className="overflow-auto">
+    <div
+      ref={tableContainerRef}
+      className="overflow-auto focus:outline-none"
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+      onCopy={handleCopy}
+      onPaste={handlePaste}
+      onCut={handleCut}
+    >
       <div className="flex justify-between mb-2">
         <div className="flex space-x-2">
           <button
