@@ -81,14 +81,6 @@ interface EditorStore {
   replaceText: string;
   setReplaceText: (text: string) => void;
 
-  // インアプリブラウザ
-  browserUrl: string;
-  setBrowserUrl: (url: string) => void;
-
-  // Google Drive 連携
-  googleDriveClientId: string;
-  setGoogleDriveClientId: (clientId: string) => void;
-  
   // 分析機能
   analysisEnabled: boolean;
   setAnalysisEnabled: (enabled: boolean) => void;
@@ -147,8 +139,6 @@ interface EditorStore {
   helpSettings: HelpSettings;
   updateHelpSettings: (updates: Partial<HelpSettings>) => void;
 }
-
-export const DEFAULT_BROWSER_URL = 'https://www.google.com/';
 
 export const useEditorStore = create<EditorStore>()(
   persist(
@@ -280,7 +270,6 @@ export const useEditorStore = create<EditorStore>()(
       paneState: {
         activeSidebar: 'explorer',
         isExplorerVisible: true,
-        isBrowserVisible: false,
         isGisVisible: false,
         isEditorVisible: true,
         isPreviewVisible: true,
@@ -292,9 +281,33 @@ export const useEditorStore = create<EditorStore>()(
         sidebarWidths: { ...DEFAULT_SIDEBAR_WIDTHS },
         gitHistoryHeight: DEFAULT_GIT_HISTORY_HEIGHT,
       },
-      updatePaneState: (state) => set((prevState) => ({
-        paneState: { ...prevState.paneState, ...state }
-      })),
+      updatePaneState: (state) =>
+        set((prevState) => {
+          const mergedPaneState = { ...prevState.paneState, ...state } as PaneState & {
+            isBrowserVisible?: boolean;
+          };
+
+          if (mergedPaneState.activeSidebar &&
+            !['explorer', 'gis', 'git', 'help'].includes(mergedPaneState.activeSidebar)) {
+            mergedPaneState.activeSidebar = null;
+          }
+
+          if (typeof mergedPaneState.isBrowserVisible !== 'undefined') {
+            delete mergedPaneState.isBrowserVisible;
+          }
+
+          const nextSidebarWidths = {
+            ...DEFAULT_SIDEBAR_WIDTHS,
+            ...(mergedPaneState.sidebarWidths ?? {}),
+          } as Record<string, number>;
+          if ('browser' in nextSidebarWidths) {
+            delete nextSidebarWidths.browser;
+          }
+
+          mergedPaneState.sidebarWidths = nextSidebarWidths as PaneState['sidebarWidths'];
+
+          return { paneState: mergedPaneState };
+        }),
       
       // 検索設定
       searchSettings: {
@@ -316,15 +329,6 @@ export const useEditorStore = create<EditorStore>()(
       replaceText: '',
       setReplaceText: (text) => set({ replaceText: text }),
 
-      // インアプリブラウザ
-      browserUrl: DEFAULT_BROWSER_URL,
-      setBrowserUrl: (url) => set({ browserUrl: url || DEFAULT_BROWSER_URL }),
-
-      // Google Drive 連携
-      googleDriveClientId: process.env.NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID || '',
-      setGoogleDriveClientId: (clientId) =>
-        set({ googleDriveClientId: clientId.trim() }),
-      
       // 分析機能
       analysisEnabled: false,
       setAnalysisEnabled: (enabled) => set({ analysisEnabled: enabled }),
@@ -669,8 +673,6 @@ export const useEditorStore = create<EditorStore>()(
           lastViewMode: state.lastViewMode,
           editorSettings: state.editorSettings,
           paneState: state.paneState,
-          browserUrl: state.browserUrl,
-          googleDriveClientId: state.googleDriveClientId,
           searchSettings: state.searchSettings,
           analysisEnabled: state.analysisEnabled,
           chartSettings: state.chartSettings,
@@ -737,12 +739,6 @@ export const useEditorStore = create<EditorStore>()(
           if (!state.lastViewMode) {
             state.lastViewMode = 'editor';
           }
-          if (!state.browserUrl) {
-            state.browserUrl = DEFAULT_BROWSER_URL;
-          }
-          if (typeof state.googleDriveClientId !== 'string') {
-            state.googleDriveClientId = process.env.NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID || '';
-          }
           if (!state.sqlNotebook) {
             state.sqlNotebook = {};
           } else {
@@ -775,7 +771,6 @@ export const useEditorStore = create<EditorStore>()(
             state.paneState = {
               activeSidebar: 'explorer',
               isExplorerVisible: true,
-              isBrowserVisible: false,
               isGisVisible: false,
               isEditorVisible: true,
               isPreviewVisible: true,
@@ -788,40 +783,71 @@ export const useEditorStore = create<EditorStore>()(
               gitHistoryHeight: DEFAULT_GIT_HISTORY_HEIGHT,
             };
           } else {
-            if (typeof state.paneState.activeSidebar === 'undefined') {
-              const inferredSidebar = state.paneState.isExplorerVisible
+            let nextPaneState = state.paneState as PaneState & {
+              isBrowserVisible?: boolean;
+              activeSidebar?: PaneState['activeSidebar'] | 'browser';
+              sidebarWidths?: PaneState['sidebarWidths'] & Record<string, number> & {
+                browser?: number;
+              };
+            };
+
+            if (nextPaneState.activeSidebar === 'browser') {
+              const fallbackSidebar = nextPaneState.isExplorerVisible
                 ? 'explorer'
-                : state.paneState.isBrowserVisible
-                  ? 'browser'
-                : state.paneState.isGisVisible
-                  ? 'gis'
-                : state.paneState.isGitVisible
+                : nextPaneState.isGitVisible
                   ? 'git'
-                : state.paneState.isHelpVisible
+                : nextPaneState.isGisVisible
+                  ? 'gis'
+                : nextPaneState.isHelpVisible
                   ? 'help'
                   : null;
-              state.paneState = { ...state.paneState, activeSidebar: inferredSidebar };
+              nextPaneState = { ...nextPaneState, activeSidebar: fallbackSidebar };
+            } else if (typeof nextPaneState.activeSidebar === 'undefined') {
+              const inferredSidebar = nextPaneState.isExplorerVisible
+                ? 'explorer'
+                : nextPaneState.isGisVisible
+                  ? 'gis'
+                : nextPaneState.isGitVisible
+                  ? 'git'
+                : nextPaneState.isHelpVisible
+                  ? 'help'
+                  : null;
+              nextPaneState = { ...nextPaneState, activeSidebar: inferredSidebar };
             }
-            if (typeof state.paneState.isGisVisible !== 'boolean') {
-              state.paneState = { ...state.paneState, isGisVisible: false };
+
+            if (typeof nextPaneState.isBrowserVisible !== 'undefined') {
+              const { isBrowserVisible: _legacyBrowserFlag, ...rest } = nextPaneState;
+              nextPaneState = rest;
             }
-            if (typeof state.paneState.isGitVisible !== 'boolean') {
-              state.paneState = { ...state.paneState, isGitVisible: false };
+
+            if (typeof nextPaneState.isGisVisible !== 'boolean') {
+              nextPaneState = { ...nextPaneState, isGisVisible: false };
             }
-            if (typeof state.paneState.isBrowserVisible !== 'boolean') {
-              state.paneState = { ...state.paneState, isBrowserVisible: false };
+            if (typeof nextPaneState.isGitVisible !== 'boolean') {
+              nextPaneState = { ...nextPaneState, isGitVisible: false };
             }
-            if (typeof state.paneState.isHelpVisible !== 'boolean') {
-              state.paneState = { ...state.paneState, isHelpVisible: false };
+            if (typeof nextPaneState.isHelpVisible !== 'boolean') {
+              nextPaneState = { ...nextPaneState, isHelpVisible: false };
             }
+
             const nextSidebarWidths = {
               ...DEFAULT_SIDEBAR_WIDTHS,
-              ...(state.paneState.sidebarWidths ?? {}),
-            };
-            state.paneState = { ...state.paneState, sidebarWidths: nextSidebarWidths };
-            if (typeof state.paneState.gitHistoryHeight !== 'number') {
-              state.paneState = { ...state.paneState, gitHistoryHeight: DEFAULT_GIT_HISTORY_HEIGHT };
+              ...(nextPaneState.sidebarWidths ?? {}),
+            } as Record<string, number>;
+            if ('browser' in nextSidebarWidths) {
+              delete nextSidebarWidths.browser;
             }
+
+            nextPaneState = {
+              ...nextPaneState,
+              sidebarWidths: nextSidebarWidths as PaneState['sidebarWidths'],
+            };
+
+            if (typeof nextPaneState.gitHistoryHeight !== 'number') {
+              nextPaneState = { ...nextPaneState, gitHistoryHeight: DEFAULT_GIT_HISTORY_HEIGHT };
+            }
+
+            state.paneState = nextPaneState;
           }
 
           if (!state.helpThreads) {

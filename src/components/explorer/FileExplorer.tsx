@@ -45,7 +45,6 @@ import InputDialog from '@/components/modals/InputDialog';
 import ConfirmDialog from '@/components/modals/ConfirmDialog';
 import MermaidTemplateDialog from '@/components/modals/MermaidTemplateDialog';
 import type { MermaidDiagramType } from '@/lib/mermaid/types';
-import GoogleDriveExplorer from './GoogleDriveExplorer';
 
 /**
  * FileExplorerコンポーネント
@@ -55,8 +54,6 @@ import GoogleDriveExplorer from './GoogleDriveExplorer';
  * - 右クリックメニューによる操作
  * - ダイアログによる入力・確認
  */
-const GOOGLE_DRIVE_URL = 'https://drive.google.com/drive/u/0/my-drive';
-
 const FileExplorer = () => {
   const {
     rootFileTree,
@@ -802,7 +799,6 @@ const FileExplorer = () => {
       
       {/* ファイルツリー */}
       <div className="flex-1 overflow-auto">
-        <GoogleDriveExplorer />
         {rootFileTree ? (
           <div className="py-1 text-sm">
             {renderFileTree(rootFileTree)}
