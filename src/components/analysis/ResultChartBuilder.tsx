@@ -77,6 +77,89 @@ const hexToRgba = (hex: string, alpha: number): string => {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
+const normalizeMaybeString = (value: string | null | undefined): string | undefined =>
+  value == null ? undefined : value;
+
+const normalizeMaybeNumber = (value: number | null | undefined): number | undefined =>
+  typeof value === 'number' && !Number.isNaN(value) ? value : undefined;
+
+const normalizeMaybeBoolean = (value: boolean | null | undefined): boolean | undefined =>
+  typeof value === 'boolean' ? value : undefined;
+
+const cloneInitialSettingsSnapshot = (
+  settings: Partial<ChartDesignerSettings>
+): Partial<ChartDesignerSettings> => {
+  const snapshot: Partial<ChartDesignerSettings> = {
+    chartType: settings.chartType,
+    title: normalizeMaybeString(settings.title),
+    xField: normalizeMaybeString(settings.xField),
+    yField: normalizeMaybeString(settings.yField),
+    aggregation: settings.aggregation,
+    bins: normalizeMaybeNumber(settings.bins),
+    categoryField: normalizeMaybeString(settings.categoryField),
+    sunburstLevel1Field: normalizeMaybeString(settings.sunburstLevel1Field),
+    sunburstLevel2Field: normalizeMaybeString(settings.sunburstLevel2Field),
+    sunburstLevel3Field: normalizeMaybeString(settings.sunburstLevel3Field),
+    vennFields: Array.isArray(settings.vennFields)
+      ? [...settings.vennFields]
+      : undefined,
+    bubbleSizeField: normalizeMaybeString(settings.bubbleSizeField),
+    ganttTaskField: normalizeMaybeString(settings.ganttTaskField),
+    ganttStartField: normalizeMaybeString(settings.ganttStartField),
+    ganttEndField: normalizeMaybeString(settings.ganttEndField),
+    pieHole: normalizeMaybeNumber(settings.pieHole),
+    sunburstHole: normalizeMaybeNumber(settings.sunburstHole),
+    collapsed: normalizeMaybeBoolean(settings.collapsed),
+    wordCloudLimit: normalizeMaybeNumber(settings.wordCloudLimit),
+  };
+
+  return snapshot;
+};
+
+const arraysShallowEqual = (a?: string[], b?: string[]): boolean => {
+  if (!a && !b) {
+    return true;
+  }
+  if (!a || !b) {
+    return false;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  return a.every((value, index) => value === b[index]);
+};
+
+const initialSettingsSnapshotsEqual = (
+  previous: Partial<ChartDesignerSettings> | undefined,
+  next: Partial<ChartDesignerSettings>
+): boolean => {
+  if (!previous) {
+    return false;
+  }
+
+  return (
+    previous.chartType === next.chartType &&
+    normalizeMaybeString(previous.title) === normalizeMaybeString(next.title) &&
+    normalizeMaybeString(previous.xField) === normalizeMaybeString(next.xField) &&
+    normalizeMaybeString(previous.yField) === normalizeMaybeString(next.yField) &&
+    previous.aggregation === next.aggregation &&
+    normalizeMaybeNumber(previous.bins) === normalizeMaybeNumber(next.bins) &&
+    normalizeMaybeString(previous.categoryField) === normalizeMaybeString(next.categoryField) &&
+    normalizeMaybeString(previous.sunburstLevel1Field) === normalizeMaybeString(next.sunburstLevel1Field) &&
+    normalizeMaybeString(previous.sunburstLevel2Field) === normalizeMaybeString(next.sunburstLevel2Field) &&
+    normalizeMaybeString(previous.sunburstLevel3Field) === normalizeMaybeString(next.sunburstLevel3Field) &&
+    arraysShallowEqual(previous.vennFields, next.vennFields) &&
+    normalizeMaybeString(previous.bubbleSizeField) === normalizeMaybeString(next.bubbleSizeField) &&
+    normalizeMaybeString(previous.ganttTaskField) === normalizeMaybeString(next.ganttTaskField) &&
+    normalizeMaybeString(previous.ganttStartField) === normalizeMaybeString(next.ganttStartField) &&
+    normalizeMaybeString(previous.ganttEndField) === normalizeMaybeString(next.ganttEndField) &&
+    normalizeMaybeNumber(previous.pieHole) === normalizeMaybeNumber(next.pieHole) &&
+    normalizeMaybeNumber(previous.sunburstHole) === normalizeMaybeNumber(next.sunburstHole) &&
+    normalizeMaybeBoolean(previous.collapsed) === normalizeMaybeBoolean(next.collapsed) &&
+    normalizeMaybeNumber(previous.wordCloudLimit) === normalizeMaybeNumber(next.wordCloudLimit)
+  );
+};
+
 interface ResultChartBuilderProps {
   rows: any[];
   title?: string;
@@ -1821,6 +1904,7 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
 
   const lastInitialSettingsRef = useRef<Partial<ChartDesignerSettings> | undefined>(undefined);
+  const suppressSettingsChangeRef = useRef(false);
 
   useEffect(() => {
     if (!initialSettings) {
@@ -1828,157 +1912,240 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
       return;
     }
 
-    const previous = lastInitialSettingsRef.current ?? {};
-
-    if (
-      initialSettings.chartType !== undefined &&
-      previous.chartType !== initialSettings.chartType
-    ) {
-      setChartType(initialSettings.chartType);
+    const snapshot = cloneInitialSettingsSnapshot(initialSettings);
+    if (initialSettingsSnapshotsEqual(lastInitialSettingsRef.current, snapshot)) {
+      lastInitialSettingsRef.current = snapshot;
+      return;
     }
 
-    if (initialSettings.title !== undefined && previous.title !== initialSettings.title) {
-      setChartTitle(initialSettings.title ?? '');
+    let didUpdate = false;
+
+    if (initialSettings.chartType !== undefined) {
+      const nextChartType = initialSettings.chartType;
+      setChartType(prev => {
+        if (prev === nextChartType) {
+          return prev;
+        }
+        didUpdate = true;
+        return nextChartType;
+      });
     }
 
-    if (initialSettings.xField !== undefined && previous.xField !== initialSettings.xField) {
-      setXField(initialSettings.xField ?? '');
+    if (initialSettings.title !== undefined) {
+      const nextTitle = initialSettings.title ?? '';
+      setChartTitle(prev => {
+        if (prev === nextTitle) {
+          return prev;
+        }
+        didUpdate = true;
+        return nextTitle;
+      });
     }
 
-    if (initialSettings.yField !== undefined && previous.yField !== initialSettings.yField) {
-      setYField(initialSettings.yField ?? '');
+    if (initialSettings.xField !== undefined) {
+      const nextXField = initialSettings.xField ?? '';
+      setXField(prev => {
+        if (prev === nextXField) {
+          return prev;
+        }
+        didUpdate = true;
+        return nextXField;
+      });
     }
 
-    if (
-      initialSettings.aggregation !== undefined &&
-      previous.aggregation !== initialSettings.aggregation
-    ) {
-      setAggregation(initialSettings.aggregation);
+    if (initialSettings.yField !== undefined) {
+      const nextYField = initialSettings.yField ?? '';
+      setYField(prev => {
+        if (prev === nextYField) {
+          return prev;
+        }
+        didUpdate = true;
+        return nextYField;
+      });
     }
 
-    if (initialSettings.bins !== undefined && previous.bins !== initialSettings.bins) {
-      setBins(initialSettings.bins);
+    if (initialSettings.aggregation !== undefined) {
+      const nextAggregation = initialSettings.aggregation;
+      setAggregation(prev => {
+        if (prev === nextAggregation) {
+          return prev;
+        }
+        didUpdate = true;
+        return nextAggregation;
+      });
     }
 
-    if (
-      initialSettings.categoryField !== undefined &&
-      previous.categoryField !== initialSettings.categoryField
-    ) {
-      setCategoryField(initialSettings.categoryField ?? '');
+    if (initialSettings.bins !== undefined) {
+      const nextBins = initialSettings.bins;
+      setBins(prev => {
+        if (prev === nextBins) {
+          return prev;
+        }
+        didUpdate = true;
+        return nextBins;
+      });
     }
 
-    if (
-      initialSettings.sunburstLevel1Field !== undefined &&
-      previous.sunburstLevel1Field !== initialSettings.sunburstLevel1Field
-    ) {
-      setSunburstLevel1Field(initialSettings.sunburstLevel1Field ?? '');
+    if (initialSettings.categoryField !== undefined) {
+      const nextCategoryField = initialSettings.categoryField ?? '';
+      setCategoryField(prev => {
+        if (prev === nextCategoryField) {
+          return prev;
+        }
+        didUpdate = true;
+        return nextCategoryField;
+      });
     }
 
-    if (
-      initialSettings.sunburstLevel2Field !== undefined &&
-      previous.sunburstLevel2Field !== initialSettings.sunburstLevel2Field
-    ) {
-      setSunburstLevel2Field(initialSettings.sunburstLevel2Field ?? '');
+    if (initialSettings.sunburstLevel1Field !== undefined) {
+      const nextSunburstLevel1 = initialSettings.sunburstLevel1Field ?? '';
+      setSunburstLevel1Field(prev => {
+        if (prev === nextSunburstLevel1) {
+          return prev;
+        }
+        didUpdate = true;
+        return nextSunburstLevel1;
+      });
     }
 
-    if (
-      initialSettings.sunburstLevel3Field !== undefined &&
-      previous.sunburstLevel3Field !== initialSettings.sunburstLevel3Field
-    ) {
-      setSunburstLevel3Field(initialSettings.sunburstLevel3Field ?? '');
+    if (initialSettings.sunburstLevel2Field !== undefined) {
+      const nextSunburstLevel2 = initialSettings.sunburstLevel2Field ?? '';
+      setSunburstLevel2Field(prev => {
+        if (prev === nextSunburstLevel2) {
+          return prev;
+        }
+        didUpdate = true;
+        return nextSunburstLevel2;
+      });
+    }
+
+    if (initialSettings.sunburstLevel3Field !== undefined) {
+      const nextSunburstLevel3 = initialSettings.sunburstLevel3Field ?? '';
+      setSunburstLevel3Field(prev => {
+        if (prev === nextSunburstLevel3) {
+          return prev;
+        }
+        didUpdate = true;
+        return nextSunburstLevel3;
+      });
     }
 
     if (initialSettings.vennFields !== undefined) {
       const nextFields = initialSettings.vennFields ?? [];
-      const prevFields = previous.vennFields ?? [];
-      const sameLength = prevFields.length === nextFields.length;
-      const sameValues = sameLength && nextFields.every((value, index) => value === prevFields[index]);
-
-      if (!sameValues) {
-        setVennFields([...nextFields]);
-      }
+      setVennFields(prev => {
+        const matchesCurrent =
+          prev.length === nextFields.length &&
+          nextFields.every((value, index) => value === prev[index]);
+        if (matchesCurrent) {
+          return prev;
+        }
+        didUpdate = true;
+        return [...nextFields];
+      });
     }
 
-    if (
-      initialSettings.bubbleSizeField !== undefined &&
-      previous.bubbleSizeField !== initialSettings.bubbleSizeField
-    ) {
-      setBubbleSizeField(initialSettings.bubbleSizeField ?? '');
+    if (initialSettings.bubbleSizeField !== undefined) {
+      const nextBubbleSizeField = initialSettings.bubbleSizeField ?? '';
+      setBubbleSizeField(prev => {
+        if (prev === nextBubbleSizeField) {
+          return prev;
+        }
+        didUpdate = true;
+        return nextBubbleSizeField;
+      });
     }
 
-    if (
-      initialSettings.ganttTaskField !== undefined &&
-      previous.ganttTaskField !== initialSettings.ganttTaskField
-    ) {
-      setGanttTaskField(initialSettings.ganttTaskField ?? '');
+    if (initialSettings.ganttTaskField !== undefined) {
+      const nextGanttTask = initialSettings.ganttTaskField ?? '';
+      setGanttTaskField(prev => {
+        if (prev === nextGanttTask) {
+          return prev;
+        }
+        didUpdate = true;
+        return nextGanttTask;
+      });
     }
 
-    if (
-      initialSettings.ganttStartField !== undefined &&
-      previous.ganttStartField !== initialSettings.ganttStartField
-    ) {
-      setGanttStartField(initialSettings.ganttStartField ?? '');
+    if (initialSettings.ganttStartField !== undefined) {
+      const nextGanttStart = initialSettings.ganttStartField ?? '';
+      setGanttStartField(prev => {
+        if (prev === nextGanttStart) {
+          return prev;
+        }
+        didUpdate = true;
+        return nextGanttStart;
+      });
     }
 
-    if (
-      initialSettings.ganttEndField !== undefined &&
-      previous.ganttEndField !== initialSettings.ganttEndField
-    ) {
-      setGanttEndField(initialSettings.ganttEndField ?? '');
+    if (initialSettings.ganttEndField !== undefined) {
+      const nextGanttEnd = initialSettings.ganttEndField ?? '';
+      setGanttEndField(prev => {
+        if (prev === nextGanttEnd) {
+          return prev;
+        }
+        didUpdate = true;
+        return nextGanttEnd;
+      });
     }
 
-    if (initialSettings.pieHole !== undefined && previous.pieHole !== initialSettings.pieHole) {
-      setPieHole(clampHoleValue(initialSettings.pieHole));
+    if (initialSettings.pieHole !== undefined) {
+      const nextPieHole = clampHoleValue(initialSettings.pieHole);
+      setPieHole(prev => {
+        if (prev === nextPieHole) {
+          return prev;
+        }
+        didUpdate = true;
+        return nextPieHole;
+      });
     }
 
-    if (
-      initialSettings.sunburstHole !== undefined &&
-      previous.sunburstHole !== initialSettings.sunburstHole
-    ) {
-      setSunburstHole(clampHoleValue(initialSettings.sunburstHole));
+    if (initialSettings.sunburstHole !== undefined) {
+      const nextSunburstHole = clampHoleValue(initialSettings.sunburstHole);
+      setSunburstHole(prev => {
+        if (prev === nextSunburstHole) {
+          return prev;
+        }
+        didUpdate = true;
+        return nextSunburstHole;
+      });
     }
 
-    if (
-      initialSettings.wordCloudLimit !== undefined &&
-      previous.wordCloudLimit !== initialSettings.wordCloudLimit
-    ) {
-      setWordCloudLimit(
-        initialSettings.wordCloudLimit ?? DEFAULT_WORD_CLOUD_LIMIT
-      );
+    if (initialSettings.wordCloudLimit !== undefined) {
+      const nextLimit = initialSettings.wordCloudLimit ?? DEFAULT_WORD_CLOUD_LIMIT;
+      setWordCloudLimit(prev => {
+        if (prev === nextLimit) {
+          return prev;
+        }
+        didUpdate = true;
+        return nextLimit;
+      });
     }
 
-    if (
-      initialSettings.collapsed !== undefined &&
-      previous.collapsed !== initialSettings.collapsed
-    ) {
-      setExpanded(!initialSettings.collapsed);
+    if (initialSettings.collapsed !== undefined) {
+      const nextExpanded = !initialSettings.collapsed;
+      setExpanded(prev => {
+        if (prev === nextExpanded) {
+          return prev;
+        }
+        didUpdate = true;
+        return nextExpanded;
+      });
     }
 
-    lastInitialSettingsRef.current = {
-      chartType: initialSettings.chartType,
-      title: initialSettings.title,
-      xField: initialSettings.xField,
-      yField: initialSettings.yField,
-      aggregation: initialSettings.aggregation,
-      bins: initialSettings.bins,
-      categoryField: initialSettings.categoryField,
-      sunburstLevel1Field: initialSettings.sunburstLevel1Field,
-      sunburstLevel2Field: initialSettings.sunburstLevel2Field,
-      sunburstLevel3Field: initialSettings.sunburstLevel3Field,
-      vennFields: initialSettings.vennFields ? [...initialSettings.vennFields] : undefined,
-      bubbleSizeField: initialSettings.bubbleSizeField,
-      ganttTaskField: initialSettings.ganttTaskField,
-      ganttStartField: initialSettings.ganttStartField,
-      ganttEndField: initialSettings.ganttEndField,
-      pieHole: initialSettings.pieHole,
-      sunburstHole: initialSettings.sunburstHole,
-      collapsed: initialSettings.collapsed,
-      wordCloudLimit: initialSettings.wordCloudLimit,
-    };
+    if (didUpdate) {
+      suppressSettingsChangeRef.current = true;
+    }
+
+    lastInitialSettingsRef.current = snapshot;
   }, [initialSettings]);
 
   useEffect(() => {
     if (!onSettingsChange) {
+      return;
+    }
+
+    if (suppressSettingsChangeRef.current) {
+      suppressSettingsChangeRef.current = false;
       return;
     }
 
