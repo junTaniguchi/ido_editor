@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import '@grapecity/spread-sheets/styles/gc.spread.sheets.excel2013white.css';
-import { GcSpreadSheets } from '@grapecity/spread-sheets-react';
+import { SpreadSheets } from '@grapecity/spread-sheets-react';
 import * as GC from '@grapecity/spread-sheets';
 
 export interface SpreadSheetEditorProps {
@@ -190,7 +190,7 @@ const SpreadSheetEditor: React.FC<SpreadSheetEditorProps> = ({
   }, [attachListeners, configureSheet, detachListeners, extractRows, onDataChange]);
 
   return (
-    <GcSpreadSheets
+    <SpreadSheets
       workbookInitialized={handleWorkbookInitialized}
       hostStyle={{
         ...defaultHostStyle,
