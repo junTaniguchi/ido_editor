@@ -10,6 +10,7 @@ import {
   getRegressionTypeLabel,
   prepareChartData,
 } from '@/lib/dataAnalysisUtils';
+import { extractWordsFromText } from '@/lib/wordCloudTextProcessing';
 import { IoChevronDownOutline, IoChevronForwardOutline } from 'react-icons/io5';
 import type { ChartDesignerSettings, ResultAggregation, ResultChartType } from '@/types';
 
@@ -876,37 +877,48 @@ const buildPlotConfig = (
     }
 
     if (chartType === 'word-cloud') {
-      const texts = flattened
-        .map(row => row[xField])
-        .filter((value): value is string => typeof value === 'string' && value.trim() !== '');
-
-      if (texts.length === 0) {
-        return { error: 'ワードクラウドを作成するテキストデータがありません' };
+      if (!xField) {
+        return { plot: undefined, error: 'ワードクラウドに使用するテキスト列を選択してください' };
       }
 
       const wordMap = new Map<string, number[]>();
       const countMap = new Map<string, number>();
+      let hasExtractedToken = false;
 
       flattened.forEach(row => {
-        const wordRaw = row[xField];
-        if (typeof wordRaw !== 'string' || wordRaw.trim() === '') {
+        const raw = row[xField];
+        if (typeof raw !== 'string' || raw.trim() === '') {
           return;
         }
-        const normalizedWord = wordRaw.trim();
+
+        const tokens = extractWordsFromText(raw);
+        if (tokens.length === 0) {
+          return;
+        }
+
+        hasExtractedToken = true;
 
         if (aggregation === 'count' || !yField) {
-          countMap.set(normalizedWord, (countMap.get(normalizedWord) ?? 0) + 1);
+          tokens.forEach(token => {
+            countMap.set(token, (countMap.get(token) ?? 0) + 1);
+          });
           return;
         }
 
         const value = row[yField];
         if (typeof value === 'number' && !Number.isNaN(value)) {
-          if (!wordMap.has(normalizedWord)) {
-            wordMap.set(normalizedWord, []);
-          }
-          wordMap.get(normalizedWord)!.push(value);
+          tokens.forEach(token => {
+            if (!wordMap.has(token)) {
+              wordMap.set(token, []);
+            }
+            wordMap.get(token)!.push(value);
+          });
         }
       });
+
+      if (!hasExtractedToken) {
+        return { error: '文章から抽出できる名詞・動詞が見つかりませんでした' };
+      }
 
       const words: string[] = [];
       const weights: number[] = [];
@@ -927,7 +939,7 @@ const buildPlotConfig = (
       });
 
       if (words.length === 0) {
-        return { error: 'ワードクラウドを作成する数値データが不足しています' };
+        return { error: 'ワードクラウドのスコアを計算できませんでした' };
       }
 
       const minWeight = Math.min(...weights);
@@ -966,7 +978,7 @@ const buildPlotConfig = (
           size: textSizes,
           color: textColors,
         },
-        hovertemplate: '%{text}<br>値: %{customdata}<extra></extra>',
+        hovertemplate: '%{text}<br>スコア: %{customdata}<extra></extra>',
         customdata: weights,
       } as PlotlyData;
 
@@ -2451,6 +2463,23 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
     canSelectYField &&
     !isHierarchicalChart &&
     (chartType !== 'pie' ? true : aggregation !== 'count' && numericColumns.length > 0);
+  const isWordCloudChart = chartType === 'word-cloud';
+  const xFieldLabel = chartType === 'pie' ? 'カテゴリ列' : isWordCloudChart ? 'テキスト列' : 'X軸の列';
+  const xFieldPlaceholder = isWordCloudChart ? 'テキスト列を選択' : '列を選択';
+  const yFieldLabel =
+    chartType === 'pie'
+      ? '値の列'
+      : chartType === 'kde'
+        ? 'Y軸の列（任意）'
+        : isWordCloudChart
+          ? 'スコア列（任意）'
+          : 'Y軸の列';
+  const yFieldPlaceholder =
+    chartType === 'kde'
+      ? '列を選択（任意）'
+      : isWordCloudChart
+        ? 'スコア列を選択（任意）'
+        : '列を選択';
 
   return (
     <div className={className}>
@@ -2495,17 +2524,22 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
 
             {showXField && (
               <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
-                {chartType === 'pie' ? 'カテゴリ列' : 'X軸の列'}
+                {xFieldLabel}
                 <select
                   value={xField}
                   onChange={(e) => setXField(e.target.value)}
                   className="p-2 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
                 >
-                  <option value="">列を選択</option>
+                  <option value="">{xFieldPlaceholder}</option>
                   {availableColumns.map(column => (
                     <option key={column} value={column}>{column}</option>
                   ))}
                 </select>
+                {isWordCloudChart && (
+                  <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">
+                    ワードクラウドに表示したい文章が含まれる列を選択してください。
+                  </span>
+                )}
               </label>
             )}
 
@@ -2638,17 +2672,13 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
 
             {showYField && (
               <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex flex-col gap-1">
-                {chartType === 'pie'
-                  ? '値の列'
-                  : chartType === 'kde'
-                    ? 'Y軸の列（任意）'
-                    : 'Y軸の列'}
+                {yFieldLabel}
                 <select
                   value={yField}
                   onChange={(e) => setYField(e.target.value)}
                   className="p-2 text-sm border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
                 >
-                  <option value="">{chartType === 'kde' ? '列を選択（任意）' : '列を選択'}</option>
+                  <option value="">{yFieldPlaceholder}</option>
                   {numericColumns.map(column => (
                     <option key={column} value={column}>{column}</option>
                   ))}
@@ -2656,6 +2686,11 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
                 {chartType === 'pie' && (
                   <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">
                     円グラフの各扇の大きさを計算するための数値列を指定します。
+                  </span>
+                )}
+                {isWordCloudChart && (
+                  <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">
+                    指定すると、文章中の単語ごとのスコアをこの列の数値で集計します（未選択の場合は出現回数を使用します）。
                   </span>
                 )}
               </label>
@@ -2674,6 +2709,11 @@ const ResultChartBuilder: React.FC<ResultChartBuilderProps> = ({
                     <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
                 </select>
+                {isWordCloudChart && (
+                  <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">
+                    スコア列を指定した場合に、単語ごとにどのように数値を集計するかを選びます。
+                  </span>
+                )}
               </label>
             )}
 
