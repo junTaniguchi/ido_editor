@@ -22,7 +22,6 @@ import GitCommitDiffView from '@/components/git/GitCommitDiffView';
 import HelpSidebar from '@/components/help/HelpSidebar';
 import ResizableSidebar from '@/components/layout/ResizableSidebar';
 import { DEFAULT_SIDEBAR_WIDTHS } from '@/constants/layout';
-import BrowserPanel from '@/components/browser/BrowserPanel';
 
 interface WorkspaceProps {
   paneState: PaneState;
@@ -52,7 +51,6 @@ const Workspace: React.FC<WorkspaceProps> = ({
   const [isScrollSyncEnabled, setIsScrollSyncEnabled] = useState(false);
   const [sidebarWidths, setSidebarWidths] = useState({
     explorer: paneState.sidebarWidths?.explorer ?? DEFAULT_SIDEBAR_WIDTHS.explorer,
-    browser: paneState.sidebarWidths?.browser ?? DEFAULT_SIDEBAR_WIDTHS.browser,
     gis: paneState.sidebarWidths?.gis ?? DEFAULT_SIDEBAR_WIDTHS.gis,
     git: paneState.sidebarWidths?.git ?? DEFAULT_SIDEBAR_WIDTHS.git,
     help: paneState.sidebarWidths?.help ?? DEFAULT_SIDEBAR_WIDTHS.help,
@@ -61,7 +59,6 @@ const Workspace: React.FC<WorkspaceProps> = ({
 
   useEffect(() => {
     const nextExplorer = paneState.sidebarWidths?.explorer ?? DEFAULT_SIDEBAR_WIDTHS.explorer;
-    const nextBrowser = paneState.sidebarWidths?.browser ?? DEFAULT_SIDEBAR_WIDTHS.browser;
     const nextGis = paneState.sidebarWidths?.gis ?? DEFAULT_SIDEBAR_WIDTHS.gis;
     const nextGit = paneState.sidebarWidths?.git ?? DEFAULT_SIDEBAR_WIDTHS.git;
     const nextHelp = paneState.sidebarWidths?.help ?? DEFAULT_SIDEBAR_WIDTHS.help;
@@ -70,7 +67,6 @@ const Workspace: React.FC<WorkspaceProps> = ({
     setSidebarWidths((previous) => {
       if (
         previous.explorer === nextExplorer &&
-        previous.browser === nextBrowser &&
         previous.gis === nextGis &&
         previous.git === nextGit &&
         previous.help === nextHelp &&
@@ -80,7 +76,6 @@ const Workspace: React.FC<WorkspaceProps> = ({
       }
       return {
         explorer: nextExplorer,
-        browser: nextBrowser,
         gis: nextGis,
         git: nextGit,
         help: nextHelp,
@@ -89,7 +84,6 @@ const Workspace: React.FC<WorkspaceProps> = ({
     });
   }, [
     paneState.sidebarWidths?.explorer,
-    paneState.sidebarWidths?.browser,
     paneState.sidebarWidths?.gis,
     paneState.sidebarWidths?.git,
     paneState.sidebarWidths?.help,
@@ -163,9 +157,6 @@ const Workspace: React.FC<WorkspaceProps> = ({
     if (paneState.isExplorerVisible) {
       return 'explorer';
     }
-    if (paneState.isBrowserVisible) {
-      return 'browser';
-    }
     if (paneState.isGitVisible) {
       return 'git';
     }
@@ -179,20 +170,18 @@ const Workspace: React.FC<WorkspaceProps> = ({
   }, [
     paneState.activeSidebar,
     paneState.isExplorerVisible,
-    paneState.isBrowserVisible,
     paneState.isGitVisible,
     paneState.isGisVisible,
     paneState.isHelpVisible,
   ]);
 
   const showExplorer = activeSidebar === 'explorer';
-  const showBrowserSidebar = activeSidebar === 'browser';
   const showGitSidebar = activeSidebar === 'git';
   const showGisSidebar = activeSidebar === 'gis';
   const showHelpSidebar = aiFeaturesEnabled && activeSidebar === 'help';
 
   const handleSidebarSelect = useCallback(
-    (sidebar: 'explorer' | 'browser' | 'gis' | 'git' | 'help') => {
+    (sidebar: 'explorer' | 'gis' | 'git' | 'help') => {
       if (sidebar === 'help' && !aiFeaturesEnabled) {
         return;
       }
@@ -200,7 +189,6 @@ const Workspace: React.FC<WorkspaceProps> = ({
       updatePaneState({
         activeSidebar: isActive ? null : sidebar,
         isExplorerVisible: sidebar === 'explorer' ? !isActive : false,
-        isBrowserVisible: sidebar === 'browser' ? !isActive : false,
         isGisVisible: sidebar === 'gis' ? !isActive : false,
         isGitVisible: sidebar === 'git' ? !isActive : false,
         isHelpVisible: sidebar === 'help' ? !isActive : false,
@@ -463,19 +451,6 @@ const Workspace: React.FC<WorkspaceProps> = ({
           handleClassName="hover:bg-gray-200/60 dark:hover:bg-gray-700/60"
         >
           <FileExplorer />
-        </ResizableSidebar>
-      )}
-      {showBrowserSidebar && (
-        <ResizableSidebar
-          width={sidebarWidths.browser}
-          minWidth={280}
-          maxWidth={720}
-          onResize={(width) => handleSidebarResize('browser', width)}
-          onResizeEnd={(width) => handleSidebarResizeEnd('browser', width)}
-          className="border-r border-gray-200 dark:border-gray-800 overflow-hidden"
-          handleClassName="hover:bg-gray-200/60 dark:hover:bg-gray-700/60"
-        >
-          <BrowserPanel />
         </ResizableSidebar>
       )}
       {showGisSidebar && (
