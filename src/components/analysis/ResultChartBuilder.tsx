@@ -10,6 +10,7 @@ import {
   getRegressionTypeLabel,
   prepareChartData,
 } from '@/lib/dataAnalysisUtils';
+import { extractWordsFromText } from '@/lib/wordCloudTextProcessing';
 import { IoChevronDownOutline, IoChevronForwardOutline } from 'react-icons/io5';
 import type { ChartDesignerSettings, ResultAggregation, ResultChartType } from '@/types';
 
@@ -876,37 +877,44 @@ const buildPlotConfig = (
     }
 
     if (chartType === 'word-cloud') {
-      const texts = flattened
-        .map(row => row[xField])
-        .filter((value): value is string => typeof value === 'string' && value.trim() !== '');
-
-      if (texts.length === 0) {
-        return { error: 'ワードクラウドを作成するテキストデータがありません' };
-      }
-
       const wordMap = new Map<string, number[]>();
       const countMap = new Map<string, number>();
+      let hasExtractedToken = false;
 
       flattened.forEach(row => {
-        const wordRaw = row[xField];
-        if (typeof wordRaw !== 'string' || wordRaw.trim() === '') {
+        const raw = row[xField];
+        if (typeof raw !== 'string' || raw.trim() === '') {
           return;
         }
-        const normalizedWord = wordRaw.trim();
+
+        const tokens = extractWordsFromText(raw);
+        if (tokens.length === 0) {
+          return;
+        }
+
+        hasExtractedToken = true;
 
         if (aggregation === 'count' || !yField) {
-          countMap.set(normalizedWord, (countMap.get(normalizedWord) ?? 0) + 1);
+          tokens.forEach(token => {
+            countMap.set(token, (countMap.get(token) ?? 0) + 1);
+          });
           return;
         }
 
         const value = row[yField];
         if (typeof value === 'number' && !Number.isNaN(value)) {
-          if (!wordMap.has(normalizedWord)) {
-            wordMap.set(normalizedWord, []);
-          }
-          wordMap.get(normalizedWord)!.push(value);
+          tokens.forEach(token => {
+            if (!wordMap.has(token)) {
+              wordMap.set(token, []);
+            }
+            wordMap.get(token)!.push(value);
+          });
         }
       });
+
+      if (!hasExtractedToken) {
+        return { error: '文章から抽出できる名詞・動詞が見つかりませんでした' };
+      }
 
       const words: string[] = [];
       const weights: number[] = [];
