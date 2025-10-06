@@ -81,14 +81,6 @@ interface EditorStore {
   replaceText: string;
   setReplaceText: (text: string) => void;
 
-  // インアプリブラウザ
-  browserUrl: string;
-  setBrowserUrl: (url: string) => void;
-
-  // Google Drive 連携
-  googleDriveClientId: string;
-  setGoogleDriveClientId: (clientId: string) => void;
-  
   // 分析機能
   analysisEnabled: boolean;
   setAnalysisEnabled: (enabled: boolean) => void;
@@ -147,8 +139,6 @@ interface EditorStore {
   helpSettings: HelpSettings;
   updateHelpSettings: (updates: Partial<HelpSettings>) => void;
 }
-
-export const DEFAULT_BROWSER_URL = 'https://www.google.com/';
 
 export const useEditorStore = create<EditorStore>()(
   persist(
@@ -280,7 +270,6 @@ export const useEditorStore = create<EditorStore>()(
       paneState: {
         activeSidebar: 'explorer',
         isExplorerVisible: true,
-        isBrowserVisible: false,
         isGisVisible: false,
         isEditorVisible: true,
         isPreviewVisible: true,
@@ -316,15 +305,6 @@ export const useEditorStore = create<EditorStore>()(
       replaceText: '',
       setReplaceText: (text) => set({ replaceText: text }),
 
-      // インアプリブラウザ
-      browserUrl: DEFAULT_BROWSER_URL,
-      setBrowserUrl: (url) => set({ browserUrl: url || DEFAULT_BROWSER_URL }),
-
-      // Google Drive 連携
-      googleDriveClientId: process.env.NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID || '',
-      setGoogleDriveClientId: (clientId) =>
-        set({ googleDriveClientId: clientId.trim() }),
-      
       // 分析機能
       analysisEnabled: false,
       setAnalysisEnabled: (enabled) => set({ analysisEnabled: enabled }),
@@ -669,8 +649,6 @@ export const useEditorStore = create<EditorStore>()(
           lastViewMode: state.lastViewMode,
           editorSettings: state.editorSettings,
           paneState: state.paneState,
-          browserUrl: state.browserUrl,
-          googleDriveClientId: state.googleDriveClientId,
           searchSettings: state.searchSettings,
           analysisEnabled: state.analysisEnabled,
           chartSettings: state.chartSettings,
@@ -737,12 +715,6 @@ export const useEditorStore = create<EditorStore>()(
           if (!state.lastViewMode) {
             state.lastViewMode = 'editor';
           }
-          if (!state.browserUrl) {
-            state.browserUrl = DEFAULT_BROWSER_URL;
-          }
-          if (typeof state.googleDriveClientId !== 'string') {
-            state.googleDriveClientId = process.env.NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID || '';
-          }
           if (!state.sqlNotebook) {
             state.sqlNotebook = {};
           } else {
@@ -775,7 +747,6 @@ export const useEditorStore = create<EditorStore>()(
             state.paneState = {
               activeSidebar: 'explorer',
               isExplorerVisible: true,
-              isBrowserVisible: false,
               isGisVisible: false,
               isEditorVisible: true,
               isPreviewVisible: true,
@@ -791,8 +762,6 @@ export const useEditorStore = create<EditorStore>()(
             if (typeof state.paneState.activeSidebar === 'undefined') {
               const inferredSidebar = state.paneState.isExplorerVisible
                 ? 'explorer'
-                : state.paneState.isBrowserVisible
-                  ? 'browser'
                 : state.paneState.isGisVisible
                   ? 'gis'
                 : state.paneState.isGitVisible
@@ -807,9 +776,6 @@ export const useEditorStore = create<EditorStore>()(
             }
             if (typeof state.paneState.isGitVisible !== 'boolean') {
               state.paneState = { ...state.paneState, isGitVisible: false };
-            }
-            if (typeof state.paneState.isBrowserVisible !== 'boolean') {
-              state.paneState = { ...state.paneState, isBrowserVisible: false };
             }
             if (typeof state.paneState.isHelpVisible !== 'boolean') {
               state.paneState = { ...state.paneState, isHelpVisible: false };
