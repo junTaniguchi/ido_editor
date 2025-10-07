@@ -129,6 +129,11 @@ const SpreadSheetEditor: React.FC<SpreadSheetEditorProps> = ({
     sheet.defaults.rowHeight = 28;
     sheet.defaults.colWidth = 120;
     sheet.options.isProtected = readOnly;
+    sheet.options.protectionOptions = {
+      ...sheet.options.protectionOptions,
+      allowResizeRows: true,
+      allowResizeColumns: true,
+    };
 
     const style = new GC.Spread.Sheets.Style();
     style.backColor = '#ffffff';
@@ -162,6 +167,7 @@ const SpreadSheetEditor: React.FC<SpreadSheetEditorProps> = ({
     spreadRef.current = spread;
     spread.options.tabStripVisible = false;
     spread.options.grayAreaBackColor = '#f8fafc';
+    spread.options.allowUserResize = true;
     const sheet = spread.getActiveSheet();
     configureSheet(sheet);
     attachListeners();

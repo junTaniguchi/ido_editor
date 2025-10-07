@@ -20,7 +20,7 @@
  * - エラー・ローディング表示
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useEditorStore } from '@/store/editorStore';
 import {
@@ -50,6 +50,54 @@ import ExportModal from './ExportModal';
 import { IoAlertCircleOutline, IoCodeSlash, IoEye, IoLayers, IoGrid, IoSave, IoClose, IoDownload } from 'react-icons/io5';
 import * as XLSX from 'xlsx';
 import { Document, Packer, Paragraph } from 'docx';
+
+const shallowEqualRow = (a: Record<string, any>, b: Record<string, any>): boolean => {
+  if (a === b) {
+    return true;
+  }
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') {
+    return false;
+  }
+
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) {
+    return false;
+  }
+
+  return keysA.every(key => Object.prototype.hasOwnProperty.call(b, key) && a[key] === b[key]);
+};
+
+const areTableRowsEqual = (prev: any, next: any): boolean => {
+  if (prev === next) {
+    return true;
+  }
+  if (!Array.isArray(prev) || !Array.isArray(next)) {
+    return false;
+  }
+  if (prev.length !== next.length) {
+    return false;
+  }
+
+  for (let index = 0; index < prev.length; index += 1) {
+    const prevRow = prev[index];
+    const nextRow = next[index];
+    if (prevRow === nextRow) {
+      continue;
+    }
+    if (typeof prevRow === 'object' && prevRow !== null && typeof nextRow === 'object' && nextRow !== null) {
+      if (!shallowEqualRow(prevRow, nextRow)) {
+        return false;
+      }
+      continue;
+    }
+    if (prevRow !== nextRow) {
+      return false;
+    }
+  }
+
+  return true;
+};
 
 const SpreadSheetEditor = dynamic(
   () => import('@/components/spread/SpreadSheetEditor'),
@@ -169,7 +217,9 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [isTableEditing, setIsTableEditing] = useState(false);
   const [editedData, setEditedData] = useState<any>(null);
+  const editedDataRef = useRef<any>(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [tableViewMode, setTableViewMode] = useState<'react-table' | 'spread'>('react-table');
   const tableEditingColumns = useMemo(() => {
     if (Array.isArray(editedData) && editedData.length > 0 && typeof editedData[0] === 'object' && editedData[0] !== null) {
       return Object.keys(editedData[0]);
@@ -184,6 +234,10 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   const dataDisplayMode = editorSettings.dataDisplayMode || 'flat';
   const analysisEntry = analysisData[tabId];
 
+  useEffect(() => {
+    editedDataRef.current = editedData;
+  }, [editedData]);
+
   const isTabularData = useMemo(() => {
     if (!type) return false;
     const isStructuredType = ['csv', 'tsv', 'parquet', 'json', 'yaml', 'excel'].includes(type);
@@ -192,6 +246,12 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     if (typeof parsedData[0] !== 'object' || parsedData[0] === null) return false;
     return columns.length > 0;
   }, [type, parsedData, columns]);
+
+  useEffect(() => {
+    if (!isTabularData) {
+      setTableViewMode('react-table');
+    }
+  }, [isTabularData]);
 
   const designerSettings = analysisEntry?.chartSettings;
 
@@ -772,16 +832,21 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   
   // テーブル編集データの変更をハンドリング
   const handleDataChange = useCallback((newData: any[]) => {
-    setEditedData(newData);
+    const shouldUpdate = !areTableRowsEqual(editedDataRef.current, newData);
+    if (shouldUpdate) {
+      editedDataRef.current = newData;
+      setEditedData(newData);
+    }
 
-    // エディタコンテンツも同期的に更新
-    if (type) {
-      try {
-        const formattedContent = formatData(newData, type);
-        setEditableContent(formattedContent);
-      } catch (err) {
-        console.error('Error syncing table edits to text editor:', err);
-      }
+    if (!shouldUpdate || !type) {
+      return;
+    }
+
+    try {
+      const formattedContent = formatData(newData, type);
+      setEditableContent(prev => (prev === formattedContent ? prev : formattedContent));
+    } catch (err) {
+      console.error('Error syncing table edits to text editor:', err);
     }
   }, [type]);
   
@@ -1010,6 +1075,22 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
             >
               {dataDisplayMode === 'flat' ? '階層構造モードへ' : 'フラットモードへ'}
             </button>
+            {isTabularData && (
+              <div className="ml-4 flex items-center gap-2">
+                <button
+                  className={`px-2 py-1 text-xs rounded border transition-colors ${tableViewMode === 'react-table' ? 'bg-blue-600 text-white border-blue-600' : 'bg-gray-100 text-gray-700 border-gray-300 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600'}`}
+                  onClick={() => setTableViewMode('react-table')}
+                >
+                  React Table
+                </button>
+                <button
+                  className={`px-2 py-1 text-xs rounded border transition-colors ${tableViewMode === 'spread' ? 'bg-blue-600 text-white border-blue-600' : 'bg-gray-100 text-gray-700 border-gray-300 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600'}`}
+                  onClick={() => setTableViewMode('spread')}
+                >
+                  SpreadJS
+                </button>
+              </div>
+            )}
           </div>
           <div className="flex items-center">
             {/* Word/Excelエクスポートボタン */}
@@ -1095,11 +1176,22 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
           {/* CSV、TSV、JSONとYAMLの配列形式のデータはテーブルで表示 */}
           {isTabularData ? (
             <div className="p-2">
-              <DataTable
-                data={parsedData}
-                columns={columns}
-                isNested={dataDisplayMode === 'nested'}
-              />
+              {tableViewMode === 'react-table' ? (
+                <DataTable
+                  data={parsedData}
+                  columns={columns}
+                  isNested={dataDisplayMode === 'nested'}
+                />
+              ) : (
+                <div className="h-[60vh] rounded border border-gray-200 dark:border-gray-700">
+                  <SpreadSheetEditor
+                    data={Array.isArray(parsedData) ? parsedData : []}
+                    columns={columns}
+                    readOnly
+                    height="100%"
+                  />
+                </div>
+              )}
             </div>
           ) : (
             // それ以外はオブジェクトビューアで表示（Mermaid以外）

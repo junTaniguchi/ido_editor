@@ -114,6 +114,7 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
   const [sqlQuery, setSqlQuery] = useState<string>('');
   const [queryResult, setQueryResult] = useState<any[] | null>(null);
   const [originalQueryResult, setOriginalQueryResult] = useState<any[] | null>(null); // クエリ結果の元データ
+  const [queryTableViewMode, setQueryTableViewMode] = useState<'react-table' | 'spread'>('react-table');
   const [statisticsResult, setStatisticsResult] = useState<Record<string, any> | null>(null);
   const [infoResult, setInfoResult] = useState<Record<string, any> | null>(null);
   const [chartData, setChartData] = useState<any | null>(null);
@@ -2774,6 +2775,8 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
         rows={dataToUse}
         originalRows={originalQueryResult || null}
         chartTitle="クエリ結果でチャート作成"
+        tableViewMode={queryTableViewMode}
+        onTableViewModeChange={setQueryTableViewMode}
       />
     );
   };

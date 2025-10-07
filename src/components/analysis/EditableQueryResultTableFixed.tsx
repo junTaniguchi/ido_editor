@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { useEditorStore } from '@/store/editorStore';
 import { 
   createColumnHelper, 
@@ -47,6 +47,58 @@ const EditableQueryResultTable: React.FC<EditableQueryResultTableProps> = ({
   const resizingColumnRef = useRef<{ id: string, startX: number, startWidth: number } | null>(null);
   const tableRef = useRef<HTMLTableElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
+  
+  const getColumnWidth = useCallback((columnId: string): number => {
+    if (columnId === 'selection') {
+      return 48;
+    }
+    return columnWidths[columnId] ?? 150;
+  }, [columnWidths]);
+
+  const handleResizeMove = useCallback((event: MouseEvent) => {
+    if (!resizingColumnRef.current) {
+      return;
+    }
+    const { id, startX, startWidth } = resizingColumnRef.current;
+    const delta = event.clientX - startX;
+    const nextWidth = Math.max(60, startWidth + delta);
+
+    setColumnWidths(prev => {
+      if (prev[id] === nextWidth) {
+        return prev;
+      }
+      return { ...prev, [id]: nextWidth };
+    });
+  }, []);
+
+  const handleResizeEnd = useCallback(() => {
+    resizingColumnRef.current = null;
+    document.removeEventListener('mousemove', handleResizeMove);
+    document.removeEventListener('mouseup', handleResizeEnd);
+  }, [handleResizeMove]);
+
+  const handleResizeStart = useCallback((event: React.MouseEvent<HTMLDivElement>, columnId: string) => {
+    if (columnId === 'selection') {
+      return;
+    }
+
+    const headerCell = tableRef.current?.querySelector<HTMLTableCellElement>(`th[data-column-id="${columnId}"]`);
+    const currentWidth = headerCell?.getBoundingClientRect().width ?? getColumnWidth(columnId);
+
+    resizingColumnRef.current = {
+      id: columnId,
+      startX: event.clientX,
+      startWidth: currentWidth,
+    };
+
+    document.addEventListener('mousemove', handleResizeMove);
+    document.addEventListener('mouseup', handleResizeEnd);
+  }, [getColumnWidth, handleResizeEnd, handleResizeMove]);
+
+  useEffect(() => () => {
+    document.removeEventListener('mousemove', handleResizeMove);
+    document.removeEventListener('mouseup', handleResizeEnd);
+  }, [handleResizeEnd, handleResizeMove]);
 
   // データが変更されたときにテーブルデータを更新
   useEffect(() => {
@@ -301,47 +353,6 @@ const EditableQueryResultTable: React.FC<EditableQueryResultTableProps> = ({
     }
   };
 
-  // 列のリサイズ処理
-  const handleResizeStart = (e: React.MouseEvent<HTMLDivElement>, columnId: string) => {
-    if (!tableRef.current) return;
-    
-    // 現在の列の幅を取得
-    const headerCell = tableRef.current.querySelector(`th[data-column-id="${columnId}"]`);
-    if (!headerCell) return;
-    
-    const currentWidth = headerCell.getBoundingClientRect().width;
-    
-    // リサイズ開始状態を設定
-    resizingColumnRef.current = {
-      id: columnId,
-      startX: e.clientX,
-      startWidth: currentWidth
-    };
-    
-    // マウスムーブとマウスアップイベントを追加
-    document.addEventListener('mousemove', handleResizeMove);
-    document.addEventListener('mouseup', handleResizeEnd);
-  };
-  
-  const handleResizeMove = (e: MouseEvent) => {
-    if (!resizingColumnRef.current) return;
-    
-    const { id, startX, startWidth } = resizingColumnRef.current;
-    const deltaX = e.clientX - startX;
-    const newWidth = Math.max(50, startWidth + deltaX); // 最小幅を50pxに制限
-    
-    setColumnWidths(prev => ({
-      ...prev,
-      [id]: newWidth
-    }));
-  };
-  
-  const handleResizeEnd = () => {
-    resizingColumnRef.current = null;
-    document.removeEventListener('mousemove', handleResizeMove);
-    document.removeEventListener('mouseup', handleResizeEnd);
-  };
-
   // 列の表示・非表示を切り替えるドロップダウンメニュー
   const renderColumnSelector = () => {
     if (!showColumnSelector) return null;
@@ -461,10 +472,10 @@ const EditableQueryResultTable: React.FC<EditableQueryResultTableProps> = ({
                       data-column-id={columnId}
                       className={`px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap select-none relative bg-gray-100 dark:bg-gray-800
                         ${columnId === 'selection' ? '' : 'cursor-pointer'}`}
-                      style={{ width: columnWidths[columnId] || 'auto' }}
-                      onClick={(e) => {
+                      style={{ width: getColumnWidth(columnId) }}
+                      onClick={(event) => {
                         if (columnId !== 'selection') {
-                          header.column.getToggleSortingHandler()?.(e);
+                          header.column.getToggleSortingHandler()?.(event);
                         }
                       }}
                     >
@@ -485,14 +496,15 @@ const EditableQueryResultTable: React.FC<EditableQueryResultTableProps> = ({
                           )
                         )}
                       </div>
-                      {/* リサイズハンドル */}
-                      <div
-                        className="absolute right-0 top-0 h-full w-4 bg-transparent cursor-col-resize group"
-                        onMouseDown={(e) => handleResizeStart(e, columnId)}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div className="w-px h-full bg-gray-300 dark:bg-gray-700 group-hover:bg-blue-500 group-hover:w-[3px] mx-auto" />
-                      </div>
+                      {columnId !== 'selection' && (
+                        <div
+                          className="absolute right-0 top-0 h-full w-4 bg-transparent cursor-col-resize group"
+                          onMouseDown={(event) => handleResizeStart(event, columnId)}
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <div className="w-px h-full bg-gray-300 dark:bg-gray-700 group-hover:bg-blue-500 group-hover:w-[3px] mx-auto" />
+                        </div>
+                      )}
                     </th>
                   );
                 })}
@@ -506,7 +518,7 @@ const EditableQueryResultTable: React.FC<EditableQueryResultTableProps> = ({
                   <td
                     key={cell.id}
                     className="px-3 py-2 text-sm text-gray-900 dark:text-gray-300"
-                    style={{ width: columnWidths[cell.column.id] || 'auto' }}
+                    style={{ width: getColumnWidth(cell.column.id) }}
                   >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>

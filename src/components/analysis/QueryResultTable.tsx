@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { useEditorStore } from '@/store/editorStore';
 import { 
   createColumnHelper, 
@@ -19,16 +19,17 @@ import {
   IoEyeOffOutline, 
   IoOptionsOutline,
   IoDownloadOutline,
-  IoEllipsisVertical 
 } from 'react-icons/io5';
 import ObjectViewer from '@/components/preview/ObjectViewer';
 import ExportModal from '@/components/preview/ExportModal';
+import SpreadSheetEditor from '@/components/spread/SpreadSheetEditor';
 
 interface QueryResultTableProps {
   data: any[];
+  viewMode?: 'react-table' | 'spread';
 }
 
-const QueryResultTable: React.FC<QueryResultTableProps> = ({ data }) => {
+const QueryResultTable: React.FC<QueryResultTableProps> = ({ data, viewMode = 'react-table' }) => {
   const { editorSettings } = useEditorStore();
   const isNested = editorSettings.dataDisplayMode === 'nested';
 
@@ -132,45 +133,49 @@ const QueryResultTable: React.FC<QueryResultTableProps> = ({ data }) => {
   });
 
   // 列のリサイズ処理
-  const handleResizeStart = (e: React.MouseEvent<HTMLDivElement>, columnId: string) => {
-    if (!tableRef.current) return;
-    
-    // 現在の列の幅を取得
-    const headerCell = tableRef.current.querySelector(`th[data-column-id="${columnId}"]`);
-    if (!headerCell) return;
-    
-    const currentWidth = headerCell.getBoundingClientRect().width;
-    
-    // リサイズ開始状態を設定
-    resizingColumnRef.current = {
-      id: columnId,
-      startX: e.clientX,
-      startWidth: currentWidth
-    };
-    
-    // マウスムーブとマウスアップイベントを追加
-    document.addEventListener('mousemove', handleResizeMove);
-    document.addEventListener('mouseup', handleResizeEnd);
-  };
-  
-  const handleResizeMove = (e: MouseEvent) => {
-    if (!resizingColumnRef.current) return;
-    
+  const getColumnWidth = useCallback((columnId: string): number => columnWidths[columnId] ?? 150, [columnWidths]);
+
+  const handleResizeMove = useCallback((event: MouseEvent) => {
+    if (!resizingColumnRef.current) {
+      return;
+    }
+
     const { id, startX, startWidth } = resizingColumnRef.current;
-    const deltaX = e.clientX - startX;
-    const newWidth = Math.max(50, startWidth + deltaX); // 最小幅を50pxに制限
-    
-    setColumnWidths(prev => ({
-      ...prev,
-      [id]: newWidth
-    }));
-  };
-  
-  const handleResizeEnd = () => {
+    const deltaX = event.clientX - startX;
+    const nextWidth = Math.max(60, startWidth + deltaX);
+
+    setColumnWidths(prev => {
+      if (prev[id] === nextWidth) {
+        return prev;
+      }
+      return { ...prev, [id]: nextWidth };
+    });
+  }, []);
+
+  const handleResizeEnd = useCallback(() => {
     resizingColumnRef.current = null;
     document.removeEventListener('mousemove', handleResizeMove);
     document.removeEventListener('mouseup', handleResizeEnd);
-  };
+  }, [handleResizeMove]);
+
+  const handleResizeStart = useCallback((event: React.MouseEvent<HTMLDivElement>, columnId: string) => {
+    const headerCell = tableRef.current?.querySelector<HTMLTableCellElement>(`th[data-column-id="${columnId}"]`);
+    const currentWidth = headerCell?.getBoundingClientRect().width ?? getColumnWidth(columnId);
+
+    resizingColumnRef.current = {
+      id: columnId,
+      startX: event.clientX,
+      startWidth: currentWidth,
+    };
+
+    document.addEventListener('mousemove', handleResizeMove);
+    document.addEventListener('mouseup', handleResizeEnd);
+  }, [getColumnWidth, handleResizeEnd, handleResizeMove]);
+
+  useEffect(() => () => {
+    document.removeEventListener('mousemove', handleResizeMove);
+    document.removeEventListener('mouseup', handleResizeEnd);
+  }, [handleResizeEnd, handleResizeMove]);
 
 
   // 列の表示・非表示を切り替えるドロップダウンメニュー
@@ -222,8 +227,47 @@ const QueryResultTable: React.FC<QueryResultTableProps> = ({ data }) => {
     return <div className="text-center p-4 text-gray-500">データがありません</div>;
   }
 
+  if (viewMode === 'spread') {
+    return (
+      <div className="overflow-hidden">
+        <div className="flex justify-between mb-2 relative">
+          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            結果: {data.length}行
+          </div>
+          <div className="flex space-x-2 relative">
+            <button
+              className="px-2 py-1 flex items-center text-sm bg-blue-600 text-white hover:bg-blue-700 rounded"
+              onClick={handleExportClick}
+            >
+              <IoDownloadOutline className="mr-1" />
+              エクスポート
+            </button>
+          </div>
+        </div>
+
+        <div className="h-[480px] rounded border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <SpreadSheetEditor
+            data={Array.isArray(data) ? data : []}
+            columns={allColumns}
+            readOnly
+            height="100%"
+          />
+        </div>
+
+        {isExportModalOpen && data && data.length > 0 && (
+          <ExportModal
+            isOpen={isExportModalOpen}
+            onClose={() => setIsExportModalOpen(false)}
+            data={data}
+            fileName="query_result"
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
-  <div className="overflow-auto max-h-[500px]">
+    <div className="overflow-auto max-h-[500px]">
       <div className="flex justify-between mb-2 relative">
         <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
           結果: {data.length}行
@@ -262,7 +306,7 @@ const QueryResultTable: React.FC<QueryResultTableProps> = ({ data }) => {
                     key={header.id}
                     data-column-id={columnId}
                     className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap cursor-pointer select-none relative"
-                    style={{ width: columnWidths[columnId] || 'auto' }}
+                    style={{ width: getColumnWidth(columnId) }}
                     onClick={header.column.getToggleSortingHandler()}
                   >
                     <div className="flex items-center">
@@ -301,7 +345,7 @@ const QueryResultTable: React.FC<QueryResultTableProps> = ({ data }) => {
                 <td
                   key={cell.id}
                   className="px-3 py-2 text-sm text-gray-900 dark:text-gray-300"
-                  style={{ width: columnWidths[cell.column.id] || 'auto' }}
+                  style={{ width: getColumnWidth(cell.column.id) }}
                 >
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
                 </td>

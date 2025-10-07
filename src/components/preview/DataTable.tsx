@@ -15,7 +15,7 @@
 
 'use client';
 
-import React, { useMemo, useState, useRef } from 'react';
+import React, { useMemo, useState, useRef, useCallback, useEffect } from 'react';
 import {
   createColumnHelper,
   flexRender,
@@ -165,6 +165,56 @@ const DataTable: React.FC<DataTableProps> = (props) => {
    * @type {React.RefObject<HTMLTableElement>}
    */
   const tableRef = useRef<HTMLTableElement>(null);
+
+  const getColumnWidth = useCallback(
+    (columnId: string): number => columnWidths[columnId] ?? 150,
+    [columnWidths],
+  );
+
+  const handleResizeMove = useCallback((event: MouseEvent) => {
+    if (!resizingColumnRef.current) {
+      return;
+    }
+
+    const { id, startX, startWidth } = resizingColumnRef.current;
+    const delta = event.clientX - startX;
+    const newWidth = Math.max(60, startWidth + delta);
+
+    setColumnWidths(prev => {
+      if (prev[id] === newWidth) {
+        return prev;
+      }
+      return { ...prev, [id]: newWidth };
+    });
+  }, []);
+
+  const handleResizeEnd = useCallback(() => {
+    resizingColumnRef.current = null;
+    document.removeEventListener('mousemove', handleResizeMove);
+    document.removeEventListener('mouseup', handleResizeEnd);
+  }, [handleResizeMove]);
+
+  const handleResizeStart = useCallback((event: React.MouseEvent<HTMLDivElement>, columnId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const headerCell = tableRef.current?.querySelector<HTMLTableCellElement>(`th[data-column-id="${columnId}"]`);
+    const currentWidth = headerCell?.getBoundingClientRect().width ?? getColumnWidth(columnId);
+
+    resizingColumnRef.current = {
+      id: columnId,
+      startX: event.clientX,
+      startWidth: currentWidth,
+    };
+
+    document.addEventListener('mousemove', handleResizeMove);
+    document.addEventListener('mouseup', handleResizeEnd);
+  }, [getColumnWidth, handleResizeEnd, handleResizeMove]);
+
+  useEffect(() => () => {
+    document.removeEventListener('mousemove', handleResizeMove);
+    document.removeEventListener('mouseup', handleResizeEnd);
+  }, [handleResizeEnd, handleResizeMove]);
   
   /**
    * 列セレクターの表示状態を外部/内部で管理し、切り替える関数。
@@ -327,14 +377,16 @@ const DataTable: React.FC<DataTableProps> = (props) => {
       </div>
   <div className="overflow-auto max-h-[500px]">
         {table.getRowModel().rows.length > 0 ? (
-          <table className="min-w-full divide-y divide-gray-300 dark:divide-gray-700">
+          <table ref={tableRef} className="min-w-full divide-y divide-gray-300 dark:divide-gray-700">
             <thead className="bg-gray-100 dark:bg-gray-800 sticky top-0 z-10">
               {table.getHeaderGroups().map(headerGroup => (
                 <tr key={headerGroup.id}>
                   {headerGroup.headers.map(header => (
                     <th
                       key={header.id}
-                      className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap select-none"
+                      data-column-id={header.column.id}
+                      className="relative px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap select-none"
+                      style={{ width: getColumnWidth(header.column.id) }}
                     >
                       <div className="flex items-center">
                         {header.isPlaceholder
@@ -348,6 +400,10 @@ const DataTable: React.FC<DataTableProps> = (props) => {
                           <span className="ml-1 text-gray-300 dark:text-gray-700">⇅</span>
                         )}
                       </div>
+                      <div
+                        className="absolute right-0 top-0 h-full w-3 cursor-col-resize"
+                        onMouseDown={(event) => handleResizeStart(event, header.column.id)}
+                      />
                     </th>
                   ))}
                 </tr>
@@ -360,6 +416,7 @@ const DataTable: React.FC<DataTableProps> = (props) => {
                     <td
                       key={cell.id}
                       className="px-3 py-2 text-sm text-gray-900 dark:text-gray-300"
+                      style={{ width: getColumnWidth(cell.column.id) }}
                     >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
