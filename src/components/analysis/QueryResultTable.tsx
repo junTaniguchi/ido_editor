@@ -78,11 +78,19 @@ const QueryResultTable: React.FC<QueryResultTableProps> = ({ data, viewMode = 'r
 
   // 列の定義
   const columnHelper = createColumnHelper<any>();
+  const baseColumns = useMemo(() => {
+    if (!data || data.length === 0) {
+      return [];
+    }
+    const firstRow = data[0];
+    if (firstRow && typeof firstRow === 'object' && firstRow !== null) {
+      return Object.keys(firstRow);
+    }
+    return [];
+  }, [data]);
+
   const columns = useMemo(() => {
-    if (!data || data.length === 0) return [];
-    
-    const resultColumns = Object.keys(data[0]);
-    return resultColumns.map(col => columnHelper.accessor(col, {
+    return baseColumns.map(col => columnHelper.accessor(col, {
       header: col,
       size: columnWidths[col] || 150, // デフォルト幅を設定
       cell: info => {
@@ -111,7 +119,7 @@ const QueryResultTable: React.FC<QueryResultTableProps> = ({ data, viewMode = 'r
         return String(value);
       }
     }));
-  }, [data, columnHelper, isNested, columnWidths]);
+  }, [baseColumns, columnHelper, columnWidths, isNested]);
 
   // テーブルの設定
   const table = useReactTable({
@@ -227,6 +235,17 @@ const QueryResultTable: React.FC<QueryResultTableProps> = ({ data, viewMode = 'r
     return <div className="text-center p-4 text-gray-500">データがありません</div>;
   }
 
+  const spreadColumns = useMemo(() => {
+    if (!data || data.length === 0) {
+      return [];
+    }
+    const firstRow = data[0];
+    if (firstRow && typeof firstRow === 'object' && firstRow !== null) {
+      return Object.keys(firstRow);
+    }
+    return [];
+  }, [data]);
+
   if (viewMode === 'spread') {
     return (
       <div className="overflow-hidden">
@@ -248,7 +267,7 @@ const QueryResultTable: React.FC<QueryResultTableProps> = ({ data, viewMode = 'r
         <div className="h-[480px] rounded border border-gray-200 dark:border-gray-700 overflow-hidden">
           <SpreadSheetEditor
             data={Array.isArray(data) ? data : []}
-            columns={allColumns}
+            columns={baseColumns}
             readOnly
             height="100%"
           />
