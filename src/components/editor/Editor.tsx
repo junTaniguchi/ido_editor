@@ -14,6 +14,7 @@ import React, { useEffect, useState, useRef, forwardRef, useCallback } from 'rea
 import type { EditorView } from '@codemirror/view';
 import CodeMirror from '@uiw/react-codemirror';
 import { useEditorStore } from '@/store/editorStore';
+import type { EditorViewMode } from '@/store/editorStore';
 import { getLanguageByFileName, getTheme, getEditorExtensions, getFileType } from '@/lib/editorUtils';
 import { TabData } from '@/types';
 import { IoCodeSlash, IoEye, IoSave, IoGrid, IoDownload } from 'react-icons/io5';
@@ -310,53 +311,11 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
   };
   
   const toggleViewMode = () => {
-    const currentType = currentTab?.type?.toLowerCase();
-    const isGisFile =
-      currentType === 'geojson' ||
-      currentType === 'kml' ||
-      currentType === 'kmz' ||
-      currentType === 'shapefile' ||
-      currentType === 'csv' ||
-      currentType === 'tsv';
+    const viewCycle: EditorViewMode[] = ['editor', 'preview', 'data-preview', 'gis-analysis', 'analysis', 'split'];
+    const currentIndex = viewCycle.indexOf(viewMode);
+    const nextMode = currentIndex === -1 ? 'editor' : viewCycle[(currentIndex + 1) % viewCycle.length];
 
-    // エディタ → プレビュー → データプレビュー → GIS分析 → 分割表示 → エディタ の順に切り替え
-    let newMode: 'editor' | 'preview' | 'data-preview' | 'analysis' | 'split' | 'gis-analysis';
-    if (isGisFile) {
-      if (viewMode === 'editor') {
-        newMode = 'preview';
-      } else if (viewMode === 'preview') {
-        newMode = 'data-preview';
-      } else if (viewMode === 'data-preview') {
-        newMode = 'gis-analysis';
-      } else if (viewMode === 'gis-analysis') {
-        newMode = 'analysis';
-      } else if (viewMode === 'analysis') {
-        newMode = 'split';
-      } else if (viewMode === 'split') {
-        newMode = 'editor';
-      } else {
-        newMode = 'editor';
-      }
-    } else {
-      if (viewMode === 'editor') {
-        newMode = 'preview';
-      } else if (viewMode === 'preview') {
-        newMode = 'data-preview';
-      } else if (viewMode === 'data-preview') {
-        newMode = 'analysis';
-      } else if (viewMode === 'analysis') {
-        newMode = 'split';
-      } else if (viewMode === 'split') {
-        newMode = 'editor';
-      } else {
-        newMode = 'editor';
-      }
-    }
-
-    // 設定前にログ出力（デバッグ用）
-
-    // モード変更を適用（editorStoreに保存）
-    setViewMode(tabId, newMode);
+    setViewMode(tabId, nextMode);
     
     // 強制的に状態を更新して再レンダリングを促す
     // これによりモード変更が確実に反映されるようにする

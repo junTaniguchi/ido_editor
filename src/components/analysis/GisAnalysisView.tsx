@@ -1,11 +1,30 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { FeatureCollection, Geometry } from 'geojson';
+import type { Feature, FeatureCollection, Geometry, MultiPolygon, Point, Polygon } from 'geojson';
 import type { CircleMarker, GeoJSON as LeafletGeoJSON, Map as LeafletMap, Path } from 'leaflet';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { IoChevronDown, IoChevronForward, IoSparkles, IoWarningOutline } from 'react-icons/io5';
+import type { IconType } from 'react-icons';
+import {
+  IoAnalyticsOutline,
+  IoChevronDown,
+  IoChevronForward,
+  IoColorPaletteOutline,
+  IoConstructOutline,
+  IoDownloadOutline,
+  IoEyeOffOutline,
+  IoEyeOutline,
+  IoSparkles,
+  IoTrashOutline,
+  IoWarningOutline,
+} from 'react-icons/io5';
+import area from '@turf/area';
+import buffer from '@turf/buffer';
+import difference from '@turf/difference';
+import intersect from '@turf/intersect';
+import union from '@turf/union';
+import { toPng } from 'html-to-image';
 
 import { useEditorStore } from '@/store/editorStore';
 import { useGisAnalysisStore } from '@/store/gisStore';
@@ -125,9 +144,264 @@ const DEFAULT_STYLE_SETTINGS: StyleSettings = {
   valueIntensity: 60,
 };
 
+type DerivedLayerType =
+  | 'kernel-density'
+  | 'buffer'
+  | 'merge'
+  | 'intersect'
+  | 'dissolve'
+  | 'clip'
+  | 'erase'
+  | 'area-apportion';
+
+interface DerivedLayer {
+  id: string;
+  name: string;
+  type: DerivedLayerType;
+  featureCollection: FeatureCollection;
+  sourcePaths: string[];
+  createdAt: number;
+  visible: boolean;
+  description?: string;
+}
+
+type SidebarTabId = 'style' | 'tools' | 'ai';
+
 const STYLE_COLOR_PALETTE = ['#2563eb', '#16a34a', '#f97316', '#ef4444', '#a855f7', '#0ea5e9', '#10b981', '#f59e0b'];
 
+const DERIVED_TYPE_LABELS: Record<DerivedLayerType, string> = {
+  'kernel-density': 'カーネル密度',
+  buffer: 'バッファ',
+  merge: 'マージ',
+  intersect: 'インターセクト',
+  dissolve: 'ディゾルブ',
+  clip: 'クリップ',
+  erase: 'イレース',
+  'area-apportion': '面積按分',
+};
+
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+const EARTH_RADIUS_KM = 6371;
+
+const toRadians = (value: number) => (value * Math.PI) / 180;
+
+const haversineDistanceKm = (a: [number, number], b: [number, number]) => {
+  const [lon1, lat1] = a.map(toRadians) as [number, number];
+  const [lon2, lat2] = b.map(toRadians) as [number, number];
+  const dLat = lat2 - lat1;
+  const dLon = lon2 - lon1;
+  const sinLat = Math.sin(dLat / 2);
+  const sinLon = Math.sin(dLon / 2);
+  const h = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLon * sinLon;
+  const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+  return EARTH_RADIUS_KM * c;
+};
+
+const cloneGeometry = (geometry: Geometry | null): Geometry | null => {
+  if (!geometry) {
+    return null;
+  }
+  return JSON.parse(JSON.stringify(geometry)) as Geometry;
+};
+
+const isPolygonGeometry = (geometry: Geometry | null): geometry is Polygon | MultiPolygon => {
+  if (!geometry) {
+    return false;
+  }
+  return geometry.type === 'Polygon' || geometry.type === 'MultiPolygon';
+};
+
+const collectPolygonFeatures = (
+  collection: FeatureCollection | null,
+  options: { keepProperties?: boolean } = {},
+): Feature<Polygon | MultiPolygon>[] => {
+  if (!collection) {
+    return [];
+  }
+
+  const keepProperties = options.keepProperties ?? false;
+  return collection.features
+    .filter((feature): feature is Feature<Polygon | MultiPolygon> => isPolygonGeometry(feature.geometry))
+    .map((feature) => ({
+      type: 'Feature',
+      geometry: cloneGeometry(feature.geometry) as Polygon | MultiPolygon,
+      properties: keepProperties ? sanitizeProperties(feature.properties) : {},
+    }));
+};
+
+const unionPolygonFeatures = (
+  features: Feature<Polygon | MultiPolygon>[],
+): Feature<Polygon | MultiPolygon> | null => {
+  let aggregated: Feature<Polygon | MultiPolygon> | null = null;
+  features.forEach((feature) => {
+    if (!aggregated) {
+      aggregated = {
+        type: 'Feature',
+        geometry: cloneGeometry(feature.geometry) as Polygon | MultiPolygon,
+        properties: {},
+      };
+      return;
+    }
+    try {
+      const result = union(aggregated as Feature<Polygon | MultiPolygon>, feature);
+      if (result && isPolygonGeometry(result.geometry)) {
+        aggregated = {
+          type: 'Feature',
+          geometry: cloneGeometry(result.geometry) as Polygon | MultiPolygon,
+          properties: {},
+        };
+      }
+    } catch (error) {
+      console.error('Failed to union polygons', error);
+    }
+  });
+  return aggregated;
+};
+
+const sanitizeProperties = (properties: unknown) => {
+  if (!properties || typeof properties !== 'object') {
+    return {};
+  }
+  const result: Record<string, unknown> = {};
+  Object.entries(properties as Record<string, unknown>).forEach(([key, value]) => {
+    if (!key.startsWith('__')) {
+      result[key] = value;
+    }
+  });
+  return result;
+};
+
+interface KernelDensityOptions {
+  cellSizeKm: number;
+  bandwidthKm: number;
+  maxCells?: number;
+}
+
+const buildKernelDensityGrid = (
+  points: Array<Feature<Point, { __weight?: number }>>,
+  options: KernelDensityOptions,
+): FeatureCollection<Polygon, { density: number; densityNormalized: number }> | null => {
+  if (!points.length) {
+    return null;
+  }
+
+  const bandwidth = options.bandwidthKm > 0 ? options.bandwidthKm : 1;
+  const cellSize = options.cellSizeKm > 0 ? options.cellSizeKm : 1;
+  const maxCells = options.maxCells ?? 7500;
+
+  let minLon = Number.POSITIVE_INFINITY;
+  let maxLon = Number.NEGATIVE_INFINITY;
+  let minLat = Number.POSITIVE_INFINITY;
+  let maxLat = Number.NEGATIVE_INFINITY;
+
+  points.forEach((feature) => {
+    const [lon, lat] = feature.geometry.coordinates;
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+      return;
+    }
+    if (lon < minLon) minLon = lon;
+    if (lon > maxLon) maxLon = lon;
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+  });
+
+  if (!Number.isFinite(minLon) || !Number.isFinite(maxLon) || !Number.isFinite(minLat) || !Number.isFinite(maxLat)) {
+    return null;
+  }
+
+  const latCenter = (minLat + maxLat) / 2 || 0;
+  const latStepBase = cellSize / 110.574;
+  const lonStepBase = cellSize / (111.32 * Math.max(Math.cos(toRadians(latCenter)), 0.2));
+
+  let latSpan = Math.max(maxLat - minLat, latStepBase);
+  let lonSpan = Math.max(maxLon - minLon, lonStepBase);
+
+  let latStep = latStepBase;
+  let lonStep = lonStepBase;
+
+  let rows = Math.max(Math.ceil(latSpan / latStep), 1);
+  let cols = Math.max(Math.ceil(lonSpan / lonStep), 1);
+
+  const cellCount = rows * cols;
+  if (cellCount > maxCells) {
+    const factor = Math.sqrt(cellCount / maxCells);
+    latStep *= factor;
+    lonStep *= factor;
+    rows = Math.max(Math.ceil(latSpan / latStep), 1);
+    cols = Math.max(Math.ceil(lonSpan / lonStep), 1);
+  }
+
+  const features: Array<Feature<Polygon, { density: number; densityNormalized: number }>> = [];
+  let maxDensity = 0;
+
+  for (let row = 0; row < rows; row += 1) {
+    const latStart = minLat + latStep * row;
+    const latEnd = row === rows - 1 ? maxLat : Math.min(latStart + latStep, maxLat);
+
+    for (let col = 0; col < cols; col += 1) {
+      const lonStart = minLon + lonStep * col;
+      const lonEnd = col === cols - 1 ? maxLon : Math.min(lonStart + lonStep, maxLon);
+      const lonMid = (lonStart + lonEnd) / 2;
+      const latMid = (latStart + latEnd) / 2;
+
+      const density = points.reduce((sum, point) => {
+        const [pointLon, pointLat] = point.geometry.coordinates;
+        const distance = haversineDistanceKm([lonMid, latMid], [pointLon, pointLat]);
+        const kernelValue = Math.exp(-0.5 * (distance / bandwidth) * (distance / bandwidth));
+        const weight = typeof point.properties?.__weight === 'number' ? point.properties.__weight : 1;
+        return sum + weight * kernelValue;
+      }, 0);
+
+      if (density > maxDensity) {
+        maxDensity = density;
+      }
+
+      const polygon: Feature<Polygon, { density: number; densityNormalized: number }> = {
+        type: 'Feature',
+        geometry: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [lonStart, latStart],
+              [lonEnd, latStart],
+              [lonEnd, latEnd],
+              [lonStart, latEnd],
+              [lonStart, latStart],
+            ],
+          ],
+        },
+        properties: {
+          density,
+          densityNormalized: 0,
+        },
+      };
+
+      features.push(polygon);
+    }
+  }
+
+  if (maxDensity <= 0) {
+    return {
+      type: 'FeatureCollection',
+      features: features.map((feature) => ({
+        ...feature,
+        properties: { ...feature.properties, densityNormalized: 0 },
+      })),
+    };
+  }
+
+  return {
+    type: 'FeatureCollection',
+    features: features.map((feature) => ({
+      ...feature,
+      properties: {
+        ...feature.properties,
+        densityNormalized: feature.properties.density / maxDensity,
+      },
+    })),
+  };
+};
 
 const hexToRgb = (hex: string): { r: number; g: number; b: number } | null => {
   const normalized = hex.replace('#', '');
@@ -304,6 +578,8 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
 
   const [styleSettingsMap, setStyleSettingsMap] = useState<Record<string, StyleSettings>>({});
   const [expandedTables, setExpandedTables] = useState<Record<string, boolean>>({});
+  const [derivedLayers, setDerivedLayers] = useState<DerivedLayer[]>([]);
+  const [sidebarTab, setSidebarTab] = useState<SidebarTabId>('style');
 
   const setPathLoading = useCallback((path: string, value: boolean) => {
     setLoadingPaths((previous) => {
@@ -328,6 +604,28 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
   const [aiAnalysisLoading, setAiAnalysisLoading] = useState(false);
   const [aiAnalysisError, setAiAnalysisError] = useState<string | null>(null);
   const [aiAnalysisResult, setAiAnalysisResult] = useState<LlmReportResponse | null>(null);
+  const [kernelSourceId, setKernelSourceId] = useState('');
+  const [kernelBandwidthKm, setKernelBandwidthKm] = useState(5);
+  const [kernelCellSizeKm, setKernelCellSizeKm] = useState(2);
+  const [kernelWeightProperty, setKernelWeightProperty] = useState('');
+  const [bufferSourceId, setBufferSourceId] = useState('');
+  const [bufferDistance, setBufferDistance] = useState(1);
+  const [bufferUnits, setBufferUnits] = useState<'kilometers' | 'meters'>('kilometers');
+  const [mergeSourceId, setMergeSourceId] = useState('');
+  const [intersectSourceAId, setIntersectSourceAId] = useState('');
+  const [intersectSourceBId, setIntersectSourceBId] = useState('');
+  const [dissolveSourceId, setDissolveSourceId] = useState('');
+  const [dissolveProperty, setDissolveProperty] = useState('');
+  const [clipSourceId, setClipSourceId] = useState('');
+  const [clipMaskId, setClipMaskId] = useState('');
+  const [eraseSourceId, setEraseSourceId] = useState('');
+  const [eraseMaskId, setEraseMaskId] = useState('');
+  const [areaApportionSourceId, setAreaApportionSourceId] = useState('');
+  const [areaApportionTargetId, setAreaApportionTargetId] = useState('');
+  const [areaApportionProperty, setAreaApportionProperty] = useState('');
+  const [areaApportionOutputProperty, setAreaApportionOutputProperty] = useState('apportioned_value');
+  const [toolsFeedback, setToolsFeedback] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
+  const [isExportingMap, setIsExportingMap] = useState(false);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<LeafletMap | null>(null);
@@ -353,12 +651,22 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
     return selectedColumns[activeFilePath] ?? null;
   }, [activeFilePath, selectedColumns]);
 
+  const visibleDerivedLayerIds = useMemo(
+    () => derivedLayers.filter((layer) => layer.visible).map((layer) => layer.id),
+    [derivedLayers],
+  );
+
+  const styleOrder = useMemo(
+    () => [...selectedFilePaths, ...visibleDerivedLayerIds],
+    [selectedFilePaths, visibleDerivedLayerIds],
+  );
+
   useEffect(() => {
     setStyleSettingsMap((previous) => {
       const next = { ...previous };
       let mutated = false;
 
-      selectedFilePaths.forEach((path, index) => {
+      styleOrder.forEach((path, index) => {
         if (!next[path]) {
           const paletteColor = STYLE_COLOR_PALETTE[index % STYLE_COLOR_PALETTE.length] ?? DEFAULT_STYLE_SETTINGS.color;
           next[path] = { ...DEFAULT_STYLE_SETTINGS, color: paletteColor };
@@ -367,7 +675,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       });
 
       Object.keys(next).forEach((path) => {
-        if (!selectedFilePaths.includes(path)) {
+        if (!styleOrder.includes(path)) {
           delete next[path];
           mutated = true;
         }
@@ -375,7 +683,1144 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
 
       return mutated ? next : previous;
     });
-  }, [selectedFilePaths]);
+  }, [styleOrder]);
+
+  const layerEntries = useMemo(() => {
+    const entries: Array<{
+      id: string;
+      name: string;
+      featureCollection: FeatureCollection | null;
+      geometryTypes: Set<string>;
+      source: 'base' | 'derived';
+    }> = [];
+
+    selectedFilePaths.forEach((path) => {
+      const dataset = datasets[path];
+      if (!dataset?.featureCollection) {
+        return;
+      }
+      const entry = gisFileMap.get(path);
+      const geometryTypes = new Set<string>();
+      dataset.featureCollection.features.forEach((feature) => {
+        if (feature.geometry && typeof feature.geometry.type === 'string') {
+          geometryTypes.add(feature.geometry.type);
+        }
+      });
+
+      entries.push({
+        id: path,
+        name: entry?.name ?? path.split('/').pop() ?? path,
+        featureCollection: dataset.featureCollection,
+        geometryTypes,
+        source: 'base',
+      });
+    });
+
+    derivedLayers.forEach((layer) => {
+      const geometryTypes = new Set<string>();
+      layer.featureCollection.features.forEach((feature) => {
+        if (feature.geometry && typeof feature.geometry.type === 'string') {
+          geometryTypes.add(feature.geometry.type);
+        }
+      });
+      entries.push({
+        id: layer.id,
+        name: layer.name,
+        featureCollection: layer.featureCollection,
+        geometryTypes,
+        source: 'derived',
+      });
+    });
+
+    return entries;
+  }, [datasets, derivedLayers, gisFileMap, selectedFilePaths]);
+
+  const pointLayerEntries = useMemo(
+    () =>
+      layerEntries.filter((entry) =>
+        Array.from(entry.geometryTypes).some((type) => type === 'Point' || type === 'MultiPoint'),
+      ),
+    [layerEntries],
+  );
+
+  const polygonLayerEntries = useMemo(
+    () =>
+      layerEntries.filter((entry) =>
+        Array.from(entry.geometryTypes).some((type) => type === 'Polygon' || type === 'MultiPolygon'),
+      ),
+    [layerEntries],
+  );
+
+  const getLayerDisplayName = useCallback(
+    (id: string) => {
+      const derived = derivedLayers.find((layer) => layer.id === id);
+      if (derived) {
+        return derived.name;
+      }
+      const entry = gisFileMap.get(id);
+      if (entry?.name) {
+        return entry.name;
+      }
+      return id.split('/').pop() ?? id;
+    },
+    [derivedLayers, gisFileMap],
+  );
+
+  const getLayerFeatureCollection = useCallback(
+    (id: string): FeatureCollection | null => {
+      if (!id) {
+        return null;
+      }
+      const dataset = datasets[id];
+      if (dataset?.featureCollection) {
+        return dataset.featureCollection;
+      }
+      const derived = derivedLayers.find((layer) => layer.id === id);
+      return derived?.featureCollection ?? null;
+    },
+    [datasets, derivedLayers],
+  );
+
+  const getLayerColumns = useCallback(
+    (id: string): string[] => {
+      const dataset = datasets[id];
+      if (dataset) {
+        return dataset.columns.filter((column) => column !== 'geometry');
+      }
+      const derived = derivedLayers.find((layer) => layer.id === id);
+      if (derived) {
+        const columns = new Set<string>();
+        derived.featureCollection.features.forEach((feature) => {
+          if (feature.properties && typeof feature.properties === 'object') {
+            Object.keys(feature.properties as Record<string, unknown>).forEach((key) => {
+              if (!key.startsWith('__')) {
+                columns.add(key);
+              }
+            });
+          }
+        });
+        return Array.from(columns).sort((a, b) => a.localeCompare(b, 'ja'));
+      }
+      return [];
+    },
+    [datasets, derivedLayers],
+  );
+
+  useEffect(() => {
+    if (!kernelSourceId) {
+      const first = pointLayerEntries[0];
+      if (first) {
+        setKernelSourceId(first.id);
+      }
+      return;
+    }
+
+    const exists = pointLayerEntries.some((entry) => entry.id === kernelSourceId);
+    if (!exists) {
+      const first = pointLayerEntries[0];
+      setKernelSourceId(first ? first.id : '');
+    }
+  }, [kernelSourceId, pointLayerEntries]);
+
+  useEffect(() => {
+    if (!bufferSourceId) {
+      const first = layerEntries[0];
+      if (first) {
+        setBufferSourceId(first.id);
+      }
+      return;
+    }
+    if (!layerEntries.some((entry) => entry.id === bufferSourceId)) {
+      const first = layerEntries[0];
+      setBufferSourceId(first ? first.id : '');
+    }
+  }, [bufferSourceId, layerEntries]);
+
+  useEffect(() => {
+    if (!mergeSourceId) {
+      const first = polygonLayerEntries[0];
+      if (first) {
+        setMergeSourceId(first.id);
+      }
+      return;
+    }
+    if (!polygonLayerEntries.some((entry) => entry.id === mergeSourceId)) {
+      const first = polygonLayerEntries[0];
+      setMergeSourceId(first ? first.id : '');
+    }
+  }, [mergeSourceId, polygonLayerEntries]);
+
+  useEffect(() => {
+    if (polygonLayerEntries.length === 0) {
+      if (intersectSourceAId) {
+        setIntersectSourceAId('');
+      }
+      if (intersectSourceBId) {
+        setIntersectSourceBId('');
+      }
+      return;
+    }
+
+    if (!intersectSourceAId || !polygonLayerEntries.some((entry) => entry.id === intersectSourceAId)) {
+      setIntersectSourceAId(polygonLayerEntries[0].id);
+    }
+
+    if (!intersectSourceBId || !polygonLayerEntries.some((entry) => entry.id === intersectSourceBId)) {
+      const fallback = polygonLayerEntries[1] ?? polygonLayerEntries[0];
+      setIntersectSourceBId(fallback ? fallback.id : '');
+      return;
+    }
+
+    if (intersectSourceAId && intersectSourceAId === intersectSourceBId && polygonLayerEntries.length > 1) {
+      const fallback = polygonLayerEntries.find((entry) => entry.id !== intersectSourceAId);
+      if (fallback && fallback.id !== intersectSourceBId) {
+        setIntersectSourceBId(fallback.id);
+      }
+    }
+  }, [intersectSourceAId, intersectSourceBId, polygonLayerEntries]);
+
+  useEffect(() => {
+    if (!dissolveSourceId) {
+      const first = polygonLayerEntries[0];
+      if (first) {
+        setDissolveSourceId(first.id);
+      }
+      return;
+    }
+    if (!polygonLayerEntries.some((entry) => entry.id === dissolveSourceId)) {
+      const first = polygonLayerEntries[0];
+      setDissolveSourceId(first ? first.id : '');
+    }
+  }, [dissolveSourceId, polygonLayerEntries]);
+
+  useEffect(() => {
+    if (polygonLayerEntries.length === 0) {
+      if (clipSourceId) {
+        setClipSourceId('');
+      }
+      if (clipMaskId) {
+        setClipMaskId('');
+      }
+      return;
+    }
+
+    if (!clipSourceId || !polygonLayerEntries.some((entry) => entry.id === clipSourceId)) {
+      setClipSourceId(polygonLayerEntries[0].id);
+      return;
+    }
+
+    if (!clipMaskId || !polygonLayerEntries.some((entry) => entry.id === clipMaskId)) {
+      const fallback = polygonLayerEntries.find((entry) => entry.id !== clipSourceId) ?? polygonLayerEntries[0];
+      setClipMaskId(fallback ? fallback.id : '');
+      return;
+    }
+
+    if (clipSourceId === clipMaskId && polygonLayerEntries.length > 1) {
+      const fallback = polygonLayerEntries.find((entry) => entry.id !== clipSourceId);
+      if (fallback) {
+        setClipMaskId(fallback.id);
+      }
+    }
+  }, [clipMaskId, clipSourceId, polygonLayerEntries]);
+
+  useEffect(() => {
+    if (polygonLayerEntries.length === 0) {
+      if (eraseSourceId) {
+        setEraseSourceId('');
+      }
+      if (eraseMaskId) {
+        setEraseMaskId('');
+      }
+      return;
+    }
+
+    if (!eraseSourceId || !polygonLayerEntries.some((entry) => entry.id === eraseSourceId)) {
+      setEraseSourceId(polygonLayerEntries[0].id);
+      return;
+    }
+
+    if (!eraseMaskId || !polygonLayerEntries.some((entry) => entry.id === eraseMaskId)) {
+      const fallback = polygonLayerEntries.find((entry) => entry.id !== eraseSourceId) ?? polygonLayerEntries[0];
+      setEraseMaskId(fallback ? fallback.id : '');
+      return;
+    }
+
+    if (eraseSourceId === eraseMaskId && polygonLayerEntries.length > 1) {
+      const fallback = polygonLayerEntries.find((entry) => entry.id !== eraseSourceId);
+      if (fallback) {
+        setEraseMaskId(fallback.id);
+      }
+    }
+  }, [eraseMaskId, eraseSourceId, polygonLayerEntries]);
+
+  useEffect(() => {
+    if (polygonLayerEntries.length === 0) {
+      if (areaApportionSourceId) {
+        setAreaApportionSourceId('');
+      }
+      if (areaApportionTargetId) {
+        setAreaApportionTargetId('');
+      }
+      return;
+    }
+
+    if (!areaApportionSourceId || !polygonLayerEntries.some((entry) => entry.id === areaApportionSourceId)) {
+      setAreaApportionSourceId(polygonLayerEntries[0].id);
+      return;
+    }
+
+    if (!areaApportionTargetId || !polygonLayerEntries.some((entry) => entry.id === areaApportionTargetId)) {
+      const fallback =
+        polygonLayerEntries.find((entry) => entry.id !== areaApportionSourceId) ?? polygonLayerEntries[0];
+      setAreaApportionTargetId(fallback ? fallback.id : '');
+      return;
+    }
+
+    if (areaApportionSourceId === areaApportionTargetId && polygonLayerEntries.length > 1) {
+      const fallback = polygonLayerEntries.find((entry) => entry.id !== areaApportionSourceId);
+      if (fallback) {
+        setAreaApportionTargetId(fallback.id);
+      }
+    }
+  }, [areaApportionSourceId, areaApportionTargetId, polygonLayerEntries]);
+
+  useEffect(() => {
+    if (dissolveProperty && !dissolvePropertyOptions.includes(dissolveProperty)) {
+      setDissolveProperty('');
+    }
+  }, [dissolveProperty, dissolvePropertyOptions]);
+
+  useEffect(() => {
+    if (areaApportionPropertyOptions.length === 0) {
+      if (areaApportionProperty) {
+        setAreaApportionProperty('');
+      }
+      return;
+    }
+
+    if (!areaApportionProperty) {
+      setAreaApportionProperty(areaApportionPropertyOptions[0]);
+      return;
+    }
+
+    if (!areaApportionPropertyOptions.includes(areaApportionProperty)) {
+      setAreaApportionProperty(areaApportionPropertyOptions[0]);
+    }
+  }, [areaApportionProperty, areaApportionPropertyOptions]);
+
+  useEffect(() => {
+    if (sidebarTab !== 'tools') {
+      setToolsFeedback(null);
+    }
+  }, [sidebarTab]);
+
+  const appendDerivedLayer = useCallback(
+    (layer: Omit<DerivedLayer, 'id' | 'createdAt'> & { id?: string }) => {
+      const generatedId = layer.id ?? `derived-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const derivedLayer: DerivedLayer = {
+        ...layer,
+        id: generatedId,
+        createdAt: Date.now(),
+      };
+      setDerivedLayers((previous) => [derivedLayer, ...previous]);
+      return derivedLayer;
+    },
+    [],
+  );
+
+  const toggleDerivedLayerVisibility = useCallback((id: string) => {
+    setDerivedLayers((previous) => previous.map((layer) => (layer.id === id ? { ...layer, visible: !layer.visible } : layer)));
+  }, []);
+
+  const removeDerivedLayer = useCallback((id: string) => {
+    setDerivedLayers((previous) => previous.filter((layer) => layer.id !== id));
+    setStyleSettingsMap((previous) => {
+      if (!(id in previous)) {
+        return previous;
+      }
+      const next = { ...previous };
+      delete next[id];
+      return next;
+    });
+  }, []);
+
+  const toSafeFilename = useCallback((value: string, fallback: string) => {
+    const normalized = value.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9\-_]/g, '');
+    return normalized.length > 0 ? normalized : fallback;
+  }, []);
+
+  const downloadGeoJson = useCallback((collection: FeatureCollection, filename: string) => {
+    const blob = new Blob([JSON.stringify(collection, null, 2)], { type: 'application/geo+json;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const handleCreateKernelDensity = useCallback(() => {
+    setToolsFeedback(null);
+    if (!kernelSourceId) {
+      setToolsFeedback({ kind: 'error', message: 'カーネル密度を計算するレイヤーを選択してください。' });
+      return;
+    }
+
+    const featureCollection = getLayerFeatureCollection(kernelSourceId);
+    if (!featureCollection) {
+      setToolsFeedback({ kind: 'error', message: '選択したレイヤーから地物を取得できませんでした。' });
+      return;
+    }
+
+    const weightKey = kernelWeightProperty.trim();
+    const pointFeatures: Array<Feature<Point, { __weight?: number }>> = [];
+
+    featureCollection.features.forEach((feature) => {
+      if (!feature.geometry) {
+        return;
+      }
+      const baseProperties = sanitizeProperties(feature.properties);
+      const weightValue = weightKey && baseProperties[weightKey] !== undefined ? Number(baseProperties[weightKey]) : 1;
+      const weight = Number.isFinite(weightValue) ? (weightValue as number) : 1;
+
+      if (feature.geometry.type === 'Point') {
+        pointFeatures.push({
+          type: 'Feature',
+          geometry: cloneGeometry(feature.geometry) as Point,
+          properties: { __weight: weight },
+        });
+      } else if (feature.geometry.type === 'MultiPoint') {
+        (feature.geometry.coordinates ?? []).forEach((coords) => {
+          pointFeatures.push({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [...coords] } as Point,
+            properties: { __weight: weight },
+          });
+        });
+      }
+    });
+
+    if (pointFeatures.length === 0) {
+      setToolsFeedback({ kind: 'error', message: '点データが含まれていないためカーネル密度を計算できません。' });
+      return;
+    }
+
+    const grid = buildKernelDensityGrid(pointFeatures, {
+      cellSizeKm: Math.max(kernelCellSizeKm, 0.1),
+      bandwidthKm: Math.max(kernelBandwidthKm, 0.1),
+      maxCells: 7500,
+    });
+
+    if (!grid || grid.features.length === 0) {
+      setToolsFeedback({ kind: 'error', message: 'カーネル密度の計算に失敗しました。' });
+      return;
+    }
+
+    const layerName = `${getLayerDisplayName(kernelSourceId)} カーネル密度`;
+    appendDerivedLayer({
+      name: layerName,
+      type: 'kernel-density',
+      visible: true,
+      sourcePaths: [kernelSourceId],
+      description: `セルサイズ ${kernelCellSizeKm}km / バンド幅 ${kernelBandwidthKm}km${weightKey ? ` / 重み ${weightKey}` : ''}`,
+      featureCollection: {
+        type: 'FeatureCollection',
+        features: grid.features.map((feature) => ({
+          type: 'Feature',
+          geometry: cloneGeometry(feature.geometry),
+          properties: {
+            ...sanitizeProperties(feature.properties),
+          },
+        })),
+      },
+    });
+
+    setToolsFeedback({ kind: 'success', message: 'カーネル密度レイヤーを作成しました。' });
+  }, [
+    appendDerivedLayer,
+    getLayerDisplayName,
+    getLayerFeatureCollection,
+    kernelBandwidthKm,
+    kernelCellSizeKm,
+    kernelSourceId,
+    kernelWeightProperty,
+  ]);
+
+  const handleCreateBuffer = useCallback(() => {
+    setToolsFeedback(null);
+    if (!bufferSourceId) {
+      setToolsFeedback({ kind: 'error', message: 'バッファを作成するレイヤーを選択してください。' });
+      return;
+    }
+
+    const featureCollection = getLayerFeatureCollection(bufferSourceId);
+    if (!featureCollection) {
+      setToolsFeedback({ kind: 'error', message: '選択したレイヤーから地物を取得できませんでした。' });
+      return;
+    }
+
+    if (bufferDistance <= 0) {
+      setToolsFeedback({ kind: 'error', message: 'バッファ距離は正の数値で入力してください。' });
+      return;
+    }
+
+    const bufferedFeatures: Feature<Polygon | MultiPolygon>[] = [];
+
+    featureCollection.features.forEach((feature) => {
+      if (!feature.geometry) {
+        return;
+      }
+      try {
+        const baseFeature: Feature = {
+          type: 'Feature',
+          geometry: cloneGeometry(feature.geometry),
+          properties: sanitizeProperties(feature.properties),
+        };
+        const result = buffer(baseFeature, bufferDistance, { units: bufferUnits });
+        if (!result) {
+          return;
+        }
+        if (result.type === 'FeatureCollection') {
+          result.features.forEach((item) => {
+            if (isPolygonGeometry(item.geometry)) {
+              bufferedFeatures.push({
+                type: 'Feature',
+                geometry: cloneGeometry(item.geometry) as Polygon | MultiPolygon,
+                properties: sanitizeProperties(item.properties),
+              });
+            }
+          });
+        } else if (isPolygonGeometry(result.geometry)) {
+          bufferedFeatures.push({
+            type: 'Feature',
+            geometry: cloneGeometry(result.geometry) as Polygon | MultiPolygon,
+            properties: sanitizeProperties(result.properties),
+          });
+        }
+      } catch (error) {
+        console.error('Failed to buffer feature', error);
+      }
+    });
+
+    if (bufferedFeatures.length === 0) {
+      setToolsFeedback({ kind: 'error', message: 'バッファの作成に失敗しました。地物が存在するか確認してください。' });
+      return;
+    }
+
+    appendDerivedLayer({
+      name: `${getLayerDisplayName(bufferSourceId)} バッファ`,
+      type: 'buffer',
+      visible: true,
+      sourcePaths: [bufferSourceId],
+      description: `距離 ${bufferDistance} ${bufferUnits === 'kilometers' ? 'km' : 'm'}`,
+      featureCollection: {
+        type: 'FeatureCollection',
+        features: bufferedFeatures.map((feature) => ({
+          type: 'Feature',
+          geometry: cloneGeometry(feature.geometry),
+          properties: sanitizeProperties(feature.properties),
+        })),
+      },
+    });
+
+    setToolsFeedback({ kind: 'success', message: 'バッファレイヤーを作成しました。' });
+  }, [
+    appendDerivedLayer,
+    bufferDistance,
+    bufferSourceId,
+    bufferUnits,
+    getLayerDisplayName,
+    getLayerFeatureCollection,
+  ]);
+
+  const handleCreateMerge = useCallback(() => {
+    setToolsFeedback(null);
+    if (!mergeSourceId) {
+      setToolsFeedback({ kind: 'error', message: 'マージするポリゴンレイヤーを選択してください。' });
+      return;
+    }
+
+    const featureCollection = getLayerFeatureCollection(mergeSourceId);
+    if (!featureCollection) {
+      setToolsFeedback({ kind: 'error', message: '選択したレイヤーからポリゴンを取得できませんでした。' });
+      return;
+    }
+
+    const polygonFeatures = collectPolygonFeatures(featureCollection);
+
+    if (polygonFeatures.length === 0) {
+      setToolsFeedback({ kind: 'error', message: 'ポリゴン地物が含まれていないためマージできません。' });
+      return;
+    }
+
+    let merged: Feature<Polygon | MultiPolygon> | null = null;
+    polygonFeatures.forEach((feature) => {
+      if (!merged) {
+        merged = feature;
+        return;
+      }
+      try {
+        const result = union(merged as Feature<Polygon | MultiPolygon>, feature);
+        if (result && isPolygonGeometry(result.geometry)) {
+          merged = {
+            type: 'Feature',
+            geometry: cloneGeometry(result.geometry) as Polygon | MultiPolygon,
+            properties: {},
+          };
+        }
+      } catch (error) {
+        console.error('Failed to merge polygons', error);
+      }
+    });
+
+    if (!merged) {
+      setToolsFeedback({ kind: 'error', message: 'ポリゴンのマージに失敗しました。' });
+      return;
+    }
+
+    appendDerivedLayer({
+      name: `${getLayerDisplayName(mergeSourceId)} マージ`,
+      type: 'merge',
+      visible: true,
+      sourcePaths: [mergeSourceId],
+      description: '選択したポリゴン地物を一体化しました。',
+      featureCollection: {
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            geometry: cloneGeometry(merged.geometry) as Polygon | MultiPolygon,
+            properties: {},
+          },
+        ],
+      },
+    });
+
+    setToolsFeedback({ kind: 'success', message: 'ポリゴンをマージしたレイヤーを作成しました。' });
+  }, [appendDerivedLayer, getLayerDisplayName, getLayerFeatureCollection, mergeSourceId]);
+
+  const handleCreateIntersect = useCallback(() => {
+    setToolsFeedback(null);
+    if (!intersectSourceAId || !intersectSourceBId) {
+      setToolsFeedback({ kind: 'error', message: 'インターセクトする2つのポリゴンレイヤーを選択してください。' });
+      return;
+    }
+    const firstCollection = getLayerFeatureCollection(intersectSourceAId);
+    const secondCollection = getLayerFeatureCollection(intersectSourceBId);
+    if (!firstCollection || !secondCollection) {
+      setToolsFeedback({ kind: 'error', message: '選択したレイヤーの読み込みに失敗しました。' });
+      return;
+    }
+
+    const polygonsA = collectPolygonFeatures(firstCollection);
+    const polygonsB = collectPolygonFeatures(secondCollection);
+
+    if (polygonsA.length === 0 || polygonsB.length === 0) {
+      setToolsFeedback({ kind: 'error', message: 'ポリゴン地物が不足しているため交差領域を計算できません。' });
+      return;
+    }
+
+    const aggregatedA = unionPolygonFeatures(polygonsA);
+    const aggregatedB = unionPolygonFeatures(polygonsB);
+
+    if (!aggregatedA || !aggregatedB) {
+      setToolsFeedback({ kind: 'error', message: '交差領域の計算中にエラーが発生しました。' });
+      return;
+    }
+
+    let intersection: Feature<Polygon | MultiPolygon> | null = null;
+    try {
+      const result = intersect(aggregatedA as Feature<Polygon | MultiPolygon>, aggregatedB as Feature<Polygon | MultiPolygon>);
+      if (result && isPolygonGeometry(result.geometry)) {
+        intersection = {
+          type: 'Feature',
+          geometry: cloneGeometry(result.geometry) as Polygon | MultiPolygon,
+          properties: {},
+        };
+      }
+    } catch (error) {
+      console.error('Failed to compute intersection', error);
+    }
+
+    if (!intersection) {
+      setToolsFeedback({ kind: 'error', message: '2つのレイヤーに交差する領域は見つかりませんでした。' });
+      return;
+    }
+
+    appendDerivedLayer({
+      name: `${getLayerDisplayName(intersectSourceAId)} × ${getLayerDisplayName(intersectSourceBId)} インターセクト`,
+      type: 'intersect',
+      visible: true,
+      sourcePaths: [intersectSourceAId, intersectSourceBId],
+      description: '2つのレイヤーの交差領域を抽出しました。',
+      featureCollection: {
+        type: 'FeatureCollection',
+        features: [intersection],
+      },
+    });
+
+    setToolsFeedback({ kind: 'success', message: '交差領域を抽出したレイヤーを作成しました。' });
+  }, [
+    appendDerivedLayer,
+    getLayerDisplayName,
+    getLayerFeatureCollection,
+    intersect,
+    intersectSourceAId,
+    intersectSourceBId,
+  ]);
+
+  const handleCreateDissolve = useCallback(() => {
+    setToolsFeedback(null);
+    if (!dissolveSourceId) {
+      setToolsFeedback({ kind: 'error', message: 'ディゾルブするポリゴンレイヤーを選択してください。' });
+      return;
+    }
+
+    const featureCollection = getLayerFeatureCollection(dissolveSourceId);
+    if (!featureCollection) {
+      setToolsFeedback({ kind: 'error', message: '選択したレイヤーからポリゴンを取得できませんでした。' });
+      return;
+    }
+
+    const polygonFeatures = collectPolygonFeatures(featureCollection, { keepProperties: true });
+    if (polygonFeatures.length === 0) {
+      setToolsFeedback({ kind: 'error', message: 'ポリゴン地物が含まれていないためディゾルブできません。' });
+      return;
+    }
+
+    const propertyKey = dissolveProperty.trim();
+    const groups = new Map<string, Feature<Polygon | MultiPolygon>[]>();
+    polygonFeatures.forEach((feature) => {
+      const props = sanitizeProperties(feature.properties);
+      const rawValue = propertyKey ? props[propertyKey] : null;
+      const groupKey = propertyKey ? String(rawValue ?? '未分類') : '__all__';
+      const existing = groups.get(groupKey) ?? [];
+      existing.push({
+        type: 'Feature',
+        geometry: cloneGeometry(feature.geometry) as Polygon | MultiPolygon,
+        properties: props,
+      });
+      groups.set(groupKey, existing);
+    });
+
+    const dissolvedFeatures: Feature<Polygon | MultiPolygon>[] = [];
+    groups.forEach((features, key) => {
+      const geometryOnly = features.map((feature) => ({
+        type: 'Feature',
+        geometry: cloneGeometry(feature.geometry) as Polygon | MultiPolygon,
+        properties: {},
+      }));
+      const aggregated = unionPolygonFeatures(geometryOnly);
+      if (!aggregated) {
+        return;
+      }
+      const sample = features[0];
+      const baseProperties = sanitizeProperties(sample?.properties);
+      const outputProperties: Record<string, unknown> = {
+        ...baseProperties,
+        __dissolve_group: propertyKey ? key : 'all',
+        __dissolve_group_label: propertyKey ? key : '全体',
+        __dissolve_source_property: propertyKey || 'all',
+        __dissolve_feature_count: features.length,
+      };
+      if (propertyKey && sample?.properties && propertyKey in sample.properties) {
+        outputProperties[propertyKey] = sample.properties[propertyKey];
+      }
+      dissolvedFeatures.push({
+        type: 'Feature',
+        geometry: cloneGeometry(aggregated.geometry) as Polygon | MultiPolygon,
+        properties: outputProperties,
+      });
+    });
+
+    if (dissolvedFeatures.length === 0) {
+      setToolsFeedback({ kind: 'error', message: 'ディゾルブの結果が作成できませんでした。' });
+      return;
+    }
+
+    appendDerivedLayer({
+      name: `${getLayerDisplayName(dissolveSourceId)} ディゾルブ${propertyKey ? ` (${propertyKey})` : ''}`,
+      type: 'dissolve',
+      visible: true,
+      sourcePaths: [dissolveSourceId],
+      description: propertyKey
+        ? `カラム「${propertyKey}」で${dissolvedFeatures.length.toLocaleString('ja-JP')}グループにディゾルブしました。`
+        : '選択したポリゴンを一体化しました。',
+      featureCollection: {
+        type: 'FeatureCollection',
+        features: dissolvedFeatures,
+      },
+    });
+
+    setToolsFeedback({ kind: 'success', message: 'ディゾルブしたレイヤーを作成しました。' });
+  }, [appendDerivedLayer, dissolveProperty, dissolveSourceId, getLayerDisplayName, getLayerFeatureCollection]);
+
+  const handleCreateClip = useCallback(() => {
+    setToolsFeedback(null);
+    if (!clipSourceId || !clipMaskId) {
+      setToolsFeedback({ kind: 'error', message: 'クリップするレイヤーとマスクを選択してください。' });
+      return;
+    }
+    if (clipSourceId === clipMaskId) {
+      setToolsFeedback({ kind: 'error', message: '異なるレイヤーを選択してください。' });
+      return;
+    }
+
+    const sourceCollection = getLayerFeatureCollection(clipSourceId);
+    const maskCollection = getLayerFeatureCollection(clipMaskId);
+    if (!sourceCollection || !maskCollection) {
+      setToolsFeedback({ kind: 'error', message: '選択したレイヤーを読み込めませんでした。' });
+      return;
+    }
+
+    const sourcePolygons = collectPolygonFeatures(sourceCollection, { keepProperties: true });
+    const maskPolygons = collectPolygonFeatures(maskCollection);
+    if (sourcePolygons.length === 0) {
+      setToolsFeedback({ kind: 'error', message: 'ポリゴン地物が含まれていないためクリップできません。' });
+      return;
+    }
+    if (maskPolygons.length === 0) {
+      setToolsFeedback({ kind: 'error', message: 'マスク側のポリゴン地物が不足しています。' });
+      return;
+    }
+
+    const clippedFeatures: Feature<Polygon | MultiPolygon>[] = [];
+    sourcePolygons.forEach((subject) => {
+      maskPolygons.forEach((mask) => {
+        try {
+          const result = intersect(subject as Feature<Polygon | MultiPolygon>, mask as Feature<Polygon | MultiPolygon>);
+          if (result && isPolygonGeometry(result.geometry)) {
+            clippedFeatures.push({
+              type: 'Feature',
+              geometry: cloneGeometry(result.geometry) as Polygon | MultiPolygon,
+              properties: {
+                ...sanitizeProperties(subject.properties),
+                __clip_source_layer: getLayerDisplayName(clipSourceId),
+                __clip_mask_layer: getLayerDisplayName(clipMaskId),
+              },
+            });
+          }
+        } catch (error) {
+          console.error('Failed to clip polygon', error);
+        }
+      });
+    });
+
+    if (clippedFeatures.length === 0) {
+      setToolsFeedback({ kind: 'error', message: 'クリップ結果が作成できませんでした。' });
+      return;
+    }
+
+    appendDerivedLayer({
+      name: `${getLayerDisplayName(clipSourceId)} クリップ (${getLayerDisplayName(clipMaskId)})`,
+      type: 'clip',
+      visible: true,
+      sourcePaths: [clipSourceId, clipMaskId],
+      description: 'マスク領域内の部分を抽出しました。',
+      featureCollection: {
+        type: 'FeatureCollection',
+        features: clippedFeatures,
+      },
+    });
+
+    setToolsFeedback({ kind: 'success', message: 'クリップしたレイヤーを作成しました。' });
+  }, [appendDerivedLayer, clipMaskId, clipSourceId, getLayerDisplayName, getLayerFeatureCollection, intersect]);
+
+  const handleCreateErase = useCallback(() => {
+    setToolsFeedback(null);
+    if (!eraseSourceId || !eraseMaskId) {
+      setToolsFeedback({ kind: 'error', message: 'イレースするレイヤーと除外するレイヤーを選択してください。' });
+      return;
+    }
+    if (eraseSourceId === eraseMaskId) {
+      setToolsFeedback({ kind: 'error', message: '異なるレイヤーを選択してください。' });
+      return;
+    }
+
+    const sourceCollection = getLayerFeatureCollection(eraseSourceId);
+    const maskCollection = getLayerFeatureCollection(eraseMaskId);
+    if (!sourceCollection || !maskCollection) {
+      setToolsFeedback({ kind: 'error', message: '選択したレイヤーを読み込めませんでした。' });
+      return;
+    }
+
+    const sourcePolygons = collectPolygonFeatures(sourceCollection, { keepProperties: true });
+    const maskPolygons = collectPolygonFeatures(maskCollection);
+    if (sourcePolygons.length === 0) {
+      setToolsFeedback({ kind: 'error', message: 'ポリゴン地物が含まれていないためイレースできません。' });
+      return;
+    }
+    if (maskPolygons.length === 0) {
+      setToolsFeedback({ kind: 'error', message: '除外用レイヤーにポリゴン地物が含まれていません。' });
+      return;
+    }
+
+    const maskUnion = unionPolygonFeatures(
+      maskPolygons.map((feature) => ({
+        type: 'Feature',
+        geometry: cloneGeometry(feature.geometry) as Polygon | MultiPolygon,
+        properties: {},
+      })),
+    );
+
+    if (!maskUnion) {
+      setToolsFeedback({ kind: 'error', message: '除外する領域を構成できませんでした。' });
+      return;
+    }
+
+    const erasedFeatures: Feature<Polygon | MultiPolygon>[] = [];
+    sourcePolygons.forEach((feature) => {
+      try {
+        const result = difference(feature as Feature<Polygon | MultiPolygon>, maskUnion as Feature<Polygon | MultiPolygon>);
+        if (result && isPolygonGeometry(result.geometry)) {
+          erasedFeatures.push({
+            type: 'Feature',
+            geometry: cloneGeometry(result.geometry) as Polygon | MultiPolygon,
+            properties: {
+              ...sanitizeProperties(feature.properties),
+              __erase_source_layer: getLayerDisplayName(eraseSourceId),
+              __erase_mask_layer: getLayerDisplayName(eraseMaskId),
+            },
+          });
+        }
+      } catch (error) {
+        console.error('Failed to erase polygon', error);
+      }
+    });
+
+    if (erasedFeatures.length === 0) {
+      setToolsFeedback({ kind: 'error', message: 'イレースの結果が得られませんでした。' });
+      return;
+    }
+
+    appendDerivedLayer({
+      name: `${getLayerDisplayName(eraseSourceId)} イレース (${getLayerDisplayName(eraseMaskId)})`,
+      type: 'erase',
+      visible: true,
+      sourcePaths: [eraseSourceId, eraseMaskId],
+      description: '除外レイヤーで引いた領域を削除しました。',
+      featureCollection: {
+        type: 'FeatureCollection',
+        features: erasedFeatures,
+      },
+    });
+
+    setToolsFeedback({ kind: 'success', message: 'イレース後のレイヤーを作成しました。' });
+  }, [appendDerivedLayer, difference, eraseMaskId, eraseSourceId, getLayerDisplayName, getLayerFeatureCollection]);
+
+  const handleCreateAreaApportion = useCallback(() => {
+    setToolsFeedback(null);
+    if (!areaApportionSourceId || !areaApportionTargetId) {
+      setToolsFeedback({ kind: 'error', message: '面積按分するソースとターゲットのレイヤーを選択してください。' });
+      return;
+    }
+    if (areaApportionSourceId === areaApportionTargetId) {
+      setToolsFeedback({ kind: 'error', message: '異なるレイヤーを選択してください。' });
+      return;
+    }
+
+    const propertyKey = areaApportionProperty.trim();
+    if (!propertyKey) {
+      setToolsFeedback({ kind: 'error', message: '按分に使用する数値カラムを選択してください。' });
+      return;
+    }
+
+    const outputProperty = areaApportionOutputProperty.trim() || 'apportioned_value';
+    const sourceCollection = getLayerFeatureCollection(areaApportionSourceId);
+    const targetCollection = getLayerFeatureCollection(areaApportionTargetId);
+    if (!sourceCollection || !targetCollection) {
+      setToolsFeedback({ kind: 'error', message: '選択したレイヤーを読み込めませんでした。' });
+      return;
+    }
+
+    const sourcePolygons = collectPolygonFeatures(sourceCollection, { keepProperties: true });
+    const targetPolygons = collectPolygonFeatures(targetCollection, { keepProperties: true });
+    if (sourcePolygons.length === 0) {
+      setToolsFeedback({ kind: 'error', message: 'ソースレイヤーにポリゴン地物が含まれていません。' });
+      return;
+    }
+    if (targetPolygons.length === 0) {
+      setToolsFeedback({ kind: 'error', message: 'ターゲットレイヤーにポリゴン地物が含まれていません。' });
+      return;
+    }
+
+    const apportionedFeatures: Feature<Polygon | MultiPolygon>[] = [];
+    targetPolygons.forEach((target) => {
+      const baseProperties = sanitizeProperties(target.properties);
+      let accumulated = 0;
+      let contributionCount = 0;
+
+      sourcePolygons.forEach((source) => {
+        const rawValue = (source.properties ?? {})[propertyKey];
+        const numericValue = typeof rawValue === 'number' ? rawValue : Number(rawValue);
+        if (!Number.isFinite(numericValue)) {
+          return;
+        }
+        const sourceArea = area(source as Feature<Polygon | MultiPolygon>);
+        if (!Number.isFinite(sourceArea) || sourceArea <= 0) {
+          return;
+        }
+
+        let intersection: Feature<Polygon | MultiPolygon> | null = null;
+        try {
+          const result = intersect(target as Feature<Polygon | MultiPolygon>, source as Feature<Polygon | MultiPolygon>);
+          if (result && isPolygonGeometry(result.geometry)) {
+            intersection = {
+              type: 'Feature',
+              geometry: cloneGeometry(result.geometry) as Polygon | MultiPolygon,
+              properties: {},
+            };
+          }
+        } catch (error) {
+          console.error('Failed to compute area apportion intersection', error);
+        }
+
+        if (!intersection) {
+          return;
+        }
+
+        const intersectionArea = area(intersection);
+        if (!Number.isFinite(intersectionArea) || intersectionArea <= 0) {
+          return;
+        }
+
+        const ratio = intersectionArea / sourceArea;
+        if (!Number.isFinite(ratio) || ratio <= 0) {
+          return;
+        }
+
+        accumulated += numericValue * ratio;
+        contributionCount += 1;
+      });
+
+      const outputProperties: Record<string, unknown> = {
+        ...baseProperties,
+        [outputProperty]: Number(accumulated.toFixed(6)),
+        __apportion_source_layer: getLayerDisplayName(areaApportionSourceId),
+        __apportion_target_layer: getLayerDisplayName(areaApportionTargetId),
+        __apportion_property: propertyKey,
+        __apportion_contributions: contributionCount,
+        __apportion_output_column: outputProperty,
+      };
+
+      apportionedFeatures.push({
+        type: 'Feature',
+        geometry: cloneGeometry(target.geometry) as Polygon | MultiPolygon,
+        properties: outputProperties,
+      });
+    });
+
+    if (apportionedFeatures.length === 0) {
+      setToolsFeedback({ kind: 'error', message: '面積按分の結果を作成できませんでした。' });
+      return;
+    }
+
+    appendDerivedLayer({
+      name: `${getLayerDisplayName(areaApportionTargetId)} 面積按分 (${propertyKey})`,
+      type: 'area-apportion',
+      visible: true,
+      sourcePaths: [areaApportionSourceId, areaApportionTargetId],
+      description: `ソース: ${getLayerDisplayName(areaApportionSourceId)} / カラム: ${propertyKey} / 出力: ${outputProperty}`,
+      featureCollection: {
+        type: 'FeatureCollection',
+        features: apportionedFeatures,
+      },
+    });
+
+    setToolsFeedback({ kind: 'success', message: '面積按分レイヤーを作成しました。' });
+  }, [
+    appendDerivedLayer,
+    area,
+    areaApportionProperty,
+    areaApportionOutputProperty,
+    areaApportionSourceId,
+    areaApportionTargetId,
+    getLayerDisplayName,
+    getLayerFeatureCollection,
+    intersect,
+  ]);
+
+  const handleExportDerivedLayer = useCallback(
+    (id: string) => {
+      setToolsFeedback(null);
+      const layer = derivedLayers.find((entry) => entry.id === id);
+      if (!layer) {
+        setToolsFeedback({ kind: 'error', message: 'エクスポート対象のレイヤーが見つかりませんでした。' });
+        return;
+      }
+      const filename = `${toSafeFilename(layer.name, 'derived-layer')}-${new Date()
+        .toISOString()
+        .replace(/[:.]/g, '-')}.geojson`;
+      downloadGeoJson(layer.featureCollection, filename);
+      setToolsFeedback({ kind: 'success', message: `${layer.name} をGeoJSONとして保存しました。` });
+    },
+    [derivedLayers, downloadGeoJson, toSafeFilename],
+  );
+
+  const handleExportCombinedGeoJson = useCallback(() => {
+    setToolsFeedback(null);
+    if (!combinedFeatureCollection) {
+      setToolsFeedback({ kind: 'error', message: '現在保存できる地物がありません。' });
+      return;
+    }
+    const filename = `gis-map-${new Date().toISOString().replace(/[:.]/g, '-')}.geojson`;
+    downloadGeoJson(combinedFeatureCollection, filename);
+    setToolsFeedback({ kind: 'success', message: '表示中の地物をGeoJSONとして保存しました。' });
+  }, [combinedFeatureCollection, downloadGeoJson]);
+
+  const handleExportMapImage = useCallback(async () => {
+    setToolsFeedback(null);
+    if (!mapContainerRef.current) {
+      setToolsFeedback({ kind: 'error', message: 'マップの描画領域が見つかりませんでした。' });
+      return;
+    }
+    setIsExportingMap(true);
+    try {
+      const dataUrl = await toPng(mapContainerRef.current, {
+        cacheBust: true,
+        pixelRatio: 2,
+        quality: 1,
+        backgroundColor: '#ffffff',
+      });
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = `gis-map-${new Date().toISOString().replace(/[:.]/g, '-')}.png`;
+      link.click();
+      setToolsFeedback({ kind: 'success', message: 'マップ画像を保存しました。' });
+    } catch (error) {
+      console.error('Failed to export map image', error);
+      setToolsFeedback({
+        kind: 'error',
+        message: 'マップ画像の保存に失敗しました。別のブラウザでお試しください。',
+      });
+    } finally {
+      setIsExportingMap(false);
+    }
+  }, []);
+
+  const kernelWeightOptions = useMemo(
+    () => (kernelSourceId ? getLayerColumns(kernelSourceId) : []),
+    [getLayerColumns, kernelSourceId],
+  );
+  const dissolvePropertyOptions = useMemo(
+    () => (dissolveSourceId ? getLayerColumns(dissolveSourceId) : []),
+    [dissolveSourceId, getLayerColumns],
+  );
+  const areaApportionPropertyOptions = useMemo(
+    () => (areaApportionSourceId ? getLayerColumns(areaApportionSourceId) : []),
+    [areaApportionSourceId, getLayerColumns],
+  );
+
+  const sidebarTabsDefinition = useMemo<Array<{ id: SidebarTabId; label: string; icon: IconType }>>(
+    () => [
+      { id: 'style', label: 'シンボル', icon: IoColorPaletteOutline },
+      { id: 'tools', label: '分析ツール', icon: IoConstructOutline },
+      { id: 'ai', label: 'AI分析', icon: IoAnalyticsOutline },
+    ],
+    [],
+  );
 
   useEffect(() => {
     setExpandedTables((previous) => {
@@ -409,11 +1854,13 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       if (existing) {
         return existing;
       }
-      const index = selectedFilePaths.indexOf(path);
-      const paletteColor = STYLE_COLOR_PALETTE[index % STYLE_COLOR_PALETTE.length] ?? DEFAULT_STYLE_SETTINGS.color;
+      const index = styleOrder.indexOf(path);
+      const fallbackIndex = index >= 0 ? index : styleOrder.length;
+      const paletteColor =
+        STYLE_COLOR_PALETTE[fallbackIndex % STYLE_COLOR_PALETTE.length] ?? DEFAULT_STYLE_SETTINGS.color;
       return { ...DEFAULT_STYLE_SETTINGS, color: paletteColor };
     },
-    [selectedFilePaths, styleSettingsMap],
+    [styleOrder, styleSettingsMap],
   );
 
   const activeStyleSettings = useMemo(() => {
@@ -819,6 +2266,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
     leafletLib.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       maxZoom: 19,
+      crossOrigin: true,
     }).addTo(map);
 
     mapInstanceRef.current = map;
@@ -1004,24 +2452,54 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       const rowsForDataset = dataset.rows;
 
       dataset.featureCollection.features.forEach((feature, index) => {
+        if (!feature.geometry) {
+          return;
+        }
         const row = rowsForDataset[index];
-        const sanitizedProperties: Record<string, unknown> = {};
+        const sanitizedRow: Record<string, unknown> = {};
         if (row && typeof row === 'object') {
           Object.entries(row as Record<string, unknown>).forEach(([key, value]) => {
             if (key !== 'geometry') {
-              sanitizedProperties[key] = value;
+              sanitizedRow[key] = value;
             }
           });
         }
 
+        const baseProperties = sanitizeProperties(feature.properties);
+
         features.push({
-          ...feature,
+          type: 'Feature',
+          geometry: cloneGeometry(feature.geometry),
           properties: {
-            ...(feature.properties ?? {}),
+            ...baseProperties,
             __feature_index: index,
             __source_path: path,
             __source_name: entry?.name ?? path.split('/').pop() ?? path,
-            ...sanitizedProperties,
+            ...sanitizedRow,
+          },
+        });
+      });
+    });
+
+    derivedLayers.forEach((layer) => {
+      if (!layer.visible || !layer.featureCollection) {
+        return;
+      }
+      layer.featureCollection.features.forEach((feature, index) => {
+        if (!feature.geometry) {
+          return;
+        }
+        const properties = sanitizeProperties(feature.properties);
+        features.push({
+          type: 'Feature',
+          geometry: cloneGeometry(feature.geometry),
+          properties: {
+            ...properties,
+            __feature_index: index,
+            __source_path: layer.id,
+            __source_name: layer.name,
+            __derived_type: layer.type,
+            __origin_paths: layer.sourcePaths,
           },
         });
       });
@@ -1033,7 +2511,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
           features,
         } as FeatureCollection)
       : null;
-  }, [datasets, gisFileMap, selectedFilePaths]);
+  }, [datasets, derivedLayers, gisFileMap, selectedFilePaths]);
 
   useEffect(() => {
     const mapInstance = mapInstanceRef.current;
@@ -1632,192 +3110,733 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       </main>
 
       <aside className="w-80 flex-shrink-0 border-l border-gray-200 bg-white/80 p-4 overflow-y-auto dark:border-gray-800 dark:bg-gray-900/60">
-        <div className="mb-4">
-          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">シンボル設定</h2>
-          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            選択中のカラムを地図上にどのように表現するかを調整できます。
-          </p>
+        <div className="flex items-center gap-2">
+          {sidebarTabsDefinition.map((item) => {
+            const Icon = item.icon;
+            const isActive = sidebarTab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setSidebarTab(item.id)}
+                className={`flex flex-1 flex-col items-center gap-1 rounded-md border px-3 py-2 text-xs font-medium transition ${
+                  isActive
+                    ? 'border-blue-500 bg-blue-50 text-blue-600 shadow-sm dark:border-blue-400 dark:bg-blue-900/40 dark:text-blue-200'
+                    : 'border-transparent text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800'
+                }`}
+                aria-pressed={isActive}
+              >
+                <Icon size={18} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
         </div>
 
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-300">ベースカラー</label>
-            <input
-              type="color"
-              value={activeStyleSettings.color}
-              onChange={(event) => updateActiveStyleSettings((prev) => ({ ...prev, color: event.target.value }))}
-              className="mt-1 h-10 w-full cursor-pointer rounded border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-300">明度</label>
-            <input
-              type="range"
-              min={-50}
-              max={50}
-              value={activeStyleSettings.brightness}
-              onChange={(event) => updateActiveStyleSettings((prev) => ({ ...prev, brightness: Number(event.target.value) }))}
-              className="mt-2 w-full"
-            />
-            <div className="mt-1 text-right text-xs text-gray-500 dark:text-gray-400">{activeStyleSettings.brightness}</div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-300">透明度</label>
-            <input
-              type="range"
-              min={10}
-              max={100}
-              value={activeStyleSettings.fillOpacity}
-              onChange={(event) => updateActiveStyleSettings((prev) => ({ ...prev, fillOpacity: Number(event.target.value) }))}
-              className="mt-2 w-full"
-            />
-            <div className="mt-1 text-right text-xs text-gray-500 dark:text-gray-400">{activeStyleSettings.fillOpacity}%</div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-300">ポイント半径</label>
-            <input
-              type="range"
-              min={2}
-              max={20}
-              value={activeStyleSettings.pointRadius}
-              onChange={(event) => updateActiveStyleSettings((prev) => ({ ...prev, pointRadius: Number(event.target.value) }))}
-              className="mt-2 w-full"
-            />
-            <div className="mt-1 text-right text-xs text-gray-500 dark:text-gray-400">{activeStyleSettings.pointRadius}px</div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-300">ライン太さ</label>
-            <input
-              type="range"
-              min={1}
-              max={10}
-              value={activeStyleSettings.lineWeight}
-              onChange={(event) => updateActiveStyleSettings((prev) => ({ ...prev, lineWeight: Number(event.target.value) }))}
-              className="mt-2 w-full"
-            />
-            <div className="mt-1 text-right text-xs text-gray-500 dark:text-gray-400">{activeStyleSettings.lineWeight}px</div>
-          </div>
-
-          <div className="rounded border border-gray-200 p-3 dark:border-gray-700">
-            <label className="flex items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-300">
-              <input
-                type="checkbox"
-                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                checked={activeStyleSettings.valueDriven && isNumericColumn}
-                onChange={(event) => updateActiveStyleSettings((prev) => ({
-                  ...prev,
-                  valueDriven: isNumericColumn ? event.target.checked : false,
-                }))}
-                disabled={!isNumericColumn}
-              />
-              値に応じて色を変化
-            </label>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              数値カラムの場合、値の大小に合わせて色を自動調整します。
-            </p>
-
-            <label className="mt-3 block text-xs font-medium text-gray-600 dark:text-gray-300">
-              値の強調度
-            </label>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={activeStyleSettings.valueIntensity}
-              onChange={(event) => updateActiveStyleSettings((prev) => ({ ...prev, valueIntensity: Number(event.target.value) }))}
-              disabled={!activeStyleSettings.valueDriven || !isNumericColumn}
-              className="mt-2 w-full"
-            />
-            <div className="mt-1 text-right text-xs text-gray-500 dark:text-gray-400">
-              {activeStyleSettings.valueIntensity}%
-            </div>
-          </div>
-
-          {activeNumericStats && activeSelectedColumn && (
-            <div className="rounded border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800/40 dark:text-gray-300">
-              <div className="font-semibold">{activeSelectedColumn} の統計</div>
-              <div className="mt-2 flex flex-col gap-1">
-                <div>最小値: {activeNumericStats.min.toLocaleString()}</div>
-                <div>最大値: {activeNumericStats.max.toLocaleString()}</div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="mt-8 border-t border-gray-200 pt-4 dark:border-gray-800">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">ChatGPTに分析を依頼</h2>
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                地図に表示しているデータの傾向や注目ポイントをAIに解説してもらえます。
-              </p>
-            </div>
-          </div>
-
-          <label className="mt-4 block text-xs font-medium text-gray-600 dark:text-gray-300" htmlFor="gis-ai-prompt">
-            追加で伝えたいこと（任意）
-          </label>
-          <textarea
-            id="gis-ai-prompt"
-            value={analysisPrompt}
-            onChange={(event) => setAnalysisPrompt(event.target.value)}
-            rows={3}
-            placeholder="例: 東京23区の中で値が高いエリアの理由を知りたい"
-            className="mt-1 w-full rounded border border-gray-200 bg-white p-2 text-xs text-gray-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:focus:border-blue-400"
-          />
-
-          <button
-            type="button"
-            onClick={() => { void handleRequestAiAnalysis(); }}
-            disabled={!canRequestAiAnalysis || aiAnalysisLoading}
-            className="mt-3 flex w-full items-center justify-center gap-2 rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300 dark:bg-blue-500 dark:hover:bg-blue-600 dark:disabled:bg-blue-800/60"
-          >
-            {aiAnalysisLoading ? (
-              <>
-                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
-                生成中...
-              </>
-            ) : (
-              <>
-                <IoSparkles size={16} />
-                ChatGPTに分析してもらう
-              </>
-            )}
-          </button>
-
-          {!canRequestAiAnalysis && !aiAnalysisLoading && (
-            <p className="mt-2 flex items-start gap-2 text-xs text-gray-500 dark:text-gray-400">
-              <IoWarningOutline size={14} className="mt-0.5 flex-shrink-0" />
-              地図にデータを読み込むと分析を依頼できます。対応ファイルを選択し、プロットを表示してください。
-            </p>
-          )}
-
-          {aiAnalysisError && (
-            <div className="mt-2 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-900/40 dark:text-red-300">
-              {aiAnalysisError}
-            </div>
-          )}
-
-          {aiAnalysisResult && (
-            <div className="mt-4 space-y-4">
+        <div className="mt-4 space-y-4">
+          {sidebarTab === 'style' && (
+            <>
               <div>
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">要点</h3>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-relaxed text-gray-700 dark:text-gray-300">
-                  {aiAnalysisResult.bulletSummary.map((item, index) => (
-                    <li key={`gis-ai-bullet-${index}`}>{item}</li>
-                  ))}
-                </ul>
+                <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">シンボル設定</h2>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  選択中のカラムを地図上にどのように表現するかを調整できます。
+                </p>
               </div>
-              <div>
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Markdownレポート</h3>
-                <div className="mt-2 max-h-64 overflow-y-auto rounded border border-gray-200 bg-white p-3 text-xs leading-relaxed text-gray-800 shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{aiAnalysisResult.markdown}</ReactMarkdown>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-300">ベースカラー</label>
+                  <input
+                    type="color"
+                    value={activeStyleSettings.color}
+                    onChange={(event) => updateActiveStyleSettings((prev) => ({ ...prev, color: event.target.value }))}
+                    className="mt-1 h-10 w-full cursor-pointer rounded border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800"
+                  />
                 </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-300">明度</label>
+                  <input
+                    type="range"
+                    min={-50}
+                    max={50}
+                    value={activeStyleSettings.brightness}
+                    onChange={(event) => updateActiveStyleSettings((prev) => ({ ...prev, brightness: Number(event.target.value) }))}
+                    className="mt-2 w-full"
+                  />
+                  <div className="mt-1 text-right text-xs text-gray-500 dark:text-gray-400">{activeStyleSettings.brightness}</div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-300">透明度</label>
+                  <input
+                    type="range"
+                    min={10}
+                    max={100}
+                    value={activeStyleSettings.fillOpacity}
+                    onChange={(event) => updateActiveStyleSettings((prev) => ({ ...prev, fillOpacity: Number(event.target.value) }))}
+                    className="mt-2 w-full"
+                  />
+                  <div className="mt-1 text-right text-xs text-gray-500 dark:text-gray-400">{activeStyleSettings.fillOpacity}%</div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-300">ポイント半径</label>
+                  <input
+                    type="range"
+                    min={2}
+                    max={20}
+                    value={activeStyleSettings.pointRadius}
+                    onChange={(event) => updateActiveStyleSettings((prev) => ({ ...prev, pointRadius: Number(event.target.value) }))}
+                    className="mt-2 w-full"
+                  />
+                  <div className="mt-1 text-right text-xs text-gray-500 dark:text-gray-400">{activeStyleSettings.pointRadius}px</div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-300">ライン太さ</label>
+                  <input
+                    type="range"
+                    min={1}
+                    max={10}
+                    value={activeStyleSettings.lineWeight}
+                    onChange={(event) => updateActiveStyleSettings((prev) => ({ ...prev, lineWeight: Number(event.target.value) }))}
+                    className="mt-2 w-full"
+                  />
+                  <div className="mt-1 text-right text-xs text-gray-500 dark:text-gray-400">{activeStyleSettings.lineWeight}px</div>
+                </div>
+
+                <div className="rounded border border-gray-200 p-3 dark:border-gray-700">
+                  <label className="flex items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-300">
+                    <input
+                      type="checkbox"
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      checked={activeStyleSettings.valueDriven && isNumericColumn}
+                      onChange={(event) =>
+                        updateActiveStyleSettings((prev) => ({
+                          ...prev,
+                          valueDriven: isNumericColumn ? event.target.checked : false,
+                        }))
+                      }
+                      disabled={!isNumericColumn}
+                    />
+                    値に応じて色を変化
+                  </label>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    数値カラムの場合、値の大小に合わせて色を自動調整します。
+                  </p>
+
+                  <label className="mt-3 block text-xs font-medium text-gray-600 dark:text-gray-300">値の強調度</label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={activeStyleSettings.valueIntensity}
+                    onChange={(event) =>
+                      updateActiveStyleSettings((prev) => ({ ...prev, valueIntensity: Number(event.target.value) }))
+                    }
+                    disabled={!activeStyleSettings.valueDriven || !isNumericColumn}
+                    className="mt-2 w-full"
+                  />
+                  <div className="mt-1 text-right text-xs text-gray-500 dark:text-gray-400">
+                    {activeStyleSettings.valueIntensity}%
+                  </div>
+                </div>
+
+                {activeNumericStats && activeSelectedColumn && (
+                  <div className="rounded border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800/40 dark:text-gray-300">
+                    <div className="font-semibold">{activeSelectedColumn} の統計</div>
+                    <div className="mt-2 flex flex-col gap-1">
+                      <div>最小値: {activeNumericStats.min.toLocaleString()}</div>
+                      <div>最大値: {activeNumericStats.max.toLocaleString()}</div>
+                    </div>
+                  </div>
+                )}
               </div>
+            </>
+          )}
+
+          {sidebarTab === 'tools' && (
+            <div className="space-y-4 text-xs text-gray-600 dark:text-gray-300">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">空間分析ツール</h2>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  表示中の地物を加工して新しいレイヤーを作成したり、結果をエクスポートできます。
+                </p>
+              </div>
+
+              {toolsFeedback && (
+                <div
+                  className={`rounded border px-3 py-2 text-xs ${
+                    toolsFeedback.kind === 'error'
+                      ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-200'
+                      : 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-200'
+                  }`}
+                >
+                  {toolsFeedback.message}
+                </div>
+              )}
+
+              <section className="rounded border border-gray-200 bg-white/70 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/60">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">カーネル密度推定</h3>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">点データの集中度を格子状に評価します。</p>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">対象レイヤー</label>
+                <select
+                  value={kernelSourceId}
+                  onChange={(event) => setKernelSourceId(event.target.value)}
+                  disabled={pointLayerEntries.length === 0}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  {pointLayerEntries.map((entry) => (
+                    <option key={`kernel-source-${entry.id}`} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-300">セルサイズ (km)</label>
+                    <input
+                      type="number"
+                      min={0.1}
+                      step={0.1}
+                      value={kernelCellSizeKm}
+                      onChange={(event) => setKernelCellSizeKm(Number(event.target.value) || 0)}
+                      className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-300">バンド幅 (km)</label>
+                    <input
+                      type="number"
+                      min={0.1}
+                      step={0.1}
+                      value={kernelBandwidthKm}
+                      onChange={(event) => setKernelBandwidthKm(Number(event.target.value) || 0)}
+                      className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                    />
+                  </div>
+                </div>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">重みのカラム</label>
+                <select
+                  value={kernelWeightProperty}
+                  onChange={(event) => setKernelWeightProperty(event.target.value)}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  <option value="">なし</option>
+                  {kernelWeightOptions.map((column) => (
+                    <option key={`kernel-weight-${column}`} value={column}>
+                      {column}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleCreateKernelDensity}
+                  disabled={pointLayerEntries.length === 0}
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300 dark:bg-blue-500 dark:hover:bg-blue-600 dark:disabled:bg-blue-800/60"
+                >
+                  カーネル密度レイヤーを作成
+                </button>
+                {pointLayerEntries.length === 0 && (
+                  <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">点データを読み込むと利用できます。</p>
+                )}
+              </section>
+
+              <section className="rounded border border-gray-200 bg-white/70 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/60">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">バッファ</h3>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">地物を指定距離で囲むエリアを作成します。</p>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">対象レイヤー</label>
+                <select
+                  value={bufferSourceId}
+                  onChange={(event) => setBufferSourceId(event.target.value)}
+                  disabled={layerEntries.length === 0}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  {layerEntries.map((entry) => (
+                    <option key={`buffer-source-${entry.id}`} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-300">距離</label>
+                    <input
+                      type="number"
+                      min={0.1}
+                      step={0.1}
+                      value={bufferDistance}
+                      onChange={(event) => setBufferDistance(Number(event.target.value) || 0)}
+                      className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-300">単位</label>
+                    <select
+                      value={bufferUnits}
+                      onChange={(event) => setBufferUnits(event.target.value as typeof bufferUnits)}
+                      className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                    >
+                      <option value="kilometers">キロメートル</option>
+                      <option value="meters">メートル</option>
+                    </select>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCreateBuffer}
+                  disabled={layerEntries.length === 0}
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300 dark:bg-blue-500 dark:hover:bg-blue-600 dark:disabled:bg-blue-800/60"
+                >
+                  バッファを作成
+                </button>
+                {layerEntries.length === 0 && (
+                  <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">対象となるレイヤーを読み込んでください。</p>
+                )}
+              </section>
+
+              <section className="rounded border border-gray-200 bg-white/70 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/60">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">マージ</h3>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">ポリゴン地物を一つの形状に結合します。</p>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">対象レイヤー</label>
+                <select
+                  value={mergeSourceId}
+                  onChange={(event) => setMergeSourceId(event.target.value)}
+                  disabled={polygonLayerEntries.length === 0}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  {polygonLayerEntries.map((entry) => (
+                    <option key={`merge-source-${entry.id}`} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleCreateMerge}
+                  disabled={polygonLayerEntries.length === 0}
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300 dark:bg-blue-500 dark:hover:bg-blue-600 dark:disabled:bg-blue-800/60"
+                >
+                  ポリゴンをマージ
+                </button>
+                {polygonLayerEntries.length === 0 && (
+                  <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">ポリゴン地物を含むレイヤーが必要です。</p>
+                )}
+              </section>
+
+              <section className="rounded border border-gray-200 bg-white/70 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/60">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">ディゾルブ</h3>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">指定したカラムの値ごとに隣接するポリゴンをまとめます。</p>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">対象レイヤー</label>
+                <select
+                  value={dissolveSourceId}
+                  onChange={(event) => setDissolveSourceId(event.target.value)}
+                  disabled={polygonLayerEntries.length === 0}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  {polygonLayerEntries.map((entry) => (
+                    <option key={`dissolve-source-${entry.id}`} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">グループ化カラム</label>
+                <select
+                  value={dissolveProperty}
+                  onChange={(event) => setDissolveProperty(event.target.value)}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  <option value="">すべてまとめる</option>
+                  {dissolvePropertyOptions.map((column) => (
+                    <option key={`dissolve-column-${column}`} value={column}>
+                      {column}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleCreateDissolve}
+                  disabled={polygonLayerEntries.length === 0}
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300 dark:bg-blue-500 dark:hover:bg-blue-600 dark:disabled:bg-blue-800/60"
+                >
+                  ディゾルブを実行
+                </button>
+                {polygonLayerEntries.length === 0 && (
+                  <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">ポリゴンレイヤーを読み込むと利用できます。</p>
+                )}
+              </section>
+
+              <section className="rounded border border-gray-200 bg-white/70 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/60">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">インターセクト</h3>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">2つのポリゴンレイヤーの交差部分を抽出します。</p>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">レイヤーA</label>
+                <select
+                  value={intersectSourceAId}
+                  onChange={(event) => setIntersectSourceAId(event.target.value)}
+                  disabled={polygonLayerEntries.length === 0}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  {polygonLayerEntries.map((entry) => (
+                    <option key={`intersect-a-${entry.id}`} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">レイヤーB</label>
+                <select
+                  value={intersectSourceBId}
+                  onChange={(event) => setIntersectSourceBId(event.target.value)}
+                  disabled={polygonLayerEntries.length < 2}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  {polygonLayerEntries.map((entry) => (
+                    <option key={`intersect-b-${entry.id}`} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleCreateIntersect}
+                  disabled={polygonLayerEntries.length < 1 || !intersectSourceAId || !intersectSourceBId || polygonLayerEntries.length < 2}
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300 dark:bg-blue-500 dark:hover:bg-blue-600 dark:disabled:bg-blue-800/60"
+                >
+                  交差領域を抽出
+                </button>
+                {polygonLayerEntries.length < 2 && (
+                  <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">異なる2つのポリゴンレイヤーを用意してください。</p>
+                )}
+              </section>
+
+              <section className="rounded border border-gray-200 bg-white/70 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/60">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">クリップ</h3>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">マスクレイヤー内に含まれるポリゴン部分だけを切り出します。</p>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">対象レイヤー</label>
+                <select
+                  value={clipSourceId}
+                  onChange={(event) => setClipSourceId(event.target.value)}
+                  disabled={polygonLayerEntries.length === 0}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  {polygonLayerEntries.map((entry) => (
+                    <option key={`clip-source-${entry.id}`} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">マスクレイヤー</label>
+                <select
+                  value={clipMaskId}
+                  onChange={(event) => setClipMaskId(event.target.value)}
+                  disabled={polygonLayerEntries.length < 2}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  {polygonLayerEntries.map((entry) => (
+                    <option key={`clip-mask-${entry.id}`} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleCreateClip}
+                  disabled={
+                    polygonLayerEntries.length < 2 || !clipSourceId || !clipMaskId || clipSourceId === clipMaskId
+                  }
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300 dark:bg-blue-500 dark:hover:bg-blue-600 dark:disabled:bg-blue-800/60"
+                >
+                  マスクでクリップ
+                </button>
+                {polygonLayerEntries.length < 2 && (
+                  <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">クリップには2つ以上のポリゴンレイヤーが必要です。</p>
+                )}
+              </section>
+
+              <section className="rounded border border-gray-200 bg-white/70 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/60">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">イレース</h3>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">除外レイヤーの範囲を差し引いたポリゴンを作成します。</p>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">対象レイヤー</label>
+                <select
+                  value={eraseSourceId}
+                  onChange={(event) => setEraseSourceId(event.target.value)}
+                  disabled={polygonLayerEntries.length === 0}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  {polygonLayerEntries.map((entry) => (
+                    <option key={`erase-source-${entry.id}`} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">除外レイヤー</label>
+                <select
+                  value={eraseMaskId}
+                  onChange={(event) => setEraseMaskId(event.target.value)}
+                  disabled={polygonLayerEntries.length < 2}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  {polygonLayerEntries.map((entry) => (
+                    <option key={`erase-mask-${entry.id}`} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleCreateErase}
+                  disabled={
+                    polygonLayerEntries.length < 2 || !eraseSourceId || !eraseMaskId || eraseSourceId === eraseMaskId
+                  }
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300 dark:bg-blue-500 dark:hover:bg-blue-600 dark:disabled:bg-blue-800/60"
+                >
+                  領域を削除
+                </button>
+                {polygonLayerEntries.length < 2 && (
+                  <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">イレースには除外用のレイヤーが必要です。</p>
+                )}
+              </section>
+
+              <section className="rounded border border-gray-200 bg-white/70 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/60">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">面積按分</h3>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">ソースレイヤーの数値をポリゴンの重なり面積でターゲットへ配分します。</p>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">ソースレイヤー</label>
+                <select
+                  value={areaApportionSourceId}
+                  onChange={(event) => setAreaApportionSourceId(event.target.value)}
+                  disabled={polygonLayerEntries.length === 0}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  {polygonLayerEntries.map((entry) => (
+                    <option key={`apportion-source-${entry.id}`} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">ターゲットレイヤー</label>
+                <select
+                  value={areaApportionTargetId}
+                  onChange={(event) => setAreaApportionTargetId(event.target.value)}
+                  disabled={polygonLayerEntries.length < 2}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  {polygonLayerEntries.map((entry) => (
+                    <option key={`apportion-target-${entry.id}`} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">按分するカラム</label>
+                <select
+                  value={areaApportionProperty}
+                  onChange={(event) => setAreaApportionProperty(event.target.value)}
+                  disabled={areaApportionPropertyOptions.length === 0}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  {areaApportionPropertyOptions.length === 0 ? (
+                    <option value="">利用できるカラムがありません</option>
+                  ) : (
+                    areaApportionPropertyOptions.map((column) => (
+                      <option key={`apportion-column-${column}`} value={column}>
+                        {column}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">出力カラム名</label>
+                <input
+                  type="text"
+                  value={areaApportionOutputProperty}
+                  onChange={(event) => setAreaApportionOutputProperty(event.target.value)}
+                  placeholder="例: apportioned_value"
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                />
+                <button
+                  type="button"
+                  onClick={handleCreateAreaApportion}
+                  disabled={
+                    polygonLayerEntries.length < 2 || areaApportionPropertyOptions.length === 0 || !areaApportionProperty
+                  }
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300 dark:bg-blue-500 dark:hover:bg-blue-600 dark:disabled:bg-blue-800/60"
+                >
+                  面積按分を実行
+                </button>
+                {(polygonLayerEntries.length < 2 || areaApportionPropertyOptions.length === 0) && (
+                  <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+                    ソースとターゲットの2つのポリゴンレイヤーと、数値カラムが必要です。
+                  </p>
+                )}
+              </section>
+
+              <section className="rounded border border-gray-200 bg-white/70 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/60">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">生成済みレイヤー</h3>
+                  <span className="text-[11px] text-gray-400 dark:text-gray-500">{derivedLayers.length}件</span>
+                </div>
+                {derivedLayers.length === 0 ? (
+                  <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">まだ生成したレイヤーはありません。</p>
+                ) : (
+                  <ul className="mt-3 space-y-2">
+                    {derivedLayers.map((layer) => (
+                      <li
+                        key={`derived-layer-${layer.id}`}
+                        className="rounded border border-gray-200 bg-white/80 p-3 text-[11px] shadow-sm dark:border-gray-700 dark:bg-gray-900/50"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="space-y-1">
+                            <div className="text-sm font-semibold text-gray-700 dark:text-gray-200">{layer.name}</div>
+                            <div className="text-[11px] text-gray-500 dark:text-gray-400">
+                              種別: {DERIVED_TYPE_LABELS[layer.type]} / 元データ:{' '}
+                              {layer.sourcePaths.map((source) => getLayerDisplayName(source)).join(', ')}
+                            </div>
+                            {layer.description && (
+                              <div className="text-[11px] text-gray-500 dark:text-gray-400">{layer.description}</div>
+                            )}
+                            <div className="text-[10px] text-gray-400 dark:text-gray-500">
+                              作成: {new Date(layer.createdAt).toLocaleString('ja-JP')}
+                            </div>
+                          </div>
+                          <div className="flex flex-col items-end gap-2">
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => toggleDerivedLayerVisibility(layer.id)}
+                                className={`rounded-full border px-2 py-1 transition ${
+                                  layer.visible
+                                    ? 'border-blue-500 text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-200 dark:hover:bg-blue-900/40'
+                                    : 'border-gray-300 text-gray-500 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800'
+                                }`}
+                                aria-label={layer.visible ? 'レイヤーを非表示にする' : 'レイヤーを表示する'}
+                              >
+                                {layer.visible ? <IoEyeOutline size={16} /> : <IoEyeOffOutline size={16} />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleExportDerivedLayer(layer.id)}
+                                className="rounded-full border border-gray-300 px-2 py-1 text-gray-500 transition hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                                aria-label="レイヤーをエクスポート"
+                              >
+                                <IoDownloadOutline size={16} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeDerivedLayer(layer.id)}
+                                className="rounded-full border border-gray-300 px-2 py-1 text-gray-500 transition hover:bg-red-50 hover:text-red-600 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-red-900/40 dark:hover:text-red-200"
+                                aria-label="レイヤーを削除"
+                              >
+                                <IoTrashOutline size={16} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              <section className="rounded border border-gray-200 bg-white/70 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/60">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">エクスポート</h3>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">表示中の地物やマップを保存できます。</p>
+                <div className="mt-3 space-y-2">
+                  <button
+                    type="button"
+                    onClick={handleExportCombinedGeoJson}
+                    disabled={!combinedFeatureCollection}
+                    className="flex w-full items-center justify-center gap-2 rounded border border-blue-500 px-3 py-2 text-xs font-semibold text-blue-600 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-300 disabled:text-gray-400 dark:border-blue-400 dark:text-blue-200 dark:hover:bg-blue-900/40 dark:disabled:border-gray-700 dark:disabled:text-gray-500"
+                  >
+                    GeoJSONとして保存
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleExportMapImage();
+                    }}
+                    disabled={isExportingMap}
+                    className="flex w-full items-center justify-center gap-2 rounded border border-blue-500 px-3 py-2 text-xs font-semibold text-blue-600 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-300 disabled:text-gray-400 dark:border-blue-400 dark:text-blue-200 dark:hover:bg-blue-900/40 dark:disabled:border-gray-700 dark:disabled:text-gray-500"
+                  >
+                    {isExportingMap ? '画像を書き出し中…' : 'マップ画像を保存'}
+                  </button>
+                </div>
+              </section>
+            </div>
+          )}
+
+          {sidebarTab === 'ai' && (
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">ChatGPTに分析を依頼</h2>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  地図に表示しているデータの傾向や注目ポイントをAIに解説してもらえます。
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-300" htmlFor="gis-ai-prompt">
+                  追加で伝えたいこと（任意）
+                </label>
+                <textarea
+                  id="gis-ai-prompt"
+                  value={analysisPrompt}
+                  onChange={(event) => setAnalysisPrompt(event.target.value)}
+                  rows={4}
+                  placeholder="例: 東京23区の中で値が高いエリアの理由を知りたい"
+                  className="mt-1 w-full rounded border border-gray-200 bg-white p-2 text-xs text-gray-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:focus:border-blue-400"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  void handleRequestAiAnalysis();
+                }}
+                disabled={!canRequestAiAnalysis || aiAnalysisLoading}
+                className="flex w-full items-center justify-center gap-2 rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300 dark:bg-blue-500 dark:hover:bg-blue-600 dark:disabled:bg-blue-800/60"
+              >
+                {aiAnalysisLoading ? (
+                  <>
+                    <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                    生成中...
+                  </>
+                ) : (
+                  <>
+                    <IoSparkles size={16} />
+                    ChatGPTに分析してもらう
+                  </>
+                )}
+              </button>
+
+              {!canRequestAiAnalysis && !aiAnalysisLoading && (
+                <p className="mt-2 flex items-start gap-2 text-xs text-gray-500 dark:text-gray-400">
+                  <IoWarningOutline size={14} className="mt-0.5 flex-shrink-0" />
+                  地図にデータを読み込むと分析を依頼できます。対応ファイルを選択し、プロットを表示してください。
+                </p>
+              )}
+
+              {aiAnalysisError && (
+                <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-900/40 dark:text-red-300">
+                  {aiAnalysisError}
+                </div>
+              )}
+
+              {aiAnalysisResult && (
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">要点</h3>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-relaxed text-gray-700 dark:text-gray-300">
+                      {aiAnalysisResult.bulletSummary.map((item, index) => (
+                        <li key={`gis-ai-bullet-${index}`}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Markdownレポート</h3>
+                    <div className="mt-2 max-h-64 overflow-y-auto rounded border border-gray-200 bg-white p-3 text-xs leading-relaxed text-gray-800 shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{aiAnalysisResult.markdown}</ReactMarkdown>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

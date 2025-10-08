@@ -328,6 +328,21 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   }, [tabId, tabs]);
   
   // タブのコンテンツが外部（エディタなど）で変更された場合に更新
+  const applyGisResult = useCallback(
+    (result: GisParseResult) => {
+      if (result.error) {
+        setError(result.error);
+        return false;
+      }
+
+      setParsedData(result.rows);
+      setOriginalData(result.rows);
+      setColumns(result.columns);
+      return true;
+    },
+    [setColumns, setError, setOriginalData, setParsedData],
+  );
+
   useEffect(() => {
     const tab = tabs.get(tabId);
 
@@ -347,17 +362,6 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
 
       throw new Error('バイナリデータの読み込みに失敗しました');
     };
-
-    const applyGisResult = (result: GisParseResult) => {
-      if (result.error) {
-        setError(result.error);
-        return false;
-      }
-      setParsedData(result.rows);
-      setOriginalData(result.rows);
-      setColumns(result.columns);
-      return true;
-    };
     if (!tab || tab.content === content) return;
     
     // 編集中でない場合のみコンテンツを更新
@@ -375,7 +379,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
       }
       parseContent(tab.content, mappedType);
     }
-  }, [tabs, tabId, isEditing, isTableEditing]);
+  }, [applyGisResult, tabs, tabId, isEditing, isTableEditing]);
   
   // データ表示モードが変更された時にデータを更新
   useEffect(() => {
