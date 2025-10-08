@@ -1462,58 +1462,62 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
     }
   }, [activeTab, gisFileMap, selectedFilePaths.length, setActiveFilePath, tabId]);
 
-  const renderMapPlaceholder = () => {
+  const renderMapOverlay = () => {
+    const renderCenteredOverlay = (content: React.ReactNode) => (
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <div className="pointer-events-auto">{content}</div>
+      </div>
+    );
+
     if (leafletError) {
-      return (
-        <div className="flex h-full items-center justify-center">
-          <div className="max-w-md rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/60 dark:bg-red-900/40 dark:text-red-200">
-            <div className="font-medium">地図表示の初期化に失敗しました</div>
-            <div className="mt-1 whitespace-pre-line leading-relaxed">{leafletError}</div>
-          </div>
-        </div>
+      return renderCenteredOverlay(
+        <div className="max-w-md rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/60 dark:bg-red-900/40 dark:text-red-200">
+          <div className="font-medium">地図表示の初期化に失敗しました</div>
+          <div className="mt-1 whitespace-pre-line leading-relaxed">{leafletError}</div>
+        </div>,
       );
     }
 
     if (activeError && (!combinedFeatureCollection || combinedFeatureCollection.features.length === 0)) {
-      return (
-        <div className="flex h-full items-center justify-center">
-          <div className="max-w-md rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/60 dark:bg-red-900/40 dark:text-red-200">
-            <div className="font-medium">GISデータの読み込みに失敗しました</div>
-            <div className="mt-1 whitespace-pre-line leading-relaxed">{activeError}</div>
-          </div>
-        </div>
+      return renderCenteredOverlay(
+        <div className="max-w-md rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/60 dark:bg-red-900/40 dark:text-red-200">
+          <div className="font-medium">GISデータの読み込みに失敗しました</div>
+          <div className="mt-1 whitespace-pre-line leading-relaxed">{activeError}</div>
+        </div>,
       );
     }
 
     if (leafletLoading || !leafletLib || !mapInstanceRef.current) {
-      return (
-        <div className="flex h-full items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+      return renderCenteredOverlay(
+        <div className="rounded bg-white/80 px-4 py-2 text-sm text-gray-600 shadow-sm dark:bg-gray-900/70 dark:text-gray-300">
           OpenStreetMapを初期化しています…
-        </div>
+        </div>,
       );
     }
 
     if (isAnyLoading && (!combinedFeatureCollection || combinedFeatureCollection.features.length === 0)) {
-      return (
-        <div className="flex h-full items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+      return renderCenteredOverlay(
+        <div className="rounded bg-white/80 px-4 py-2 text-sm text-gray-600 shadow-sm dark:bg-gray-900/70 dark:text-gray-300">
           GISデータを解析しています…
-        </div>
+        </div>,
       );
     }
 
     if (selectedFilePaths.length === 0) {
       return (
-        <div className="flex h-full items-center justify-center text-center text-sm text-gray-500 dark:text-gray-400">
-          左サイドバーのGISファイルから表示したいデータを選択してください。
+        <div className="pointer-events-none absolute inset-x-0 bottom-6 flex justify-center">
+          <div className="pointer-events-auto rounded border border-gray-200 bg-white/85 px-4 py-2 text-center text-sm text-gray-600 shadow-sm backdrop-blur dark:border-gray-700 dark:bg-gray-900/70 dark:text-gray-300">
+            左サイドバーのGISファイルから表示したいデータを選択してください。
+          </div>
         </div>
       );
     }
 
     if (!combinedFeatureCollection || combinedFeatureCollection.features.length === 0) {
-      return (
-        <div className="flex h-full items-center justify-center text-center text-sm text-gray-500 dark:text-gray-400">
+      return renderCenteredOverlay(
+        <div className="rounded border border-gray-200 bg-white/85 px-4 py-2 text-center text-sm text-gray-600 shadow-sm backdrop-blur dark:border-gray-700 dark:bg-gray-900/70 dark:text-gray-300">
           選択したファイルに表示可能な地物がありません。別のファイルまたはカラムを選択してください。
-        </div>
+        </div>,
       );
     }
 
@@ -1527,7 +1531,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       <main className="relative flex flex-1 flex-col">
         <div className="relative flex-1">
           <div ref={mapContainerRef} className="relative z-0 h-full w-full" />
-          {renderMapPlaceholder()}
+          {renderMapOverlay()}
         </div>
         {selectedFilePaths.length > 0 && (
           <div className="max-h-64 overflow-y-auto border-t border-gray-200 bg-white/90 text-xs dark:border-gray-800 dark:bg-gray-900/60">
