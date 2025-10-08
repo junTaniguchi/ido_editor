@@ -1238,6 +1238,8 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
                     initialView={cellView}
                     activeView={cellView}
                     onViewChange={(view) => setNotebookCellViews(prev => ({ ...prev, [cell.id]: view }))}
+                    dataDisplayMode={editorSettings.dataDisplayMode}
+                    onToggleDataDisplayMode={toggleDisplayMode}
                   />
                 ) : (
                   <div className="border border-gray-200 rounded p-4 text-sm text-gray-500">
@@ -1277,6 +1279,8 @@ const MultiFileAnalysis: React.FC<MultiFileAnalysisProps> = ({ onClose }) => {
         onEditedRowsChange={setEditedQueryResult}
         editingRows={editedQueryResult || dataToUse}
         chartTitle="クエリ結果でチャート作成"
+        dataDisplayMode={editorSettings.dataDisplayMode}
+        onToggleDataDisplayMode={toggleDisplayMode}
       />
     );
   };
