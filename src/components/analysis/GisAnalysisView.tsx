@@ -1888,27 +1888,6 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
     setExpandedTables((previous) => ({ ...previous, [path]: !previous[path] }));
   }, []);
 
-  const activeTab = useMemo(() => tabs.get(tabId) ?? null, [tabs, tabId]);
-  const gisFiles = useMemo(() => {
-    const baseEntries = collectGisFiles(rootFileTree);
-    if (isGisTab(activeTab) && !baseEntries.some((entry) => entry.path === activeTab.id)) {
-      const fileHandle = activeTab.file && typeof activeTab.file === 'object' && 'getFile' in activeTab.file
-        ? (activeTab.file as FileSystemFileHandle)
-        : undefined;
-      return [
-        {
-          path: activeTab.id,
-          name: activeTab.name,
-          type: activeTab.type as GisFileType,
-          fileHandle,
-        },
-        ...baseEntries,
-      ];
-    }
-    return baseEntries;
-  }, [activeTab, rootFileTree]);
-  const gisFileMap = useMemo(() => getFileEntryMap(gisFiles), [gisFiles]);
-
   const activeFileEntry = useMemo(() => {
     if (!activeFilePath) {
       return null;
