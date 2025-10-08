@@ -323,27 +323,15 @@ const MainLayoutContent: React.FC = () => {
   }, [isCloningRepo]);
 
   const canToggleViewMode = useMemo(() => {
-    return Boolean(activeTab && (fileTypeFlags.isPreviewableSpecialType || fileTypeFlags.isDataPreviewable || fileTypeFlags.isGisData));
-  }, [activeTab, fileTypeFlags.isDataPreviewable, fileTypeFlags.isGisData, fileTypeFlags.isPreviewableSpecialType]);
+    return Boolean(activeTab);
+  }, [activeTab]);
 
   const availableViewModes = useMemo<EditorViewMode[]>(() => {
     if (!activeTab) {
       return [activeTabViewMode];
     }
 
-    const modes: EditorViewMode[] = ['editor'];
-
-    if (fileTypeFlags.isPreviewableSpecialType || fileTypeFlags.isDataPreviewable || fileTypeFlags.isGisData) {
-      modes.push('preview');
-    }
-
-    if (fileTypeFlags.isDataPreviewable || fileTypeFlags.isGisData) {
-      modes.push('data-preview');
-    }
-
-    if (fileTypeFlags.isGisData) {
-      modes.push('gis-analysis');
-    }
+    const modes: EditorViewMode[] = ['editor', 'preview', 'data-preview', 'gis-analysis'];
 
     if ((fileTypeFlags.isDataPreviewable && !fileTypeFlags.isMermaid) || fileTypeFlags.isGisData) {
       modes.push('analysis');

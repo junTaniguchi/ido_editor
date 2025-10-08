@@ -194,7 +194,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
         isHelpVisible: sidebar === 'help' ? !isActive : false,
       });
 
-      if (sidebar === 'gis' && activeTabId && isGisData) {
+      if (sidebar === 'gis' && activeTabId) {
         if (isActive) {
           if (activeTabViewMode === 'gis-analysis') {
             setViewMode(activeTabId, 'editor');
@@ -204,7 +204,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
         }
       }
     },
-    [aiFeaturesEnabled, activeSidebar, activeTabId, activeTabViewMode, isGisData, setViewMode, updatePaneState]
+    [aiFeaturesEnabled, activeSidebar, activeTabId, activeTabViewMode, setViewMode, updatePaneState]
   );
 
   const showSearchPanel = paneState.isSearchVisible;
@@ -332,7 +332,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
       return null;
     }
 
-    if (activeTabViewMode === 'gis-analysis' && isGisData) {
+    if (activeTabViewMode === 'gis-analysis') {
       return (
         <div className="w-full h-full overflow-hidden">
           <GisAnalysisView tabId={activeTabId} />
