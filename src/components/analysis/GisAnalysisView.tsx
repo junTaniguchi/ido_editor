@@ -19,7 +19,9 @@ import {
   IoTrashOutline,
   IoWarningOutline,
 } from 'react-icons/io5';
+import area from '@turf/area';
 import buffer from '@turf/buffer';
+import difference from '@turf/difference';
 import intersect from '@turf/intersect';
 import union from '@turf/union';
 import { toPng } from 'html-to-image';
@@ -142,7 +144,15 @@ const DEFAULT_STYLE_SETTINGS: StyleSettings = {
   valueIntensity: 60,
 };
 
-type DerivedLayerType = 'kernel-density' | 'buffer' | 'merge' | 'intersect';
+type DerivedLayerType =
+  | 'kernel-density'
+  | 'buffer'
+  | 'merge'
+  | 'intersect'
+  | 'dissolve'
+  | 'clip'
+  | 'erase'
+  | 'area-apportion';
 
 interface DerivedLayer {
   id: string;
@@ -164,6 +174,10 @@ const DERIVED_TYPE_LABELS: Record<DerivedLayerType, string> = {
   buffer: 'バッファ',
   merge: 'マージ',
   intersect: 'インターセクト',
+  dissolve: 'ディゾルブ',
+  clip: 'クリップ',
+  erase: 'イレース',
+  'area-apportion': '面積按分',
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
@@ -196,6 +210,53 @@ const isPolygonGeometry = (geometry: Geometry | null): geometry is Polygon | Mul
     return false;
   }
   return geometry.type === 'Polygon' || geometry.type === 'MultiPolygon';
+};
+
+const collectPolygonFeatures = (
+  collection: FeatureCollection | null,
+  options: { keepProperties?: boolean } = {},
+): Feature<Polygon | MultiPolygon>[] => {
+  if (!collection) {
+    return [];
+  }
+
+  const keepProperties = options.keepProperties ?? false;
+  return collection.features
+    .filter((feature): feature is Feature<Polygon | MultiPolygon> => isPolygonGeometry(feature.geometry))
+    .map((feature) => ({
+      type: 'Feature',
+      geometry: cloneGeometry(feature.geometry) as Polygon | MultiPolygon,
+      properties: keepProperties ? sanitizeProperties(feature.properties) : {},
+    }));
+};
+
+const unionPolygonFeatures = (
+  features: Feature<Polygon | MultiPolygon>[],
+): Feature<Polygon | MultiPolygon> | null => {
+  let aggregated: Feature<Polygon | MultiPolygon> | null = null;
+  features.forEach((feature) => {
+    if (!aggregated) {
+      aggregated = {
+        type: 'Feature',
+        geometry: cloneGeometry(feature.geometry) as Polygon | MultiPolygon,
+        properties: {},
+      };
+      return;
+    }
+    try {
+      const result = union(aggregated as Feature<Polygon | MultiPolygon>, feature);
+      if (result && isPolygonGeometry(result.geometry)) {
+        aggregated = {
+          type: 'Feature',
+          geometry: cloneGeometry(result.geometry) as Polygon | MultiPolygon,
+          properties: {},
+        };
+      }
+    } catch (error) {
+      console.error('Failed to union polygons', error);
+    }
+  });
+  return aggregated;
 };
 
 const sanitizeProperties = (properties: unknown) => {
@@ -553,6 +614,16 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
   const [mergeSourceId, setMergeSourceId] = useState('');
   const [intersectSourceAId, setIntersectSourceAId] = useState('');
   const [intersectSourceBId, setIntersectSourceBId] = useState('');
+  const [dissolveSourceId, setDissolveSourceId] = useState('');
+  const [dissolveProperty, setDissolveProperty] = useState('');
+  const [clipSourceId, setClipSourceId] = useState('');
+  const [clipMaskId, setClipMaskId] = useState('');
+  const [eraseSourceId, setEraseSourceId] = useState('');
+  const [eraseMaskId, setEraseMaskId] = useState('');
+  const [areaApportionSourceId, setAreaApportionSourceId] = useState('');
+  const [areaApportionTargetId, setAreaApportionTargetId] = useState('');
+  const [areaApportionProperty, setAreaApportionProperty] = useState('');
+  const [areaApportionOutputProperty, setAreaApportionOutputProperty] = useState('apportioned_value');
   const [toolsFeedback, setToolsFeedback] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
   const [isExportingMap, setIsExportingMap] = useState(false);
 
@@ -589,27 +660,6 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
     () => [...selectedFilePaths, ...visibleDerivedLayerIds],
     [selectedFilePaths, visibleDerivedLayerIds],
   );
-
-  const activeTab = useMemo(() => tabs.get(tabId) ?? null, [tabs, tabId]);
-  const gisFiles = useMemo(() => {
-    const baseEntries = collectGisFiles(rootFileTree);
-    if (isGisTab(activeTab) && !baseEntries.some((entry) => entry.path === activeTab.id)) {
-      const fileHandle = activeTab.file && typeof activeTab.file === 'object' && 'getFile' in activeTab.file
-        ? (activeTab.file as FileSystemFileHandle)
-        : undefined;
-      return [
-        {
-          path: activeTab.id,
-          name: activeTab.name,
-          type: activeTab.type as GisFileType,
-          fileHandle,
-        },
-        ...baseEntries,
-      ];
-    }
-    return baseEntries;
-  }, [activeTab, rootFileTree]);
-  const gisFileMap = useMemo(() => getFileEntryMap(gisFiles), [gisFiles]);
 
   useEffect(() => {
     setStyleSettingsMap((previous) => {
@@ -700,45 +750,6 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       ),
     [layerEntries],
   );
-
-  const combinedFeatureCollection = useMemo(() => {
-    const features: FeatureCollection['features'] = [];
-
-    layerEntries.forEach((entry) => {
-      if (!entry.featureCollection) {
-        return;
-      }
-
-      entry.featureCollection.features.forEach((feature, index) => {
-        if (!feature.geometry) {
-          return;
-        }
-
-        const sourcePath = entry.source === 'derived' ? entry.id : entry.id;
-        const sourceName = entry.name;
-
-        const sanitizedProperties = sanitizeProperties(feature.properties);
-
-        features.push({
-          type: 'Feature',
-          geometry: cloneGeometry(feature.geometry),
-          properties: {
-            ...sanitizedProperties,
-            __feature_index: index,
-            __source_path: sourcePath,
-            __source_name: sourceName,
-          },
-        });
-      });
-    });
-
-    return features.length > 0
-      ? ({
-          type: 'FeatureCollection',
-          features,
-        } as FeatureCollection)
-      : null;
-  }, [layerEntries]);
 
   const getLayerDisplayName = useCallback(
     (id: string) => {
@@ -867,6 +878,135 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       }
     }
   }, [intersectSourceAId, intersectSourceBId, polygonLayerEntries]);
+
+  useEffect(() => {
+    if (!dissolveSourceId) {
+      const first = polygonLayerEntries[0];
+      if (first) {
+        setDissolveSourceId(first.id);
+      }
+      return;
+    }
+    if (!polygonLayerEntries.some((entry) => entry.id === dissolveSourceId)) {
+      const first = polygonLayerEntries[0];
+      setDissolveSourceId(first ? first.id : '');
+    }
+  }, [dissolveSourceId, polygonLayerEntries]);
+
+  useEffect(() => {
+    if (polygonLayerEntries.length === 0) {
+      if (clipSourceId) {
+        setClipSourceId('');
+      }
+      if (clipMaskId) {
+        setClipMaskId('');
+      }
+      return;
+    }
+
+    if (!clipSourceId || !polygonLayerEntries.some((entry) => entry.id === clipSourceId)) {
+      setClipSourceId(polygonLayerEntries[0].id);
+      return;
+    }
+
+    if (!clipMaskId || !polygonLayerEntries.some((entry) => entry.id === clipMaskId)) {
+      const fallback = polygonLayerEntries.find((entry) => entry.id !== clipSourceId) ?? polygonLayerEntries[0];
+      setClipMaskId(fallback ? fallback.id : '');
+      return;
+    }
+
+    if (clipSourceId === clipMaskId && polygonLayerEntries.length > 1) {
+      const fallback = polygonLayerEntries.find((entry) => entry.id !== clipSourceId);
+      if (fallback) {
+        setClipMaskId(fallback.id);
+      }
+    }
+  }, [clipMaskId, clipSourceId, polygonLayerEntries]);
+
+  useEffect(() => {
+    if (polygonLayerEntries.length === 0) {
+      if (eraseSourceId) {
+        setEraseSourceId('');
+      }
+      if (eraseMaskId) {
+        setEraseMaskId('');
+      }
+      return;
+    }
+
+    if (!eraseSourceId || !polygonLayerEntries.some((entry) => entry.id === eraseSourceId)) {
+      setEraseSourceId(polygonLayerEntries[0].id);
+      return;
+    }
+
+    if (!eraseMaskId || !polygonLayerEntries.some((entry) => entry.id === eraseMaskId)) {
+      const fallback = polygonLayerEntries.find((entry) => entry.id !== eraseSourceId) ?? polygonLayerEntries[0];
+      setEraseMaskId(fallback ? fallback.id : '');
+      return;
+    }
+
+    if (eraseSourceId === eraseMaskId && polygonLayerEntries.length > 1) {
+      const fallback = polygonLayerEntries.find((entry) => entry.id !== eraseSourceId);
+      if (fallback) {
+        setEraseMaskId(fallback.id);
+      }
+    }
+  }, [eraseMaskId, eraseSourceId, polygonLayerEntries]);
+
+  useEffect(() => {
+    if (polygonLayerEntries.length === 0) {
+      if (areaApportionSourceId) {
+        setAreaApportionSourceId('');
+      }
+      if (areaApportionTargetId) {
+        setAreaApportionTargetId('');
+      }
+      return;
+    }
+
+    if (!areaApportionSourceId || !polygonLayerEntries.some((entry) => entry.id === areaApportionSourceId)) {
+      setAreaApportionSourceId(polygonLayerEntries[0].id);
+      return;
+    }
+
+    if (!areaApportionTargetId || !polygonLayerEntries.some((entry) => entry.id === areaApportionTargetId)) {
+      const fallback =
+        polygonLayerEntries.find((entry) => entry.id !== areaApportionSourceId) ?? polygonLayerEntries[0];
+      setAreaApportionTargetId(fallback ? fallback.id : '');
+      return;
+    }
+
+    if (areaApportionSourceId === areaApportionTargetId && polygonLayerEntries.length > 1) {
+      const fallback = polygonLayerEntries.find((entry) => entry.id !== areaApportionSourceId);
+      if (fallback) {
+        setAreaApportionTargetId(fallback.id);
+      }
+    }
+  }, [areaApportionSourceId, areaApportionTargetId, polygonLayerEntries]);
+
+  useEffect(() => {
+    if (dissolveProperty && !dissolvePropertyOptions.includes(dissolveProperty)) {
+      setDissolveProperty('');
+    }
+  }, [dissolveProperty, dissolvePropertyOptions]);
+
+  useEffect(() => {
+    if (areaApportionPropertyOptions.length === 0) {
+      if (areaApportionProperty) {
+        setAreaApportionProperty('');
+      }
+      return;
+    }
+
+    if (!areaApportionProperty) {
+      setAreaApportionProperty(areaApportionPropertyOptions[0]);
+      return;
+    }
+
+    if (!areaApportionPropertyOptions.includes(areaApportionProperty)) {
+      setAreaApportionProperty(areaApportionPropertyOptions[0]);
+    }
+  }, [areaApportionProperty, areaApportionPropertyOptions]);
 
   useEffect(() => {
     if (sidebarTab !== 'tools') {
@@ -1108,13 +1248,7 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       return;
     }
 
-    const polygonFeatures: Feature<Polygon | MultiPolygon>[] = featureCollection.features
-      .filter((feature): feature is Feature<Polygon | MultiPolygon> => isPolygonGeometry(feature.geometry))
-      .map((feature) => ({
-        type: 'Feature',
-        geometry: cloneGeometry(feature.geometry) as Polygon | MultiPolygon,
-        properties: {},
-      }));
+    const polygonFeatures = collectPolygonFeatures(featureCollection);
 
     if (polygonFeatures.length === 0) {
       setToolsFeedback({ kind: 'error', message: 'ポリゴン地物が含まれていないためマージできません。' });
@@ -1180,48 +1314,16 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       return;
     }
 
-    const collectPolygons = (collection: FeatureCollection) =>
-      collection.features
-        .filter((feature): feature is Feature<Polygon | MultiPolygon> => isPolygonGeometry(feature.geometry))
-        .map((feature) => ({
-          type: 'Feature',
-          geometry: cloneGeometry(feature.geometry) as Polygon | MultiPolygon,
-          properties: {},
-        }));
-
-    const polygonsA = collectPolygons(firstCollection);
-    const polygonsB = collectPolygons(secondCollection);
+    const polygonsA = collectPolygonFeatures(firstCollection);
+    const polygonsB = collectPolygonFeatures(secondCollection);
 
     if (polygonsA.length === 0 || polygonsB.length === 0) {
       setToolsFeedback({ kind: 'error', message: 'ポリゴン地物が不足しているため交差領域を計算できません。' });
       return;
     }
 
-    const unionPolygons = (features: Feature<Polygon | MultiPolygon>[]): Feature<Polygon | MultiPolygon> | null => {
-      let aggregated: Feature<Polygon | MultiPolygon> | null = null;
-      features.forEach((feature) => {
-        if (!aggregated) {
-          aggregated = feature;
-          return;
-        }
-        try {
-          const result = union(aggregated as Feature<Polygon | MultiPolygon>, feature);
-          if (result && isPolygonGeometry(result.geometry)) {
-            aggregated = {
-              type: 'Feature',
-              geometry: cloneGeometry(result.geometry) as Polygon | MultiPolygon,
-              properties: {},
-            };
-          }
-        } catch (error) {
-          console.error('Failed to union polygons', error);
-        }
-      });
-      return aggregated;
-    };
-
-    const aggregatedA = unionPolygons(polygonsA);
-    const aggregatedB = unionPolygons(polygonsB);
+    const aggregatedA = unionPolygonFeatures(polygonsA);
+    const aggregatedB = unionPolygonFeatures(polygonsB);
 
     if (!aggregatedA || !aggregatedB) {
       setToolsFeedback({ kind: 'error', message: '交差領域の計算中にエラーが発生しました。' });
@@ -1267,6 +1369,377 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
     intersect,
     intersectSourceAId,
     intersectSourceBId,
+  ]);
+
+  const handleCreateDissolve = useCallback(() => {
+    setToolsFeedback(null);
+    if (!dissolveSourceId) {
+      setToolsFeedback({ kind: 'error', message: 'ディゾルブするポリゴンレイヤーを選択してください。' });
+      return;
+    }
+
+    const featureCollection = getLayerFeatureCollection(dissolveSourceId);
+    if (!featureCollection) {
+      setToolsFeedback({ kind: 'error', message: '選択したレイヤーからポリゴンを取得できませんでした。' });
+      return;
+    }
+
+    const polygonFeatures = collectPolygonFeatures(featureCollection, { keepProperties: true });
+    if (polygonFeatures.length === 0) {
+      setToolsFeedback({ kind: 'error', message: 'ポリゴン地物が含まれていないためディゾルブできません。' });
+      return;
+    }
+
+    const propertyKey = dissolveProperty.trim();
+    const groups = new Map<string, Feature<Polygon | MultiPolygon>[]>();
+    polygonFeatures.forEach((feature) => {
+      const props = sanitizeProperties(feature.properties);
+      const rawValue = propertyKey ? props[propertyKey] : null;
+      const groupKey = propertyKey ? String(rawValue ?? '未分類') : '__all__';
+      const existing = groups.get(groupKey) ?? [];
+      existing.push({
+        type: 'Feature',
+        geometry: cloneGeometry(feature.geometry) as Polygon | MultiPolygon,
+        properties: props,
+      });
+      groups.set(groupKey, existing);
+    });
+
+    const dissolvedFeatures: Feature<Polygon | MultiPolygon>[] = [];
+    groups.forEach((features, key) => {
+      const geometryOnly = features.map((feature) => ({
+        type: 'Feature',
+        geometry: cloneGeometry(feature.geometry) as Polygon | MultiPolygon,
+        properties: {},
+      }));
+      const aggregated = unionPolygonFeatures(geometryOnly);
+      if (!aggregated) {
+        return;
+      }
+      const sample = features[0];
+      const baseProperties = sanitizeProperties(sample?.properties);
+      const outputProperties: Record<string, unknown> = {
+        ...baseProperties,
+        __dissolve_group: propertyKey ? key : 'all',
+        __dissolve_group_label: propertyKey ? key : '全体',
+        __dissolve_source_property: propertyKey || 'all',
+        __dissolve_feature_count: features.length,
+      };
+      if (propertyKey && sample?.properties && propertyKey in sample.properties) {
+        outputProperties[propertyKey] = sample.properties[propertyKey];
+      }
+      dissolvedFeatures.push({
+        type: 'Feature',
+        geometry: cloneGeometry(aggregated.geometry) as Polygon | MultiPolygon,
+        properties: outputProperties,
+      });
+    });
+
+    if (dissolvedFeatures.length === 0) {
+      setToolsFeedback({ kind: 'error', message: 'ディゾルブの結果が作成できませんでした。' });
+      return;
+    }
+
+    appendDerivedLayer({
+      name: `${getLayerDisplayName(dissolveSourceId)} ディゾルブ${propertyKey ? ` (${propertyKey})` : ''}`,
+      type: 'dissolve',
+      visible: true,
+      sourcePaths: [dissolveSourceId],
+      description: propertyKey
+        ? `カラム「${propertyKey}」で${dissolvedFeatures.length.toLocaleString('ja-JP')}グループにディゾルブしました。`
+        : '選択したポリゴンを一体化しました。',
+      featureCollection: {
+        type: 'FeatureCollection',
+        features: dissolvedFeatures,
+      },
+    });
+
+    setToolsFeedback({ kind: 'success', message: 'ディゾルブしたレイヤーを作成しました。' });
+  }, [appendDerivedLayer, dissolveProperty, dissolveSourceId, getLayerDisplayName, getLayerFeatureCollection]);
+
+  const handleCreateClip = useCallback(() => {
+    setToolsFeedback(null);
+    if (!clipSourceId || !clipMaskId) {
+      setToolsFeedback({ kind: 'error', message: 'クリップするレイヤーとマスクを選択してください。' });
+      return;
+    }
+    if (clipSourceId === clipMaskId) {
+      setToolsFeedback({ kind: 'error', message: '異なるレイヤーを選択してください。' });
+      return;
+    }
+
+    const sourceCollection = getLayerFeatureCollection(clipSourceId);
+    const maskCollection = getLayerFeatureCollection(clipMaskId);
+    if (!sourceCollection || !maskCollection) {
+      setToolsFeedback({ kind: 'error', message: '選択したレイヤーを読み込めませんでした。' });
+      return;
+    }
+
+    const sourcePolygons = collectPolygonFeatures(sourceCollection, { keepProperties: true });
+    const maskPolygons = collectPolygonFeatures(maskCollection);
+    if (sourcePolygons.length === 0) {
+      setToolsFeedback({ kind: 'error', message: 'ポリゴン地物が含まれていないためクリップできません。' });
+      return;
+    }
+    if (maskPolygons.length === 0) {
+      setToolsFeedback({ kind: 'error', message: 'マスク側のポリゴン地物が不足しています。' });
+      return;
+    }
+
+    const clippedFeatures: Feature<Polygon | MultiPolygon>[] = [];
+    sourcePolygons.forEach((subject) => {
+      maskPolygons.forEach((mask) => {
+        try {
+          const result = intersect(subject as Feature<Polygon | MultiPolygon>, mask as Feature<Polygon | MultiPolygon>);
+          if (result && isPolygonGeometry(result.geometry)) {
+            clippedFeatures.push({
+              type: 'Feature',
+              geometry: cloneGeometry(result.geometry) as Polygon | MultiPolygon,
+              properties: {
+                ...sanitizeProperties(subject.properties),
+                __clip_source_layer: getLayerDisplayName(clipSourceId),
+                __clip_mask_layer: getLayerDisplayName(clipMaskId),
+              },
+            });
+          }
+        } catch (error) {
+          console.error('Failed to clip polygon', error);
+        }
+      });
+    });
+
+    if (clippedFeatures.length === 0) {
+      setToolsFeedback({ kind: 'error', message: 'クリップ結果が作成できませんでした。' });
+      return;
+    }
+
+    appendDerivedLayer({
+      name: `${getLayerDisplayName(clipSourceId)} クリップ (${getLayerDisplayName(clipMaskId)})`,
+      type: 'clip',
+      visible: true,
+      sourcePaths: [clipSourceId, clipMaskId],
+      description: 'マスク領域内の部分を抽出しました。',
+      featureCollection: {
+        type: 'FeatureCollection',
+        features: clippedFeatures,
+      },
+    });
+
+    setToolsFeedback({ kind: 'success', message: 'クリップしたレイヤーを作成しました。' });
+  }, [appendDerivedLayer, clipMaskId, clipSourceId, getLayerDisplayName, getLayerFeatureCollection, intersect]);
+
+  const handleCreateErase = useCallback(() => {
+    setToolsFeedback(null);
+    if (!eraseSourceId || !eraseMaskId) {
+      setToolsFeedback({ kind: 'error', message: 'イレースするレイヤーと除外するレイヤーを選択してください。' });
+      return;
+    }
+    if (eraseSourceId === eraseMaskId) {
+      setToolsFeedback({ kind: 'error', message: '異なるレイヤーを選択してください。' });
+      return;
+    }
+
+    const sourceCollection = getLayerFeatureCollection(eraseSourceId);
+    const maskCollection = getLayerFeatureCollection(eraseMaskId);
+    if (!sourceCollection || !maskCollection) {
+      setToolsFeedback({ kind: 'error', message: '選択したレイヤーを読み込めませんでした。' });
+      return;
+    }
+
+    const sourcePolygons = collectPolygonFeatures(sourceCollection, { keepProperties: true });
+    const maskPolygons = collectPolygonFeatures(maskCollection);
+    if (sourcePolygons.length === 0) {
+      setToolsFeedback({ kind: 'error', message: 'ポリゴン地物が含まれていないためイレースできません。' });
+      return;
+    }
+    if (maskPolygons.length === 0) {
+      setToolsFeedback({ kind: 'error', message: '除外用レイヤーにポリゴン地物が含まれていません。' });
+      return;
+    }
+
+    const maskUnion = unionPolygonFeatures(
+      maskPolygons.map((feature) => ({
+        type: 'Feature',
+        geometry: cloneGeometry(feature.geometry) as Polygon | MultiPolygon,
+        properties: {},
+      })),
+    );
+
+    if (!maskUnion) {
+      setToolsFeedback({ kind: 'error', message: '除外する領域を構成できませんでした。' });
+      return;
+    }
+
+    const erasedFeatures: Feature<Polygon | MultiPolygon>[] = [];
+    sourcePolygons.forEach((feature) => {
+      try {
+        const result = difference(feature as Feature<Polygon | MultiPolygon>, maskUnion as Feature<Polygon | MultiPolygon>);
+        if (result && isPolygonGeometry(result.geometry)) {
+          erasedFeatures.push({
+            type: 'Feature',
+            geometry: cloneGeometry(result.geometry) as Polygon | MultiPolygon,
+            properties: {
+              ...sanitizeProperties(feature.properties),
+              __erase_source_layer: getLayerDisplayName(eraseSourceId),
+              __erase_mask_layer: getLayerDisplayName(eraseMaskId),
+            },
+          });
+        }
+      } catch (error) {
+        console.error('Failed to erase polygon', error);
+      }
+    });
+
+    if (erasedFeatures.length === 0) {
+      setToolsFeedback({ kind: 'error', message: 'イレースの結果が得られませんでした。' });
+      return;
+    }
+
+    appendDerivedLayer({
+      name: `${getLayerDisplayName(eraseSourceId)} イレース (${getLayerDisplayName(eraseMaskId)})`,
+      type: 'erase',
+      visible: true,
+      sourcePaths: [eraseSourceId, eraseMaskId],
+      description: '除外レイヤーで引いた領域を削除しました。',
+      featureCollection: {
+        type: 'FeatureCollection',
+        features: erasedFeatures,
+      },
+    });
+
+    setToolsFeedback({ kind: 'success', message: 'イレース後のレイヤーを作成しました。' });
+  }, [appendDerivedLayer, difference, eraseMaskId, eraseSourceId, getLayerDisplayName, getLayerFeatureCollection]);
+
+  const handleCreateAreaApportion = useCallback(() => {
+    setToolsFeedback(null);
+    if (!areaApportionSourceId || !areaApportionTargetId) {
+      setToolsFeedback({ kind: 'error', message: '面積按分するソースとターゲットのレイヤーを選択してください。' });
+      return;
+    }
+    if (areaApportionSourceId === areaApportionTargetId) {
+      setToolsFeedback({ kind: 'error', message: '異なるレイヤーを選択してください。' });
+      return;
+    }
+
+    const propertyKey = areaApportionProperty.trim();
+    if (!propertyKey) {
+      setToolsFeedback({ kind: 'error', message: '按分に使用する数値カラムを選択してください。' });
+      return;
+    }
+
+    const outputProperty = areaApportionOutputProperty.trim() || 'apportioned_value';
+    const sourceCollection = getLayerFeatureCollection(areaApportionSourceId);
+    const targetCollection = getLayerFeatureCollection(areaApportionTargetId);
+    if (!sourceCollection || !targetCollection) {
+      setToolsFeedback({ kind: 'error', message: '選択したレイヤーを読み込めませんでした。' });
+      return;
+    }
+
+    const sourcePolygons = collectPolygonFeatures(sourceCollection, { keepProperties: true });
+    const targetPolygons = collectPolygonFeatures(targetCollection, { keepProperties: true });
+    if (sourcePolygons.length === 0) {
+      setToolsFeedback({ kind: 'error', message: 'ソースレイヤーにポリゴン地物が含まれていません。' });
+      return;
+    }
+    if (targetPolygons.length === 0) {
+      setToolsFeedback({ kind: 'error', message: 'ターゲットレイヤーにポリゴン地物が含まれていません。' });
+      return;
+    }
+
+    const apportionedFeatures: Feature<Polygon | MultiPolygon>[] = [];
+    targetPolygons.forEach((target) => {
+      const baseProperties = sanitizeProperties(target.properties);
+      let accumulated = 0;
+      let contributionCount = 0;
+
+      sourcePolygons.forEach((source) => {
+        const rawValue = (source.properties ?? {})[propertyKey];
+        const numericValue = typeof rawValue === 'number' ? rawValue : Number(rawValue);
+        if (!Number.isFinite(numericValue)) {
+          return;
+        }
+        const sourceArea = area(source as Feature<Polygon | MultiPolygon>);
+        if (!Number.isFinite(sourceArea) || sourceArea <= 0) {
+          return;
+        }
+
+        let intersection: Feature<Polygon | MultiPolygon> | null = null;
+        try {
+          const result = intersect(target as Feature<Polygon | MultiPolygon>, source as Feature<Polygon | MultiPolygon>);
+          if (result && isPolygonGeometry(result.geometry)) {
+            intersection = {
+              type: 'Feature',
+              geometry: cloneGeometry(result.geometry) as Polygon | MultiPolygon,
+              properties: {},
+            };
+          }
+        } catch (error) {
+          console.error('Failed to compute area apportion intersection', error);
+        }
+
+        if (!intersection) {
+          return;
+        }
+
+        const intersectionArea = area(intersection);
+        if (!Number.isFinite(intersectionArea) || intersectionArea <= 0) {
+          return;
+        }
+
+        const ratio = intersectionArea / sourceArea;
+        if (!Number.isFinite(ratio) || ratio <= 0) {
+          return;
+        }
+
+        accumulated += numericValue * ratio;
+        contributionCount += 1;
+      });
+
+      const outputProperties: Record<string, unknown> = {
+        ...baseProperties,
+        [outputProperty]: Number(accumulated.toFixed(6)),
+        __apportion_source_layer: getLayerDisplayName(areaApportionSourceId),
+        __apportion_target_layer: getLayerDisplayName(areaApportionTargetId),
+        __apportion_property: propertyKey,
+        __apportion_contributions: contributionCount,
+        __apportion_output_column: outputProperty,
+      };
+
+      apportionedFeatures.push({
+        type: 'Feature',
+        geometry: cloneGeometry(target.geometry) as Polygon | MultiPolygon,
+        properties: outputProperties,
+      });
+    });
+
+    if (apportionedFeatures.length === 0) {
+      setToolsFeedback({ kind: 'error', message: '面積按分の結果を作成できませんでした。' });
+      return;
+    }
+
+    appendDerivedLayer({
+      name: `${getLayerDisplayName(areaApportionTargetId)} 面積按分 (${propertyKey})`,
+      type: 'area-apportion',
+      visible: true,
+      sourcePaths: [areaApportionSourceId, areaApportionTargetId],
+      description: `ソース: ${getLayerDisplayName(areaApportionSourceId)} / カラム: ${propertyKey} / 出力: ${outputProperty}`,
+      featureCollection: {
+        type: 'FeatureCollection',
+        features: apportionedFeatures,
+      },
+    });
+
+    setToolsFeedback({ kind: 'success', message: '面積按分レイヤーを作成しました。' });
+  }, [
+    appendDerivedLayer,
+    area,
+    areaApportionProperty,
+    areaApportionOutputProperty,
+    areaApportionSourceId,
+    areaApportionTargetId,
+    getLayerDisplayName,
+    getLayerFeatureCollection,
+    intersect,
   ]);
 
   const handleExportDerivedLayer = useCallback(
@@ -1330,6 +1803,14 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
   const kernelWeightOptions = useMemo(
     () => (kernelSourceId ? getLayerColumns(kernelSourceId) : []),
     [getLayerColumns, kernelSourceId],
+  );
+  const dissolvePropertyOptions = useMemo(
+    () => (dissolveSourceId ? getLayerColumns(dissolveSourceId) : []),
+    [dissolveSourceId, getLayerColumns],
+  );
+  const areaApportionPropertyOptions = useMemo(
+    () => (areaApportionSourceId ? getLayerColumns(areaApportionSourceId) : []),
+    [areaApportionSourceId, getLayerColumns],
   );
 
   const sidebarTabsDefinition = useMemo<Array<{ id: SidebarTabId; label: string; icon: IconType }>>(
@@ -1937,6 +2418,79 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       }
     });
   }, [columnCache, computeColorForFeature, leafletLib, resolveStyleSettings, selectedColumns]);
+
+  const combinedFeatureCollection = useMemo(() => {
+    const features: FeatureCollection['features'] = [];
+
+    selectedFilePaths.forEach((path) => {
+      const dataset = datasets[path];
+      if (!dataset?.featureCollection) {
+        return;
+      }
+      const entry = gisFileMap.get(path);
+      const rowsForDataset = dataset.rows;
+
+      dataset.featureCollection.features.forEach((feature, index) => {
+        if (!feature.geometry) {
+          return;
+        }
+        const row = rowsForDataset[index];
+        const sanitizedRow: Record<string, unknown> = {};
+        if (row && typeof row === 'object') {
+          Object.entries(row as Record<string, unknown>).forEach(([key, value]) => {
+            if (key !== 'geometry') {
+              sanitizedRow[key] = value;
+            }
+          });
+        }
+
+        const baseProperties = sanitizeProperties(feature.properties);
+
+        features.push({
+          type: 'Feature',
+          geometry: cloneGeometry(feature.geometry),
+          properties: {
+            ...baseProperties,
+            __feature_index: index,
+            __source_path: path,
+            __source_name: entry?.name ?? path.split('/').pop() ?? path,
+            ...sanitizedRow,
+          },
+        });
+      });
+    });
+
+    derivedLayers.forEach((layer) => {
+      if (!layer.visible || !layer.featureCollection) {
+        return;
+      }
+      layer.featureCollection.features.forEach((feature, index) => {
+        if (!feature.geometry) {
+          return;
+        }
+        const properties = sanitizeProperties(feature.properties);
+        features.push({
+          type: 'Feature',
+          geometry: cloneGeometry(feature.geometry),
+          properties: {
+            ...properties,
+            __feature_index: index,
+            __source_path: layer.id,
+            __source_name: layer.name,
+            __derived_type: layer.type,
+            __origin_paths: layer.sourcePaths,
+          },
+        });
+      });
+    });
+
+    return features.length > 0
+      ? ({
+          type: 'FeatureCollection',
+          features,
+        } as FeatureCollection)
+      : null;
+  }, [datasets, derivedLayers, gisFileMap, selectedFilePaths]);
 
   useEffect(() => {
     const mapInstance = mapInstanceRef.current;
@@ -2851,6 +3405,48 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
               </section>
 
               <section className="rounded border border-gray-200 bg-white/70 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/60">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">ディゾルブ</h3>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">指定したカラムの値ごとに隣接するポリゴンをまとめます。</p>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">対象レイヤー</label>
+                <select
+                  value={dissolveSourceId}
+                  onChange={(event) => setDissolveSourceId(event.target.value)}
+                  disabled={polygonLayerEntries.length === 0}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  {polygonLayerEntries.map((entry) => (
+                    <option key={`dissolve-source-${entry.id}`} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">グループ化カラム</label>
+                <select
+                  value={dissolveProperty}
+                  onChange={(event) => setDissolveProperty(event.target.value)}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  <option value="">すべてまとめる</option>
+                  {dissolvePropertyOptions.map((column) => (
+                    <option key={`dissolve-column-${column}`} value={column}>
+                      {column}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleCreateDissolve}
+                  disabled={polygonLayerEntries.length === 0}
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300 dark:bg-blue-500 dark:hover:bg-blue-600 dark:disabled:bg-blue-800/60"
+                >
+                  ディゾルブを実行
+                </button>
+                {polygonLayerEntries.length === 0 && (
+                  <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">ポリゴンレイヤーを読み込むと利用できます。</p>
+                )}
+              </section>
+
+              <section className="rounded border border-gray-200 bg-white/70 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/60">
                 <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">インターセクト</h3>
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">2つのポリゴンレイヤーの交差部分を抽出します。</p>
                 <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">レイヤーA</label>
@@ -2889,6 +3485,165 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
                 </button>
                 {polygonLayerEntries.length < 2 && (
                   <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">異なる2つのポリゴンレイヤーを用意してください。</p>
+                )}
+              </section>
+
+              <section className="rounded border border-gray-200 bg-white/70 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/60">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">クリップ</h3>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">マスクレイヤー内に含まれるポリゴン部分だけを切り出します。</p>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">対象レイヤー</label>
+                <select
+                  value={clipSourceId}
+                  onChange={(event) => setClipSourceId(event.target.value)}
+                  disabled={polygonLayerEntries.length === 0}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  {polygonLayerEntries.map((entry) => (
+                    <option key={`clip-source-${entry.id}`} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">マスクレイヤー</label>
+                <select
+                  value={clipMaskId}
+                  onChange={(event) => setClipMaskId(event.target.value)}
+                  disabled={polygonLayerEntries.length < 2}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  {polygonLayerEntries.map((entry) => (
+                    <option key={`clip-mask-${entry.id}`} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleCreateClip}
+                  disabled={
+                    polygonLayerEntries.length < 2 || !clipSourceId || !clipMaskId || clipSourceId === clipMaskId
+                  }
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300 dark:bg-blue-500 dark:hover:bg-blue-600 dark:disabled:bg-blue-800/60"
+                >
+                  マスクでクリップ
+                </button>
+                {polygonLayerEntries.length < 2 && (
+                  <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">クリップには2つ以上のポリゴンレイヤーが必要です。</p>
+                )}
+              </section>
+
+              <section className="rounded border border-gray-200 bg-white/70 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/60">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">イレース</h3>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">除外レイヤーの範囲を差し引いたポリゴンを作成します。</p>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">対象レイヤー</label>
+                <select
+                  value={eraseSourceId}
+                  onChange={(event) => setEraseSourceId(event.target.value)}
+                  disabled={polygonLayerEntries.length === 0}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  {polygonLayerEntries.map((entry) => (
+                    <option key={`erase-source-${entry.id}`} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">除外レイヤー</label>
+                <select
+                  value={eraseMaskId}
+                  onChange={(event) => setEraseMaskId(event.target.value)}
+                  disabled={polygonLayerEntries.length < 2}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  {polygonLayerEntries.map((entry) => (
+                    <option key={`erase-mask-${entry.id}`} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleCreateErase}
+                  disabled={
+                    polygonLayerEntries.length < 2 || !eraseSourceId || !eraseMaskId || eraseSourceId === eraseMaskId
+                  }
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300 dark:bg-blue-500 dark:hover:bg-blue-600 dark:disabled:bg-blue-800/60"
+                >
+                  領域を削除
+                </button>
+                {polygonLayerEntries.length < 2 && (
+                  <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">イレースには除外用のレイヤーが必要です。</p>
+                )}
+              </section>
+
+              <section className="rounded border border-gray-200 bg-white/70 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/60">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">面積按分</h3>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">ソースレイヤーの数値をポリゴンの重なり面積でターゲットへ配分します。</p>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">ソースレイヤー</label>
+                <select
+                  value={areaApportionSourceId}
+                  onChange={(event) => setAreaApportionSourceId(event.target.value)}
+                  disabled={polygonLayerEntries.length === 0}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  {polygonLayerEntries.map((entry) => (
+                    <option key={`apportion-source-${entry.id}`} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">ターゲットレイヤー</label>
+                <select
+                  value={areaApportionTargetId}
+                  onChange={(event) => setAreaApportionTargetId(event.target.value)}
+                  disabled={polygonLayerEntries.length < 2}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  {polygonLayerEntries.map((entry) => (
+                    <option key={`apportion-target-${entry.id}`} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">按分するカラム</label>
+                <select
+                  value={areaApportionProperty}
+                  onChange={(event) => setAreaApportionProperty(event.target.value)}
+                  disabled={areaApportionPropertyOptions.length === 0}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                >
+                  {areaApportionPropertyOptions.length === 0 ? (
+                    <option value="">利用できるカラムがありません</option>
+                  ) : (
+                    areaApportionPropertyOptions.map((column) => (
+                      <option key={`apportion-column-${column}`} value={column}>
+                        {column}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <label className="mt-3 block text-[11px] font-medium text-gray-600 dark:text-gray-300">出力カラム名</label>
+                <input
+                  type="text"
+                  value={areaApportionOutputProperty}
+                  onChange={(event) => setAreaApportionOutputProperty(event.target.value)}
+                  placeholder="例: apportioned_value"
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                />
+                <button
+                  type="button"
+                  onClick={handleCreateAreaApportion}
+                  disabled={
+                    polygonLayerEntries.length < 2 || areaApportionPropertyOptions.length === 0 || !areaApportionProperty
+                  }
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300 dark:bg-blue-500 dark:hover:bg-blue-600 dark:disabled:bg-blue-800/60"
+                >
+                  面積按分を実行
+                </button>
+                {(polygonLayerEntries.length < 2 || areaApportionPropertyOptions.length === 0) && (
+                  <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+                    ソースとターゲットの2つのポリゴンレイヤーと、数値カラムが必要です。
+                  </p>
                 )}
               </section>
 
