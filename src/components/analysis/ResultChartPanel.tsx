@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import ResultChartBuilder from './ResultChartBuilder';
 import QueryResultTable from './QueryResultTable';
 import EditableQueryResultTable from './EditableQueryResultTable';
-import { IoBarChartOutline, IoCodeSlash } from 'react-icons/io5';
+import { IoBarChartOutline, IoCodeSlash, IoLayersOutline } from 'react-icons/io5';
 import type { ChartDesignerSettings } from '@/types';
 
 interface ResultChartPanelProps {
@@ -22,6 +22,8 @@ interface ResultChartPanelProps {
   onViewChange?: (view: 'table' | 'chart') => void;
   tableViewMode?: 'react-table' | 'spread';
   onTableViewModeChange?: (mode: 'react-table' | 'spread') => void;
+  dataDisplayMode?: 'flat' | 'nested';
+  onToggleDataDisplayMode?: () => void;
 }
 
 const ResultChartPanel: React.FC<ResultChartPanelProps> = ({
@@ -39,6 +41,8 @@ const ResultChartPanel: React.FC<ResultChartPanelProps> = ({
   onViewChange,
   tableViewMode,
   onTableViewModeChange,
+  dataDisplayMode,
+  onToggleDataDisplayMode,
 }) => {
   const [internalView, setInternalView] = useState<'table' | 'chart'>(initialView);
   const [persistedChartSettings, setPersistedChartSettings] = useState<ChartDesignerSettings | undefined>(undefined);
@@ -128,6 +132,16 @@ const ResultChartPanel: React.FC<ResultChartPanelProps> = ({
               >
                 SpreadJS
               </button>
+              {onToggleDataDisplayMode && dataDisplayMode && (
+                <button
+                  className="inline-flex items-center px-2.5 py-1.5 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  onClick={onToggleDataDisplayMode}
+                  title={dataDisplayMode === 'flat' ? '階層表示に切替' : 'フラット表示に切替'}
+                >
+                  <IoLayersOutline className="mr-1" size={14} />
+                  {dataDisplayMode === 'flat' ? '階層表示' : 'フラット表示'}
+                </button>
+              )}
             </div>
           )}
         </div>

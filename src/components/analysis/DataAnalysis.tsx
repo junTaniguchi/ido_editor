@@ -2777,6 +2777,8 @@ const DataAnalysis: React.FC<DataAnalysisProps> = ({ tabId }) => {
         chartTitle="クエリ結果でチャート作成"
         tableViewMode={queryTableViewMode}
         onTableViewModeChange={setQueryTableViewMode}
+        dataDisplayMode={editorSettings.dataDisplayMode}
+        onToggleDataDisplayMode={toggleDisplayMode}
       />
     );
   };
