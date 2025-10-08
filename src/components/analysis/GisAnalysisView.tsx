@@ -590,6 +590,27 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
     [selectedFilePaths, visibleDerivedLayerIds],
   );
 
+  const activeTab = useMemo(() => tabs.get(tabId) ?? null, [tabs, tabId]);
+  const gisFiles = useMemo(() => {
+    const baseEntries = collectGisFiles(rootFileTree);
+    if (isGisTab(activeTab) && !baseEntries.some((entry) => entry.path === activeTab.id)) {
+      const fileHandle = activeTab.file && typeof activeTab.file === 'object' && 'getFile' in activeTab.file
+        ? (activeTab.file as FileSystemFileHandle)
+        : undefined;
+      return [
+        {
+          path: activeTab.id,
+          name: activeTab.name,
+          type: activeTab.type as GisFileType,
+          fileHandle,
+        },
+        ...baseEntries,
+      ];
+    }
+    return baseEntries;
+  }, [activeTab, rootFileTree]);
+  const gisFileMap = useMemo(() => getFileEntryMap(gisFiles), [gisFiles]);
+
   useEffect(() => {
     setStyleSettingsMap((previous) => {
       const next = { ...previous };
@@ -679,6 +700,45 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       ),
     [layerEntries],
   );
+
+  const combinedFeatureCollection = useMemo(() => {
+    const features: FeatureCollection['features'] = [];
+
+    layerEntries.forEach((entry) => {
+      if (!entry.featureCollection) {
+        return;
+      }
+
+      entry.featureCollection.features.forEach((feature, index) => {
+        if (!feature.geometry) {
+          return;
+        }
+
+        const sourcePath = entry.source === 'derived' ? entry.id : entry.id;
+        const sourceName = entry.name;
+
+        const sanitizedProperties = sanitizeProperties(feature.properties);
+
+        features.push({
+          type: 'Feature',
+          geometry: cloneGeometry(feature.geometry),
+          properties: {
+            ...sanitizedProperties,
+            __feature_index: index,
+            __source_path: sourcePath,
+            __source_name: sourceName,
+          },
+        });
+      });
+    });
+
+    return features.length > 0
+      ? ({
+          type: 'FeatureCollection',
+          features,
+        } as FeatureCollection)
+      : null;
+  }, [layerEntries]);
 
   const getLayerDisplayName = useCallback(
     (id: string) => {
@@ -1347,27 +1407,6 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
     setExpandedTables((previous) => ({ ...previous, [path]: !previous[path] }));
   }, []);
 
-  const activeTab = useMemo(() => tabs.get(tabId) ?? null, [tabs, tabId]);
-  const gisFiles = useMemo(() => {
-    const baseEntries = collectGisFiles(rootFileTree);
-    if (isGisTab(activeTab) && !baseEntries.some((entry) => entry.path === activeTab.id)) {
-      const fileHandle = activeTab.file && typeof activeTab.file === 'object' && 'getFile' in activeTab.file
-        ? (activeTab.file as FileSystemFileHandle)
-        : undefined;
-      return [
-        {
-          path: activeTab.id,
-          name: activeTab.name,
-          type: activeTab.type as GisFileType,
-          fileHandle,
-        },
-        ...baseEntries,
-      ];
-    }
-    return baseEntries;
-  }, [activeTab, rootFileTree]);
-  const gisFileMap = useMemo(() => getFileEntryMap(gisFiles), [gisFiles]);
-
   const activeFileEntry = useMemo(() => {
     if (!activeFilePath) {
       return null;
@@ -1898,79 +1937,6 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       }
     });
   }, [columnCache, computeColorForFeature, leafletLib, resolveStyleSettings, selectedColumns]);
-
-  const combinedFeatureCollection = useMemo(() => {
-    const features: FeatureCollection['features'] = [];
-
-    selectedFilePaths.forEach((path) => {
-      const dataset = datasets[path];
-      if (!dataset?.featureCollection) {
-        return;
-      }
-      const entry = gisFileMap.get(path);
-      const rowsForDataset = dataset.rows;
-
-      dataset.featureCollection.features.forEach((feature, index) => {
-        if (!feature.geometry) {
-          return;
-        }
-        const row = rowsForDataset[index];
-        const sanitizedRow: Record<string, unknown> = {};
-        if (row && typeof row === 'object') {
-          Object.entries(row as Record<string, unknown>).forEach(([key, value]) => {
-            if (key !== 'geometry') {
-              sanitizedRow[key] = value;
-            }
-          });
-        }
-
-        const baseProperties = sanitizeProperties(feature.properties);
-
-        features.push({
-          type: 'Feature',
-          geometry: cloneGeometry(feature.geometry),
-          properties: {
-            ...baseProperties,
-            __feature_index: index,
-            __source_path: path,
-            __source_name: entry?.name ?? path.split('/').pop() ?? path,
-            ...sanitizedRow,
-          },
-        });
-      });
-    });
-
-    derivedLayers.forEach((layer) => {
-      if (!layer.visible || !layer.featureCollection) {
-        return;
-      }
-      layer.featureCollection.features.forEach((feature, index) => {
-        if (!feature.geometry) {
-          return;
-        }
-        const properties = sanitizeProperties(feature.properties);
-        features.push({
-          type: 'Feature',
-          geometry: cloneGeometry(feature.geometry),
-          properties: {
-            ...properties,
-            __feature_index: index,
-            __source_path: layer.id,
-            __source_name: layer.name,
-            __derived_type: layer.type,
-            __origin_paths: layer.sourcePaths,
-          },
-        });
-      });
-    });
-
-    return features.length > 0
-      ? ({
-          type: 'FeatureCollection',
-          features,
-        } as FeatureCollection)
-      : null;
-  }, [datasets, derivedLayers, gisFileMap, selectedFilePaths]);
 
   useEffect(() => {
     const mapInstance = mapInstanceRef.current;
