@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { IoAddCircleOutline, IoChevronDown, IoChevronUp, IoGitBranch, IoTrashOutline } from 'react-icons/io5';
+import { IoAddCircleOutline, IoChevronDown, IoChevronUp, IoGitBranch, IoSave, IoTrashOutline } from 'react-icons/io5';
 import { LuPlus } from 'react-icons/lu';
 import { useEditorStore } from '@/store/editorStore';
 import MarkmapMindmap from './MarkmapMindmap';
@@ -20,6 +20,7 @@ import {
   serializeMindmap,
   updateMindmapNodeLabel,
 } from '@/lib/mindmap/mindmapUtils';
+import { writeFileContent } from '@/lib/fileSystemUtils';
 
 interface MindmapDesignerProps {
   tabId: string;
@@ -40,6 +41,7 @@ const depthColors = ['#2563eb', '#0891b2', '#16a34a', '#d97706', '#9333ea', '#db
 const MindmapDesigner: React.FC<MindmapDesignerProps> = ({ tabId, fileName, content, onContentChange }) => {
   const updateTab = useEditorStore((state) => state.updateTab);
   const getTab = useEditorStore((state) => state.getTab);
+  const rootDirHandle = useEditorStore((state) => state.rootDirHandle);
 
   const initialParsed = useMemo(() => parseMindmap(content), [content]);
   const initialRoot = useMemo(() => ensureMindmapRoot(initialParsed.root), [initialParsed.root]);
@@ -63,28 +65,21 @@ const MindmapDesigner: React.FC<MindmapDesignerProps> = ({ tabId, fileName, cont
     lastSerializedRef.current = content;
   }, [content]);
 
-  const persist = useCallback(
-    (nextTree: MindmapNode, nextLayout: MindmapLayout = layout) => {
-      const serialized = serializeMindmap(nextTree, nextLayout);
-      lastSerializedRef.current = serialized;
-      onContentChange?.(serialized);
-      const tab = getTab(tabId);
-      const isDirty = tab ? serialized !== tab.originalContent : true;
-      updateTab(tabId, { content: serialized, isDirty });
-    },
-    [getTab, layout, onContentChange, tabId, updateTab],
-  );
+  useEffect(() => {
+    const serialized = serializeMindmap(tree, layout);
+    if (serialized === lastSerializedRef.current) {
+      return;
+    }
+    lastSerializedRef.current = serialized;
+    onContentChange?.(serialized);
+    const tab = getTab(tabId);
+    const isDirty = tab ? serialized !== tab.originalContent : true;
+    updateTab(tabId, { content: serialized, isDirty });
+  }, [tree, layout, getTab, onContentChange, tabId, updateTab]);
 
-  const handleUpdateTree = useCallback(
-    (updater: (current: MindmapNode) => MindmapNode) => {
-      setTree((current) => {
-        const next = ensureMindmapRoot(updater(current));
-        persist(next);
-        return next;
-      });
-    },
-    [persist],
-  );
+  const handleUpdateTree = useCallback((updater: (current: MindmapNode) => MindmapNode) => {
+    setTree((current) => ensureMindmapRoot(updater(current)));
+  }, []);
 
   const handleRename = useCallback(
     (label: string) => {
@@ -149,13 +144,9 @@ const MindmapDesigner: React.FC<MindmapDesignerProps> = ({ tabId, fileName, cont
     [handleUpdateTree, selectedNodeId],
   );
 
-  const handleLayoutChange = useCallback(
-    (nextLayout: MindmapLayout) => {
-      setLayout(nextLayout);
-      persist(tree, nextLayout);
-    },
-    [persist, tree],
-  );
+  const handleLayoutChange = useCallback((nextLayout: MindmapLayout) => {
+    setLayout(nextLayout);
+  }, []);
 
   const selectedNode = useMemo(() => findMindmapNode(tree, selectedNodeId) ?? tree, [selectedNodeId, tree]);
 
@@ -169,6 +160,71 @@ const MindmapDesigner: React.FC<MindmapDesignerProps> = ({ tabId, fileName, cont
   );
 
   const markdown = useMemo(() => generateMarkdownFromMindmap(tree), [tree]);
+
+  const handleSave = useCallback(async () => {
+    const contentToSave = serializeMindmap(tree, layout);
+    lastSerializedRef.current = contentToSave;
+
+    const tab = getTab(tabId);
+    if (!tab) {
+      alert('現在のタブ情報を取得できませんでした。');
+      return;
+    }
+
+    if (tab.isReadOnly) {
+      alert('このファイルは読み取り専用のため保存できません。');
+      return;
+    }
+
+    const existingHandle = tab.file;
+    let fileHandle: FileSystemFileHandle | null = null;
+
+    if (existingHandle && typeof (existingHandle as FileSystemFileHandle).createWritable === 'function') {
+      fileHandle = existingHandle as FileSystemFileHandle;
+    } else if (rootDirHandle) {
+      const candidatePath = tab.id && !tab.id.startsWith('temp_') ? tab.id : tab.name;
+      if (candidatePath) {
+        const segments = candidatePath.split('/').filter(Boolean);
+        if (segments.length > 0) {
+          try {
+            let directoryHandle: FileSystemDirectoryHandle = rootDirHandle;
+            for (let index = 0; index < segments.length - 1; index += 1) {
+              directoryHandle = await directoryHandle.getDirectoryHandle(segments[index]);
+            }
+            const targetFileName = segments[segments.length - 1];
+            fileHandle = await directoryHandle.getFileHandle(targetFileName, { create: true });
+          } catch (error) {
+            console.error('Failed to resolve file handle for saving mindmap:', error);
+          }
+        }
+      }
+    }
+
+    if (!fileHandle) {
+      alert('ファイルの保存先を特定できませんでした。フォルダを開き直してください。');
+      return;
+    }
+
+    try {
+      const didWrite = await writeFileContent(fileHandle, contentToSave);
+      if (!didWrite) {
+        throw new Error('ファイルの書き込みに失敗しました');
+      }
+
+      const latestTab = useEditorStore.getState().tabs.get(tabId);
+      const latestContent = typeof latestTab?.content === 'string' ? latestTab.content : contentToSave;
+      const hasPendingChanges = typeof latestContent === 'string' && latestContent !== contentToSave;
+
+      updateTab(tabId, {
+        originalContent: contentToSave,
+        isDirty: hasPendingChanges,
+        file: fileHandle,
+      });
+    } catch (error) {
+      console.error('Failed to save mindmap:', error);
+      alert(`ファイルの保存に失敗しました: ${error instanceof Error ? error.message : '不明なエラー'}`);
+    }
+  }, [getTab, layout, rootDirHandle, tabId, tree, updateTab]);
 
   const renderTree = useCallback(
     (node: MindmapNode, depth: number): React.ReactNode => {
@@ -337,6 +393,16 @@ const MindmapDesigner: React.FC<MindmapDesignerProps> = ({ tabId, fileName, cont
                 Markmap風マインドマップをGUIで編集できます
               </p>
             </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              className="flex items-center gap-1 rounded border border-blue-500 bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 dark:border-blue-400 dark:bg-blue-500 dark:hover:bg-blue-400"
+            >
+              <IoSave size={16} />
+              保存
+            </button>
           </div>
         </div>
 

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Transformer } from 'markmap-lib';
 import type { IPureNode } from 'markmap-common';
 import { Markmap } from 'markmap-view';
@@ -17,15 +17,31 @@ const MarkmapMindmap: React.FC<MarkmapMindmapProps> = ({ markdown, className }) 
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const transformer = useMemo(() => new Transformer(), []);
 
+  const fitWhenPossible = useCallback(() => {
+    const svgElement = svgRef.current;
+    if (!svgElement || !markmapRef.current) {
+      return;
+    }
+    const rect = svgElement.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return;
+    }
+    try {
+      markmapRef.current.fit();
+    } catch (error) {
+      console.warn('Markmap fit failed', error);
+    }
+  }, []);
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     if (!resizeObserverRef.current) {
       resizeObserverRef.current = new ResizeObserver(() => {
-        if (markmapRef.current) {
-          markmapRef.current.fit();
-        }
+        requestAnimationFrame(() => {
+          fitWhenPossible();
+        });
       });
     }
 
@@ -35,7 +51,7 @@ const MarkmapMindmap: React.FC<MarkmapMindmapProps> = ({ markdown, className }) 
       resizeObserverRef.current?.disconnect();
       resizeObserverRef.current = null;
     };
-  }, []);
+  }, [fitWhenPossible]);
 
   useEffect(() => {
     if (!svgRef.current) return;
@@ -48,10 +64,18 @@ const MarkmapMindmap: React.FC<MarkmapMindmapProps> = ({ markdown, className }) 
       markmapRef.current.setData(root as IPureNode);
     }
 
-    requestAnimationFrame(() => {
-      markmapRef.current?.fit();
-    });
-  }, [markdown, transformer]);
+    const attemptFit = () => {
+      fitWhenPossible();
+    };
+
+    const raf = requestAnimationFrame(attemptFit);
+    const timeout = window.setTimeout(attemptFit, 200);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(timeout);
+    };
+  }, [fitWhenPossible, markdown, transformer]);
 
   useEffect(() => {
     return () => {
@@ -66,7 +90,13 @@ const MarkmapMindmap: React.FC<MarkmapMindmapProps> = ({ markdown, className }) 
 
   return (
     <div ref={containerRef} className={`relative h-full w-full overflow-auto ${className ?? ''}`}>
-      <svg ref={svgRef} className="min-h-[320px] w-full text-gray-900 dark:text-gray-100" />
+      <svg
+        ref={svgRef}
+        className="min-h-[320px] w-full text-gray-900 dark:text-gray-100"
+        width="100%"
+        height="100%"
+        preserveAspectRatio="xMidYMid meet"
+      />
       {showPlaceholder && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-gray-500 dark:text-gray-400">
           <p>
