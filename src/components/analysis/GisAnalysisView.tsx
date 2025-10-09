@@ -570,6 +570,30 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
   const clearColumnCache = useGisAnalysisStore((state) => state.clearColumnCache);
   const setAnalysisSummary = useGisAnalysisStore((state) => state.setAnalysisSummary);
 
+  const gisFiles = useMemo(() => collectGisFiles(rootFileTree), [rootFileTree]);
+  const gisFileMap = useMemo(() => getFileEntryMap(gisFiles), [gisFiles]);
+  const activeTab = useMemo<TabData | null>(() => {
+    const rawTabs = tabs as unknown;
+    if (!rawTabs) {
+      return null;
+    }
+    if (rawTabs instanceof Map) {
+      return (rawTabs as Map<string, TabData>).get(tabId) ?? null;
+    }
+    if (Array.isArray(rawTabs)) {
+      return (rawTabs as TabData[]).find((tab) => tab.id === tabId) ?? null;
+    }
+    if (typeof rawTabs === 'object') {
+      const record = rawTabs as Record<string, TabData>;
+      if (record[tabId]) {
+        return record[tabId];
+      }
+      const values = Object.values(record) as TabData[];
+      return values.find((tab) => tab.id === tabId) ?? null;
+    }
+    return null;
+  }, [tabId, tabs]);
+
   const [datasets, setDatasets] = useState<
     Record<string, { rows: any[]; columns: string[]; featureCollection: FeatureCollection | null }>
   >({});
@@ -804,6 +828,19 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       return [];
     },
     [datasets, derivedLayers],
+  );
+
+  const kernelWeightOptions = useMemo(
+    () => (kernelSourceId ? getLayerColumns(kernelSourceId) : []),
+    [getLayerColumns, kernelSourceId],
+  );
+  const dissolvePropertyOptions = useMemo(
+    () => (dissolveSourceId ? getLayerColumns(dissolveSourceId) : []),
+    [dissolveSourceId, getLayerColumns],
+  );
+  const areaApportionPropertyOptions = useMemo(
+    () => (areaApportionSourceId ? getLayerColumns(areaApportionSourceId) : []),
+    [areaApportionSourceId, getLayerColumns],
   );
 
   useEffect(() => {
@@ -1742,6 +1779,79 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
     intersect,
   ]);
 
+  const combinedFeatureCollection = useMemo(() => {
+    const features: FeatureCollection['features'] = [];
+
+    selectedFilePaths.forEach((path) => {
+      const dataset = datasets[path];
+      if (!dataset?.featureCollection) {
+        return;
+      }
+      const entry = gisFileMap.get(path);
+      const rowsForDataset = dataset.rows;
+
+      dataset.featureCollection.features.forEach((feature, index) => {
+        if (!feature.geometry) {
+          return;
+        }
+        const row = rowsForDataset[index];
+        const sanitizedRow: Record<string, unknown> = {};
+        if (row && typeof row === 'object') {
+          Object.entries(row as Record<string, unknown>).forEach(([key, value]) => {
+            if (key !== 'geometry') {
+              sanitizedRow[key] = value;
+            }
+          });
+        }
+
+        const baseProperties = sanitizeProperties(feature.properties);
+
+        features.push({
+          type: 'Feature',
+          geometry: cloneGeometry(feature.geometry),
+          properties: {
+            ...baseProperties,
+            __feature_index: index,
+            __source_path: path,
+            __source_name: entry?.name ?? path.split('/').pop() ?? path,
+            ...sanitizedRow,
+          },
+        });
+      });
+    });
+
+    derivedLayers.forEach((layer) => {
+      if (!layer.visible || !layer.featureCollection) {
+        return;
+      }
+      layer.featureCollection.features.forEach((feature, index) => {
+        if (!feature.geometry) {
+          return;
+        }
+        const properties = sanitizeProperties(feature.properties);
+        features.push({
+          type: 'Feature',
+          geometry: cloneGeometry(feature.geometry),
+          properties: {
+            ...properties,
+            __feature_index: index,
+            __source_path: layer.id,
+            __source_name: layer.name,
+            __derived_type: layer.type,
+            __origin_paths: layer.sourcePaths,
+          },
+        });
+      });
+    });
+
+    return features.length > 0
+      ? ({
+          type: 'FeatureCollection',
+          features,
+        } as FeatureCollection)
+      : null;
+  }, [datasets, derivedLayers, gisFileMap, selectedFilePaths]);
+
   const handleExportDerivedLayer = useCallback(
     (id: string) => {
       setToolsFeedback(null);
@@ -1799,19 +1909,6 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       setIsExportingMap(false);
     }
   }, []);
-
-  const kernelWeightOptions = useMemo(
-    () => (kernelSourceId ? getLayerColumns(kernelSourceId) : []),
-    [getLayerColumns, kernelSourceId],
-  );
-  const dissolvePropertyOptions = useMemo(
-    () => (dissolveSourceId ? getLayerColumns(dissolveSourceId) : []),
-    [dissolveSourceId, getLayerColumns],
-  );
-  const areaApportionPropertyOptions = useMemo(
-    () => (areaApportionSourceId ? getLayerColumns(areaApportionSourceId) : []),
-    [areaApportionSourceId, getLayerColumns],
-  );
 
   const sidebarTabsDefinition = useMemo<Array<{ id: SidebarTabId; label: string; icon: IconType }>>(
     () => [
@@ -2418,79 +2515,6 @@ const GisAnalysisView: React.FC<{ tabId: string }> = ({ tabId }) => {
       }
     });
   }, [columnCache, computeColorForFeature, leafletLib, resolveStyleSettings, selectedColumns]);
-
-  const combinedFeatureCollection = useMemo(() => {
-    const features: FeatureCollection['features'] = [];
-
-    selectedFilePaths.forEach((path) => {
-      const dataset = datasets[path];
-      if (!dataset?.featureCollection) {
-        return;
-      }
-      const entry = gisFileMap.get(path);
-      const rowsForDataset = dataset.rows;
-
-      dataset.featureCollection.features.forEach((feature, index) => {
-        if (!feature.geometry) {
-          return;
-        }
-        const row = rowsForDataset[index];
-        const sanitizedRow: Record<string, unknown> = {};
-        if (row && typeof row === 'object') {
-          Object.entries(row as Record<string, unknown>).forEach(([key, value]) => {
-            if (key !== 'geometry') {
-              sanitizedRow[key] = value;
-            }
-          });
-        }
-
-        const baseProperties = sanitizeProperties(feature.properties);
-
-        features.push({
-          type: 'Feature',
-          geometry: cloneGeometry(feature.geometry),
-          properties: {
-            ...baseProperties,
-            __feature_index: index,
-            __source_path: path,
-            __source_name: entry?.name ?? path.split('/').pop() ?? path,
-            ...sanitizedRow,
-          },
-        });
-      });
-    });
-
-    derivedLayers.forEach((layer) => {
-      if (!layer.visible || !layer.featureCollection) {
-        return;
-      }
-      layer.featureCollection.features.forEach((feature, index) => {
-        if (!feature.geometry) {
-          return;
-        }
-        const properties = sanitizeProperties(feature.properties);
-        features.push({
-          type: 'Feature',
-          geometry: cloneGeometry(feature.geometry),
-          properties: {
-            ...properties,
-            __feature_index: index,
-            __source_path: layer.id,
-            __source_name: layer.name,
-            __derived_type: layer.type,
-            __origin_paths: layer.sourcePaths,
-          },
-        });
-      });
-    });
-
-    return features.length > 0
-      ? ({
-          type: 'FeatureCollection',
-          features,
-        } as FeatureCollection)
-      : null;
-  }, [datasets, derivedLayers, gisFileMap, selectedFilePaths]);
 
   useEffect(() => {
     const mapInstance = mapInstanceRef.current;

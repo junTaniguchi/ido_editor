@@ -534,6 +534,8 @@ export const parseMermaid = (content: string) => {
       diagramType = 'gantt';
     } else if (firstLine.startsWith('pie')) {
       diagramType = 'pie';
+    } else if (firstLine.startsWith('mindmap')) {
+      diagramType = 'mindmap';
     }
 
     // メタデータを収集

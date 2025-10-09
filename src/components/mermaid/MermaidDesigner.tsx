@@ -2055,6 +2055,22 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         allowSwitch = window.confirm('図の種類を変更すると現在の図はクリアされます。続行しますか？');
       }
       if (!allowSwitch) return;
+      if (nextType === 'mindmap') {
+        const definition = diagramDefinitions[nextType];
+        const template = definition.defaultTemplate;
+        setDiagramType(nextType);
+        setConfig(definition.defaultConfig);
+        setNodes([]);
+        updateEdges([]);
+        setSubgraphs([]);
+        setGanttSections(['General']);
+        setWarnings([]);
+        setInspector(null);
+        setGeneratedCode(template);
+        lastSerializedRef.current = template;
+        updateTab(tabId, { content: template, isDirty: true });
+        return;
+      }
       recordHistory();
       const definition = diagramDefinitions[nextType];
       setDiagramType(nextType);
@@ -2073,7 +2089,22 @@ const MermaidDesigner: React.FC<MermaidDesignerProps> = ({ tabId, fileName, cont
         label: firstEdgeTemplate?.defaultLabel ?? '',
       });
     },
-    [diagramType, edges.length, nodes.length, recordHistory, updateEdges],
+    [
+      diagramType,
+      edges.length,
+      nodes.length,
+      recordHistory,
+      setConfig,
+      setNodes,
+      updateEdges,
+      setSubgraphs,
+      setGanttSections,
+      setWarnings,
+      setInspector,
+      setGeneratedCode,
+      updateTab,
+      tabId,
+    ],
   );
 
   const handleDeleteSelection = useCallback(() => {

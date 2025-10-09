@@ -43,6 +43,7 @@ import {
 import DataTable from './DataTable';
 import ObjectViewer from './ObjectViewer';
 import MarkdownPreview from './MarkdownPreview';
+import MermaidPreview from './MermaidPreview';
 import type { MermaidDesignerProps } from '@/components/mermaid/MermaidDesigner';
 import IpynbPreview from './IpynbPreview';
 import PdfPreview from './PdfPreview';
@@ -271,6 +272,17 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     if (typeof parsedData[0] !== 'object' || parsedData[0] === null) return false;
     return columns.length > 0;
   }, [type, parsedData, columns]);
+
+  const mermaidDiagramType = useMemo(() => {
+    if (type !== 'mermaid') {
+      return null;
+    }
+    if (parsedData && typeof parsedData === 'object' && parsedData !== null && 'type' in parsedData) {
+      const detectedType = (parsedData as { type?: string }).type;
+      return typeof detectedType === 'string' ? detectedType : null;
+    }
+    return null;
+  }, [parsedData, type]);
 
   useEffect(() => {
     if (!isTabularData) {
@@ -1209,11 +1221,27 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
             <>
               {/* Mermaid図式の場合 */}
               {type === 'mermaid' && (
-                <MermaidDesigner
-                  tabId={tabId}
-                  fileName={tabs.get(tabId)?.name || 'mermaid-diagram.mmd'}
-                  content={content}
-                />
+                mermaidDiagramType === 'mindmap' ? (
+                  <div className="h-full flex flex-col bg-white dark:bg-gray-950">
+                    <div className="flex-shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700 dark:border-amber-800/60 dark:bg-amber-900/40 dark:text-amber-100">
+                      GUIデザイナーはマインドマップ記法に未対応のため、コード編集とプレビューのみ利用できます。
+                    </div>
+                    <div className="flex-1 min-h-0">
+                      <MermaidPreview
+                        content={typeof content === 'string' ? content : ''}
+                        fileName={tabs.get(tabId)?.name || 'mindmap.mmd'}
+                        tabId={tabId}
+                        enableAiActions={false}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <MermaidDesigner
+                    tabId={tabId}
+                    fileName={tabs.get(tabId)?.name || 'mermaid-diagram.mmd'}
+                    content={content}
+                  />
+                )
               )}
               {/* Jupyter Notebookプレビュー */}
               {type === 'ipynb' && parsedData && (
