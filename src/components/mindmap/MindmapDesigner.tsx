@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { IoAddCircleOutline, IoChevronDown, IoChevronUp, IoGitBranch, IoSave, IoTrashOutline } from 'react-icons/io5';
-import { LuPlus } from 'react-icons/lu';
+import { LuPlus, LuSparkles } from 'react-icons/lu';
 import { useEditorStore } from '@/store/editorStore';
+import { useLlmSettingsContext } from '@/components/providers/LlmSettingsProvider';
 import MarkmapMindmap from './MarkmapMindmap';
 import {
   addMindmapChild,
@@ -12,6 +13,7 @@ import {
   findMindmapNode,
   generateMarkdownFromMindmap,
   getMindmapNodeContext,
+  getMindmapNodePath,
   MindmapLayout,
   MindmapNode,
   moveMindmapNode,
@@ -52,6 +54,11 @@ const MindmapDesigner: React.FC<MindmapDesignerProps> = ({ tabId, fileName, cont
   const [selectedNodeId, setSelectedNodeId] = useState<string>(initialRoot.id);
   const [isSidebarCollapsed, setSidebarCollapsed] = useState(false);
   const lastSerializedRef = useRef<string>(content);
+  const { aiFeaturesEnabled } = useLlmSettingsContext();
+  const [aiInstruction, setAiInstruction] = useState('');
+  const [isAiExpanding, setAiExpanding] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiInfo, setAiInfo] = useState<string | null>(null);
 
   useEffect(() => {
     if (content === lastSerializedRef.current) {
@@ -76,6 +83,11 @@ const MindmapDesigner: React.FC<MindmapDesignerProps> = ({ tabId, fileName, cont
     const isDirty = tab ? serialized !== tab.originalContent : true;
     updateTab(tabId, { content: serialized, isDirty });
   }, [tree, layout, getTab, onContentChange, tabId, updateTab]);
+
+  useEffect(() => {
+    setAiError(null);
+    setAiInfo(null);
+  }, [selectedNodeId]);
 
   const handleUpdateTree = useCallback((updater: (current: MindmapNode) => MindmapNode) => {
     setTree((current) => ensureMindmapRoot(updater(current)));
@@ -149,6 +161,139 @@ const MindmapDesigner: React.FC<MindmapDesignerProps> = ({ tabId, fileName, cont
   }, []);
 
   const selectedNode = useMemo(() => findMindmapNode(tree, selectedNodeId) ?? tree, [selectedNodeId, tree]);
+
+  const handleAiExpand = useCallback(async () => {
+    if (!aiFeaturesEnabled) {
+      setAiError('AI機能が無効化されています。設定からAIプロバイダーを有効にしてください。');
+      return;
+    }
+
+    if (!selectedNode) {
+      setAiError('詳細化するノードを選択してください。');
+      return;
+    }
+
+    const normalizeLabelForAi = (value: string) => value.replace(/\s+/g, ' ').trim();
+    const targetLabel = normalizeLabelForAi(selectedNode.label ?? '');
+
+    if (!targetLabel) {
+      setAiError('ノード名が空です。先にノード名を入力してください。');
+      return;
+    }
+
+    setAiExpanding(true);
+    setAiError(null);
+    setAiInfo(null);
+
+    try {
+      const pathNodes = getMindmapNodePath(tree, selectedNodeId);
+      const ancestorLabels = Array.from(
+        new Set(
+          pathNodes
+            .slice(0, -1)
+            .map((node) => normalizeLabelForAi(node.label ?? ''))
+            .filter((label) => label.length > 0),
+        ),
+      );
+      const existingChildLabels = Array.from(
+        new Set(
+          selectedNode.children
+            .map((child) => normalizeLabelForAi(child.label ?? ''))
+            .filter((label) => label.length > 0),
+        ),
+      );
+
+      const extraInstruction = aiInstruction.trim();
+
+      const response = await fetch('/api/llm/mindmap', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          nodeLabel: targetLabel,
+          ancestorPath: ancestorLabels,
+          existingChildren: existingChildLabels,
+          instruction: extraInstruction.length > 0 ? extraInstruction : undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        let message = `AIによる子ノード提案に失敗しました。（${response.status}）`;
+        try {
+          const errorPayload = await response.json();
+          if (errorPayload && typeof errorPayload.error === 'string') {
+            message = errorPayload.error;
+          }
+        } catch {
+          // ignore
+        }
+        throw new Error(message);
+      }
+
+      const data = await response.json();
+      if (data && typeof data.error === 'string') {
+        throw new Error(data.error);
+      }
+      const rawSuggestions: unknown[] = Array.isArray(data?.children) ? data.children : [];
+      const suggestions = rawSuggestions
+        .map((item) => {
+          if (item && typeof item === 'object' && typeof (item as { label?: string }).label === 'string') {
+            return normalizeLabelForAi((item as { label: string }).label);
+          }
+          if (typeof item === 'string') {
+            return normalizeLabelForAi(item);
+          }
+          return '';
+        })
+        .filter((label) => label.length > 0);
+
+      if (suggestions.length === 0) {
+        setAiError('AIから有効な子ノード案を取得できませんでした。');
+        return;
+      }
+
+      const uniqueSuggestions = Array.from(new Set(suggestions));
+      const existingSet = new Set(existingChildLabels);
+      let addedCount = 0;
+      let skippedCount = 0;
+
+      handleUpdateTree((current) => {
+        let nextTree = current;
+        uniqueSuggestions.forEach((label) => {
+          if (existingSet.has(label)) {
+            skippedCount += 1;
+            return;
+          }
+          existingSet.add(label);
+          const newNode = { ...createMindmapNode(label), label };
+          const result = addMindmapChild(nextTree, selectedNodeId, newNode);
+          if (result.added) {
+            nextTree = result.tree;
+            addedCount += 1;
+          }
+        });
+        return nextTree;
+      });
+
+      if (addedCount > 0) {
+        setAiInfo(
+          `${addedCount}件の子ノードを追加しました。${
+            skippedCount > 0 ? `（${skippedCount}件は重複のためスキップ）` : ''
+          }`,
+        );
+      } else if (skippedCount > 0) {
+        setAiError('AIからの提案は既存の子ノードと重複していたため追加されませんでした。');
+      } else {
+        setAiError('AIから有効な子ノード案を取得できませんでした。');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'AIによる子ノード提案に失敗しました。';
+      setAiError(message);
+    } finally {
+      setAiExpanding(false);
+    }
+  }, [aiFeaturesEnabled, aiInstruction, handleUpdateTree, selectedNode, selectedNodeId, tree]);
 
   const nodeContext = useMemo(() => getMindmapNodeContext(tree, selectedNodeId), [selectedNodeId, tree]);
 
@@ -370,6 +515,48 @@ const MindmapDesigner: React.FC<MindmapDesignerProps> = ({ tabId, fileName, cont
                 >
                   <IoTrashOutline size={14} /> ノードを削除
                 </button>
+              </div>
+
+              <div className="space-y-2 rounded border border-gray-200 bg-white p-3 text-xs shadow-sm dark:border-gray-700 dark:bg-gray-800/80">
+                <div className="flex items-center justify-between">
+                  <p className="font-semibold text-gray-700 dark:text-gray-200">AIで詳細化</p>
+                  {isAiExpanding && (
+                    <span className="text-[11px] text-blue-600 dark:text-blue-300">生成中…</span>
+                  )}
+                </div>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                  選択中のノードをAIに渡して、関連する子ノード候補を自動生成します。
+                </p>
+                <textarea
+                  value={aiInstruction}
+                  onChange={(event) => setAiInstruction(event.target.value)}
+                  placeholder="AIに伝えたい補足や観点があれば入力してください（任意）"
+                  className="h-20 w-full resize-none rounded border border-gray-300 bg-white p-2 text-xs text-gray-700 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleAiExpand()}
+                  disabled={!aiFeaturesEnabled || isAiExpanding}
+                  className={`flex w-full items-center justify-center gap-1 rounded border px-3 py-2 text-xs font-medium transition ${
+                    aiFeaturesEnabled && !isAiExpanding
+                      ? 'border-blue-500 bg-blue-600 text-white hover:bg-blue-500 dark:border-blue-400 dark:bg-blue-500 dark:hover:bg-blue-400'
+                      : 'border-gray-300 bg-gray-200 text-gray-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-500'
+                  }`}
+                >
+                  <LuSparkles size={14} />
+                  {isAiExpanding ? '生成中…' : 'AIで子ノードを提案'}
+                </button>
+                {!aiFeaturesEnabled && (
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                    AI機能を利用するには右上の鍵アイコンからプロバイダー設定とAPIキーを登録してください。
+                  </p>
+                )}
+                {aiInfo && (
+                  <p className="text-[11px] text-green-600 dark:text-green-300">{aiInfo}</p>
+                )}
+                {aiError && (
+                  <p className="text-[11px] text-red-600 dark:text-red-300">{aiError}</p>
+                )}
               </div>
             </div>
           </div>
