@@ -324,6 +324,26 @@ export const getMindmapNodeContext = (
   return null;
 };
 
+export const getMindmapNodePath = (root: MindmapNode, targetId: string): MindmapNode[] => {
+  const traverse = (node: MindmapNode, path: MindmapNode[]): MindmapNode[] | null => {
+    const nextPath = [...path, node];
+    if (node.id === targetId) {
+      return nextPath;
+    }
+
+    for (const child of node.children) {
+      const found = traverse(child, nextPath);
+      if (found) {
+        return found;
+      }
+    }
+
+    return null;
+  };
+
+  return traverse(root, []) ?? [root];
+};
+
 export const ensureMindmapRoot = (node: MindmapNode | null | undefined): MindmapNode => {
   if (!node) {
     return createMindmapNode(DEFAULT_ROOT_LABEL);
