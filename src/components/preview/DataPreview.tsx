@@ -42,12 +42,24 @@ import {
 } from '@/lib/gisUtils';
 import DataTable from './DataTable';
 import ObjectViewer from './ObjectViewer';
+import MarkdownPreview from './MarkdownPreview';
 import type { MermaidDesignerProps } from '@/components/mermaid/MermaidDesigner';
 import IpynbPreview from './IpynbPreview';
 import PdfPreview from './PdfPreview';
 import ExcelPreview from './ExcelPreview';
 import ExportModal from './ExportModal';
-import { IoAlertCircleOutline, IoCodeSlash, IoEye, IoLayers, IoGrid, IoSave, IoClose, IoDownload } from 'react-icons/io5';
+import {
+  IoAlertCircleOutline,
+  IoCodeSlash,
+  IoEye,
+  IoLayers,
+  IoGrid,
+  IoSave,
+  IoClose,
+  IoDownload,
+  IoDocumentText,
+  IoGitBranch,
+} from 'react-icons/io5';
 import * as XLSX from 'xlsx';
 import { Document, Packer, Paragraph } from 'docx';
 
@@ -118,6 +130,18 @@ const MermaidDesigner = dynamic<MermaidDesignerProps>(
     loading: () => (
       <div className="flex h-full items-center justify-center rounded border border-dashed border-gray-300 p-4 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
         Mermaidデザイナーを読み込み中...
+      </div>
+    ),
+  },
+);
+
+const MarkmapMindmap = dynamic(
+  () => import('@/components/mindmap/MarkmapMindmap'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full items-center justify-center rounded border border-dashed border-gray-300 p-4 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+        マインドマップを読み込み中...
       </div>
     ),
   },
@@ -220,6 +244,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   const editedDataRef = useRef<any>(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [tableViewMode, setTableViewMode] = useState<'react-table' | 'spread'>('react-table');
+  const [markdownPreviewMode, setMarkdownPreviewMode] = useState<'document' | 'mindmap'>('document');
   const tableEditingColumns = useMemo(() => {
     if (Array.isArray(editedData) && editedData.length > 0 && typeof editedData[0] === 'object' && editedData[0] !== null) {
       return Object.keys(editedData[0]);
@@ -252,6 +277,12 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
       setTableViewMode('react-table');
     }
   }, [isTabularData]);
+
+  useEffect(() => {
+    if (type !== 'markdown') {
+      setMarkdownPreviewMode('document');
+    }
+  }, [type]);
 
   const designerSettings = analysisEntry?.chartSettings;
 
@@ -1072,6 +1103,32 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
             <span className="text-sm text-gray-500 ml-2">
               表示モード: {dataDisplayMode === 'flat' ? 'フラット' : '階層構造'}
             </span>
+            {type === 'markdown' && (
+              <div className="ml-4 flex items-center gap-2">
+                <button
+                  className={`flex items-center gap-1 rounded border px-2 py-1 text-xs transition-colors ${
+                    markdownPreviewMode === 'document'
+                      ? 'border-blue-600 bg-blue-600 text-white'
+                      : 'border-gray-300 bg-gray-100 text-gray-700 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300'
+                  }`}
+                  onClick={() => setMarkdownPreviewMode('document')}
+                >
+                  <IoDocumentText />
+                  ドキュメント
+                </button>
+                <button
+                  className={`flex items-center gap-1 rounded border px-2 py-1 text-xs transition-colors ${
+                    markdownPreviewMode === 'mindmap'
+                      ? 'border-blue-600 bg-blue-600 text-white'
+                      : 'border-gray-300 bg-gray-100 text-gray-700 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300'
+                  }`}
+                  onClick={() => setMarkdownPreviewMode('mindmap')}
+                >
+                  <IoGitBranch />
+                  マインドマップ
+                </button>
+              </div>
+            )}
             <button
               className={`ml-4 px-2 py-1 rounded border text-xs ${dataDisplayMode === 'flat' ? 'bg-gray-100 border-gray-400' : 'bg-blue-100 border-blue-400'}`}
               onClick={() => updateEditorSettings({ dataDisplayMode: dataDisplayMode === 'flat' ? 'nested' : 'flat' })}
@@ -1136,78 +1193,94 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
           </div>
         </div>
         <div className="flex-1 overflow-auto">
-          {/* Mermaid図式の場合 */}
-          {type === 'mermaid' && (
-            <MermaidDesigner
-              tabId={tabId}
-              fileName={tabs.get(tabId)?.name || 'mermaid-diagram.mmd'}
-              content={content}
-            />
-          )}
-          {/* Jupyter Notebookプレビュー */}
-          {type === 'ipynb' && parsedData && (
-            <div className="p-2">
-              <IpynbPreview data={parsedData} />
-            </div>
-          )}
-          {/* PDFプレビュー */}
-          {type === 'pdf' && parsedData && (
-            <div className="p-2">
-              <PdfPreview fileUrl={parsedData} />
-            </div>
-          )}
-          {/* Excelプレビュー */}
-          {type === 'excel' && (() => {
-            console.log('Excel条件チェック:', {
-              typeIsExcel: type === 'excel',
-              hasContent: !!content,
-              isArrayBuffer: content instanceof ArrayBuffer,
-              contentType: typeof content
-            });
-            return content && content instanceof ArrayBuffer;
-          })() && (
-            <ExcelPreview 
-              content={content as ArrayBuffer} 
-              fileName={tabs.get(tabId)?.name || 'excel-file'} 
-            />
-          )}
-          {/* Excel エラー表示 */}
-          {type === 'excel' && !content && (
-            <div className="p-4 text-center">
-              <p className="text-red-500">Excelファイルの読み込みに失敗しました</p>
-            </div>
-          )}
-          {/* CSV、TSV、JSONとYAMLの配列形式のデータはテーブルで表示 */}
-          {isTabularData ? (
-            <div className="p-2">
-              {tableViewMode === 'react-table' ? (
-                <DataTable
-                  data={parsedData}
-                  columns={columns}
-                  isNested={dataDisplayMode === 'nested'}
-                />
-              ) : (
-                <div className="h-[60vh] rounded border border-gray-200 dark:border-gray-700">
-                  <SpreadSheetEditor
-                    data={Array.isArray(parsedData) ? parsedData : []}
-                    columns={columns}
-                    readOnly
-                    height="100%"
-                  />
+          {type === 'markdown' ? (
+            markdownPreviewMode === 'mindmap' ? (
+              <div className="h-full p-2">
+                <div className="h-full rounded border border-gray-200 bg-white p-0 dark:border-gray-700 dark:bg-gray-950">
+                  <MarkmapMindmap markdown={typeof content === 'string' ? content : ''} className="p-4" />
                 </div>
-              )}
-            </div>
-          ) : (
-            // それ以外はオブジェクトビューアで表示（Mermaid以外）
-            type !== 'mermaid' && type !== 'ipynb' && type !== 'pdf' && (
-              <div className="p-2">
-                <ObjectViewer
-                  data={parsedData}
-                  expandByDefault={dataDisplayMode === 'nested'} 
-                  expandLevel={dataDisplayMode === 'nested' ? 3 : 1}
-                />
+              </div>
+            ) : (
+              <div className="h-full overflow-auto bg-white dark:bg-gray-950">
+                <MarkdownPreview tabId={tabId} />
               </div>
             )
+          ) : (
+            <>
+              {/* Mermaid図式の場合 */}
+              {type === 'mermaid' && (
+                <MermaidDesigner
+                  tabId={tabId}
+                  fileName={tabs.get(tabId)?.name || 'mermaid-diagram.mmd'}
+                  content={content}
+                />
+              )}
+              {/* Jupyter Notebookプレビュー */}
+              {type === 'ipynb' && parsedData && (
+                <div className="p-2">
+                  <IpynbPreview data={parsedData} />
+                </div>
+              )}
+              {/* PDFプレビュー */}
+              {type === 'pdf' && parsedData && (
+                <div className="p-2">
+                  <PdfPreview fileUrl={parsedData} />
+                </div>
+              )}
+              {/* Excelプレビュー */}
+              {type === 'excel' && (() => {
+                console.log('Excel条件チェック:', {
+                  typeIsExcel: type === 'excel',
+                  hasContent: !!content,
+                  isArrayBuffer: content instanceof ArrayBuffer,
+                  contentType: typeof content
+                });
+                return content && content instanceof ArrayBuffer;
+              })() && (
+                <ExcelPreview
+                  content={content as ArrayBuffer}
+                  fileName={tabs.get(tabId)?.name || 'excel-file'}
+                />
+              )}
+              {/* Excel エラー表示 */}
+              {type === 'excel' && !content && (
+                <div className="p-4 text-center">
+                  <p className="text-red-500">Excelファイルの読み込みに失敗しました</p>
+                </div>
+              )}
+              {/* CSV、TSV、JSONとYAMLの配列形式のデータはテーブルで表示 */}
+              {isTabularData ? (
+                <div className="p-2">
+                  {tableViewMode === 'react-table' ? (
+                    <DataTable
+                      data={parsedData}
+                      columns={columns}
+                      isNested={dataDisplayMode === 'nested'}
+                    />
+                  ) : (
+                    <div className="h-[60vh] rounded border border-gray-200 dark:border-gray-700">
+                      <SpreadSheetEditor
+                        data={Array.isArray(parsedData) ? parsedData : []}
+                        columns={columns}
+                        readOnly
+                        height="100%"
+                      />
+                    </div>
+                  )}
+                </div>
+              ) : (
+                // それ以外はオブジェクトビューアで表示（Mermaid以外）
+                type !== 'mermaid' && type !== 'ipynb' && type !== 'pdf' && (
+                  <div className="p-2">
+                    <ObjectViewer
+                      data={parsedData}
+                      expandByDefault={dataDisplayMode === 'nested'}
+                      expandLevel={dataDisplayMode === 'nested' ? 3 : 1}
+                    />
+                  </div>
+                )
+              )}
+            </>
           )}
         </div>
       </div>
