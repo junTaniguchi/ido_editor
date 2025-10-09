@@ -1262,6 +1262,21 @@ export const diagramDefinitions: Record<MermaidDiagramType, MermaidDiagramDefini
     supportsEdges: true,
     createNodeId: () => `arch_${createId()}`,
   },
+  mindmap: {
+    type: 'mindmap',
+    label: 'マインドマップ',
+    description: '中心テーマから階層的にアイデアを整理するマインドマップ',
+    nodeTemplates: [],
+    edgeTemplates: [],
+    defaultConfig: { type: 'mindmap' },
+    defaultTemplate: `mindmap
+  root((中心テーマ))
+    アイデア1
+      詳細A
+    アイデア2
+      詳細B`,
+    supportsEdges: false,
+  },
   pie: {
     type: 'pie',
     label: '円グラフ',

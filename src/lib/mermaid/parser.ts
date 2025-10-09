@@ -98,6 +98,7 @@ export const detectDiagramType = (source: string): MermaidDiagramType => {
   if (firstLine.startsWith('erdiagram')) return 'er';
   if (firstLine.startsWith('gantt')) return 'gantt';
   if (firstLine.startsWith('pie')) return 'pie';
+  if (firstLine.startsWith('mindmap')) return 'mindmap';
   if (firstLine.startsWith('gitgraph')) return 'gitGraph';
   if (/^c4(context|container|component|dynamic)/.test(firstLine)) return 'c4';
   if (firstLine.startsWith('architecture-beta') || firstLine.startsWith('architecture')) return 'architecture';

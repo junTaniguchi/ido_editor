@@ -16,7 +16,8 @@ export type MermaidDiagramType =
   | 'pie'
   | 'gitGraph'
   | 'c4'
-  | 'architecture';
+  | 'architecture'
+  | 'mindmap';
 
 /** ノード共通のデータ構造 */
 export interface MermaidNodeData {
@@ -88,7 +89,8 @@ export type MermaidDiagramConfig =
   | { type: 'pie'; title?: string; showData?: boolean }
   | { type: 'gitGraph'; orientation: GitGraphOrientation }
   | { type: 'c4'; diagramVariant: 'C4Context' | 'C4Container' | 'C4Component' | 'C4Dynamic'; title?: string }
-  | { type: 'architecture'; diagramVariant: 'architecture' | 'architecture-beta'; title?: string };
+  | { type: 'architecture'; diagramVariant: 'architecture' | 'architecture-beta'; title?: string }
+  | { type: 'mindmap' };
 
 /** React Flow上の状態をMermaidソースへ変換するためのモデル */
 export interface MermaidGraphModel {
