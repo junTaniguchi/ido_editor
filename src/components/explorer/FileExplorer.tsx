@@ -20,6 +20,7 @@ import {
   IoCreateOutline,
   IoReloadOutline,
   IoSyncOutline,
+  IoCopyOutline,
 } from 'react-icons/io5';
 import { useEditorStore } from '@/store/editorStore';
 import { useGitStore } from '@/store/gitStore';
@@ -85,6 +86,7 @@ const FileExplorer = () => {
   
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [apiSupported, setApiSupported] = useState<boolean>(true);
+  const [isCopyingTree, setIsCopyingTree] = useState(false);
   
   // モーダル関連の状態
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -751,6 +753,65 @@ const FileExplorer = () => {
   const selectedIsTarGz = !!selectedItem && !selectedItem.isDirectory && selectedItem.name.toLowerCase().endsWith('.tar.gz');
   const selectedCanArchive = !!selectedItem && (selectedItem.isDirectory ? !!selectedItem.directoryHandle : !!selectedItem.fileHandle);
 
+  const buildTreeLines = useCallback(
+    (item: FileTreeItem, prefix = ''): string[] => {
+      const children = item.children ?? [];
+      if (children.length === 0) {
+        return [];
+      }
+
+      const lines: string[] = [];
+
+      children.forEach((child, index) => {
+        const isLast = index === children.length - 1;
+        const connector = isLast ? '└── ' : '├── ';
+        lines.push(`${prefix}${connector}${child.name}`);
+
+        if (child.isDirectory) {
+          const nextPrefix = `${prefix}${isLast ? '    ' : '│   '}`;
+          lines.push(...buildTreeLines(child, nextPrefix));
+        }
+      });
+
+      return lines;
+    },
+    [],
+  );
+
+  const handleCopyTreeStructure = useCallback(async () => {
+    if (!rootFileTree) {
+      return;
+    }
+
+    try {
+      setIsCopyingTree(true);
+      const rootName = rootFolderName || rootFileTree.name || '/';
+      const treeLines = [rootName, ...buildTreeLines(rootFileTree)];
+      const treeText = treeLines.join('\n');
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(treeText);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = treeText;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+
+      alert('ディレクトリ構成をクリップボードにコピーしました');
+    } catch (error) {
+      console.error('Failed to copy tree structure:', error);
+      alert(`ディレクトリ構成のコピーに失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsCopyingTree(false);
+    }
+  }, [buildTreeLines, rootFileTree, rootFolderName]);
+
   return (
     <div className="h-full flex flex-col bg-gray-100 dark:bg-gray-800 border-r border-gray-300 dark:border-gray-700">
       {/* ヘッダー */}
@@ -772,7 +833,15 @@ const FileExplorer = () => {
           )}
         </div>
         <div className="flex space-x-1">
-          <button 
+          <button
+            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50"
+            onClick={handleCopyTreeStructure}
+            title="ディレクトリ構成をコピー"
+            disabled={!rootFileTree || isCopyingTree}
+          >
+            <IoCopyOutline size={18} />
+          </button>
+          <button
             className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
             onClick={handleNewFileInRoot}
             title="新規ファイル作成"
