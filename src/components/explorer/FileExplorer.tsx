@@ -12,6 +12,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   IoFolderOutline,
   IoDocumentOutline,
@@ -89,6 +90,12 @@ const FileExplorer = () => {
   const [isCopyingStructure, setIsCopyingStructure] = useState(false);
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
   const copyMenuContainerRef = useRef<HTMLDivElement | null>(null);
+  const copyMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const copyMenuContentRef = useRef<HTMLDivElement | null>(null);
+  const [copyMenuPosition, setCopyMenuPosition] = useState<{ top: number; left: number }>({
+    top: 0,
+    left: 0,
+  });
   const [copyTarget, setCopyTarget] = useState<'directoriesOnly' | 'directoriesAndFiles'>(
     'directoriesAndFiles',
   );
@@ -759,13 +766,77 @@ const FileExplorer = () => {
   const selectedIsTarGz = !!selectedItem && !selectedItem.isDirectory && selectedItem.name.toLowerCase().endsWith('.tar.gz');
   const selectedCanArchive = !!selectedItem && (selectedItem.isDirectory ? !!selectedItem.directoryHandle : !!selectedItem.fileHandle);
 
+  const updateCopyMenuPosition = useCallback(() => {
+    const trigger = copyMenuTriggerRef.current;
+    const menu = copyMenuContentRef.current;
+
+    if (!trigger || !menu) {
+      return false;
+    }
+
+    const triggerRect = trigger.getBoundingClientRect();
+    const menuRect = menu.getBoundingClientRect();
+    const spacing = 8;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    let left = triggerRect.right + spacing;
+    let top = triggerRect.top;
+
+    if (left + menuRect.width > viewportWidth - spacing) {
+      const fallbackLeft = triggerRect.left - spacing - menuRect.width;
+      if (fallbackLeft >= spacing) {
+        left = fallbackLeft;
+      } else {
+        left = Math.max(spacing, viewportWidth - menuRect.width - spacing);
+      }
+    }
+
+    if (top + menuRect.height > viewportHeight - spacing) {
+      top = Math.max(spacing, viewportHeight - menuRect.height - spacing);
+    }
+
+    setCopyMenuPosition({ top, left });
+    return true;
+  }, []);
+
+  useEffect(() => {
+    if (!copyMenuOpen) {
+      return;
+    }
+
+    let animationFrameId = 0;
+
+    const ensurePosition = () => {
+      const positioned = updateCopyMenuPosition();
+      if (!positioned) {
+        animationFrameId = window.requestAnimationFrame(ensurePosition);
+      }
+    };
+
+    ensurePosition();
+
+    window.addEventListener('resize', ensurePosition);
+    window.addEventListener('scroll', ensurePosition, true);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+      window.removeEventListener('resize', ensurePosition);
+      window.removeEventListener('scroll', ensurePosition, true);
+    };
+  }, [copyMenuOpen, updateCopyMenuPosition]);
+
   useEffect(() => {
     if (!copyMenuOpen) {
       return;
     }
 
     const handleClickOutside = (event: MouseEvent) => {
-      if (copyMenuContainerRef.current && !copyMenuContainerRef.current.contains(event.target as Node)) {
+      const targetNode = event.target as Node;
+      const clickedInsideTrigger = copyMenuContainerRef.current?.contains(targetNode);
+      const clickedInsideMenu = copyMenuContentRef.current?.contains(targetNode);
+
+      if (!clickedInsideTrigger && !clickedInsideMenu) {
         setCopyMenuOpen(false);
       }
     };
@@ -928,71 +999,78 @@ const FileExplorer = () => {
               onClick={() => setCopyMenuOpen((prev) => !prev)}
               title="ディレクトリ構成をコピー"
               disabled={!rootFileTree || isCopyingStructure}
+              ref={copyMenuTriggerRef}
             >
               <IoCopyOutline size={18} />
             </button>
-            {copyMenuOpen && (
-              <div className="absolute left-full ml-2 mt-1 w-64 rounded-md border border-gray-300 bg-white text-xs shadow-lg dark:border-gray-600 dark:bg-gray-800 z-50">
-                <div className="border-b border-gray-200 px-3 py-2 font-medium text-gray-700 dark:border-gray-700 dark:text-gray-100">
-                  コピー設定
-                </div>
-                <div className="px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">コピー対象</p>
-                  <label className="mt-2 flex cursor-pointer items-center space-x-2">
-                    <input
-                      type="radio"
-                      name="copy-target"
-                      value="directoriesAndFiles"
-                      checked={copyTarget === 'directoriesAndFiles'}
-                      onChange={() => setCopyTarget('directoriesAndFiles')}
-                    />
-                    <span>フォルダとファイル</span>
-                  </label>
-                  <label className="mt-2 flex cursor-pointer items-center space-x-2">
-                    <input
-                      type="radio"
-                      name="copy-target"
-                      value="directoriesOnly"
-                      checked={copyTarget === 'directoriesOnly'}
-                      onChange={() => setCopyTarget('directoriesOnly')}
-                    />
-                    <span>フォルダのみ</span>
-                  </label>
-                </div>
-                <div className="border-t border-gray-200 px-3 py-2 dark:border-gray-700">
-                  <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">フォーマット</p>
-                  <label className="mt-2 flex cursor-pointer items-center space-x-2">
-                    <input
-                      type="radio"
-                      name="copy-format"
-                      value="tree"
-                      checked={copyFormat === 'tree'}
-                      onChange={() => setCopyFormat('tree')}
-                    />
-                    <span>tree 形式</span>
-                  </label>
-                  <label className="mt-2 flex cursor-pointer items-center space-x-2">
-                    <input
-                      type="radio"
-                      name="copy-format"
-                      value="table"
-                      checked={copyFormat === 'table'}
-                      onChange={() => setCopyFormat('table')}
-                    />
-                    <span>表形式（ファイル名・フォルダパス）</span>
-                  </label>
-                </div>
-                <div className="border-t border-gray-200 px-3 py-2 dark:border-gray-700">
-                  <button
-                    className="w-full rounded bg-blue-600 px-3 py-1 text-white hover:bg-blue-700 disabled:opacity-50"
-                    onClick={handleCopyRequest}
-                    disabled={isCopyingStructure}
-                  >
-                    {isCopyingStructure ? 'コピー中...' : 'コピーする'}
-                  </button>
-                </div>
-              </div>
-            )}
+            {copyMenuOpen &&
+              createPortal(
+                <div
+                  ref={copyMenuContentRef}
+                  className="fixed w-64 rounded-md border border-gray-300 bg-white text-xs shadow-lg dark:border-gray-600 dark:bg-gray-800 z-[9999]"
+                  style={{ top: copyMenuPosition.top, left: copyMenuPosition.left }}
+                >
+                  <div className="border-b border-gray-200 px-3 py-2 font-medium text-gray-700 dark:border-gray-700 dark:text-gray-100">
+                    コピー設定
+                  </div>
+                  <div className="px-3 py-2">
+                    <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">コピー対象</p>
+                    <label className="mt-2 flex cursor-pointer items-center space-x-2">
+                      <input
+                        type="radio"
+                        name="copy-target"
+                        value="directoriesAndFiles"
+                        checked={copyTarget === 'directoriesAndFiles'}
+                        onChange={() => setCopyTarget('directoriesAndFiles')}
+                      />
+                      <span>フォルダとファイル</span>
+                    </label>
+                    <label className="mt-2 flex cursor-pointer items-center space-x-2">
+                      <input
+                        type="radio"
+                        name="copy-target"
+                        value="directoriesOnly"
+                        checked={copyTarget === 'directoriesOnly'}
+                        onChange={() => setCopyTarget('directoriesOnly')}
+                      />
+                      <span>フォルダのみ</span>
+                    </label>
+                  </div>
+                  <div className="border-t border-gray-200 px-3 py-2 dark:border-gray-700">
+                    <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">フォーマット</p>
+                    <label className="mt-2 flex cursor-pointer items-center space-x-2">
+                      <input
+                        type="radio"
+                        name="copy-format"
+                        value="tree"
+                        checked={copyFormat === 'tree'}
+                        onChange={() => setCopyFormat('tree')}
+                      />
+                      <span>tree 形式</span>
+                    </label>
+                    <label className="mt-2 flex cursor-pointer items-center space-x-2">
+                      <input
+                        type="radio"
+                        name="copy-format"
+                        value="table"
+                        checked={copyFormat === 'table'}
+                        onChange={() => setCopyFormat('table')}
+                      />
+                      <span>表形式（ファイル名・フォルダパス）</span>
+                    </label>
+                  </div>
+                  <div className="border-t border-gray-200 px-3 py-2 dark:border-gray-700">
+                    <button
+                      className="w-full rounded bg-blue-600 px-3 py-1 text-white hover:bg-blue-700 disabled:opacity-50"
+                      onClick={handleCopyRequest}
+                      disabled={isCopyingStructure}
+                    >
+                      {isCopyingStructure ? 'コピー中...' : 'コピーする'}
+                    </button>
+                  </div>
+                </div>,
+                document.body,
+              )}
           </div>
           <button
             className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
