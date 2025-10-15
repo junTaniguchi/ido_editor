@@ -11,7 +11,7 @@
  */
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   IoFolderOutline,
   IoDocumentOutline,
@@ -20,6 +20,7 @@ import {
   IoCreateOutline,
   IoReloadOutline,
   IoSyncOutline,
+  IoCopyOutline,
 } from 'react-icons/io5';
 import { useEditorStore } from '@/store/editorStore';
 import { useGitStore } from '@/store/gitStore';
@@ -85,6 +86,13 @@ const FileExplorer = () => {
   
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [apiSupported, setApiSupported] = useState<boolean>(true);
+  const [isCopyingStructure, setIsCopyingStructure] = useState(false);
+  const [copyMenuOpen, setCopyMenuOpen] = useState(false);
+  const copyMenuContainerRef = useRef<HTMLDivElement | null>(null);
+  const [copyTarget, setCopyTarget] = useState<'directoriesOnly' | 'directoriesAndFiles'>(
+    'directoriesAndFiles',
+  );
+  const [copyFormat, setCopyFormat] = useState<'tree' | 'table'>('tree');
   
   // モーダル関連の状態
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -751,6 +759,148 @@ const FileExplorer = () => {
   const selectedIsTarGz = !!selectedItem && !selectedItem.isDirectory && selectedItem.name.toLowerCase().endsWith('.tar.gz');
   const selectedCanArchive = !!selectedItem && (selectedItem.isDirectory ? !!selectedItem.directoryHandle : !!selectedItem.fileHandle);
 
+  useEffect(() => {
+    if (!copyMenuOpen) {
+      return;
+    }
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (copyMenuContainerRef.current && !copyMenuContainerRef.current.contains(event.target as Node)) {
+        setCopyMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setCopyMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [copyMenuOpen]);
+
+  const buildTreeLines = useCallback(
+    (item: FileTreeItem, options: { includeFiles: boolean }, prefix = ''): string[] => {
+      const children = item.children ?? [];
+      const visibleChildren = children.filter((child) => child.isDirectory || options.includeFiles);
+
+      if (visibleChildren.length === 0) {
+        return [];
+      }
+
+      const lines: string[] = [];
+
+      visibleChildren.forEach((child, index) => {
+        const isLast = index === visibleChildren.length - 1;
+        const connector = isLast ? '└── ' : '├── ';
+
+        if (child.isDirectory || options.includeFiles) {
+          lines.push(`${prefix}${connector}${child.name}`);
+        }
+
+        if (child.isDirectory) {
+          const nextPrefix = `${prefix}${isLast ? '    ' : '│   '}`;
+          lines.push(...buildTreeLines(child, options, nextPrefix));
+        }
+      });
+
+      return lines;
+    },
+    [],
+  );
+
+  const buildTableRows = useCallback(
+    (
+      item: FileTreeItem,
+      options: { includeFiles: boolean },
+      currentPath = '',
+    ): { name: string; path: string }[] => {
+      const rows: { name: string; path: string }[] = [];
+      const children = item.children ?? [];
+
+      children.forEach((child) => {
+        const folderPath = currentPath ? `/${currentPath}` : '/';
+
+        if (child.isDirectory) {
+          rows.push({ name: child.name, path: folderPath });
+          const nextPath = currentPath ? `${currentPath}/${child.name}` : child.name;
+          rows.push(...buildTableRows(child, options, nextPath));
+        } else if (options.includeFiles) {
+          rows.push({ name: child.name, path: folderPath });
+        }
+      });
+
+      return rows;
+    },
+    [],
+  );
+
+  const handleCopyStructure = useCallback(
+    async (options: { includeFiles: boolean; format: 'tree' | 'table' }) => {
+      if (!rootFileTree) {
+        return;
+      }
+
+      try {
+        setIsCopyingStructure(true);
+        const rootName = rootFolderName || rootFileTree.name || '/';
+        let copiedText = '';
+
+        if (options.format === 'tree') {
+          const treeLines = [rootName, ...buildTreeLines(rootFileTree, options)];
+          copiedText = treeLines.join('\n');
+        } else {
+          const tableRows = [{ name: rootName, path: '/' }, ...buildTableRows(rootFileTree, options)];
+          const header = 'Name\tFolder Path';
+          copiedText = [header, ...tableRows.map((row) => `${row.name}\t${row.path}`)].join('\n');
+        }
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(copiedText);
+        } else {
+          const textarea = document.createElement('textarea');
+          textarea.value = copiedText;
+          textarea.style.position = 'fixed';
+          textarea.style.opacity = '0';
+          document.body.appendChild(textarea);
+          textarea.focus();
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+        }
+
+        alert('ディレクトリ構成をクリップボードにコピーしました');
+      } catch (error) {
+        console.error('Failed to copy directory structure:', error);
+        alert(`ディレクトリ構成のコピーに失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      } finally {
+        setIsCopyingStructure(false);
+      }
+    },
+    [buildTableRows, buildTreeLines, rootFileTree, rootFolderName],
+  );
+
+  const handleCopyRequest = useCallback(async () => {
+    if (!rootFileTree) {
+      return;
+    }
+
+    try {
+      await handleCopyStructure({
+        includeFiles: copyTarget === 'directoriesAndFiles',
+        format: copyFormat,
+      });
+    } finally {
+      setCopyMenuOpen(false);
+    }
+  }, [copyFormat, copyTarget, handleCopyStructure, rootFileTree]);
+
   return (
     <div className="h-full flex flex-col bg-gray-100 dark:bg-gray-800 border-r border-gray-300 dark:border-gray-700">
       {/* ヘッダー */}
@@ -772,7 +922,79 @@ const FileExplorer = () => {
           )}
         </div>
         <div className="flex space-x-1">
-          <button 
+          <div className="relative" ref={copyMenuContainerRef}>
+            <button
+              className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50"
+              onClick={() => setCopyMenuOpen((prev) => !prev)}
+              title="ディレクトリ構成をコピー"
+              disabled={!rootFileTree || isCopyingStructure}
+            >
+              <IoCopyOutline size={18} />
+            </button>
+            {copyMenuOpen && (
+              <div className="absolute right-0 mt-1 w-64 rounded-md border border-gray-300 bg-white text-xs shadow-lg dark:border-gray-600 dark:bg-gray-800 z-50">
+                <div className="border-b border-gray-200 px-3 py-2 font-medium text-gray-700 dark:border-gray-700 dark:text-gray-100">
+                  コピー設定
+                </div>
+                <div className="px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">コピー対象</p>
+                  <label className="mt-2 flex cursor-pointer items-center space-x-2">
+                    <input
+                      type="radio"
+                      name="copy-target"
+                      value="directoriesAndFiles"
+                      checked={copyTarget === 'directoriesAndFiles'}
+                      onChange={() => setCopyTarget('directoriesAndFiles')}
+                    />
+                    <span>フォルダとファイル</span>
+                  </label>
+                  <label className="mt-2 flex cursor-pointer items-center space-x-2">
+                    <input
+                      type="radio"
+                      name="copy-target"
+                      value="directoriesOnly"
+                      checked={copyTarget === 'directoriesOnly'}
+                      onChange={() => setCopyTarget('directoriesOnly')}
+                    />
+                    <span>フォルダのみ</span>
+                  </label>
+                </div>
+                <div className="border-t border-gray-200 px-3 py-2 dark:border-gray-700">
+                  <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">フォーマット</p>
+                  <label className="mt-2 flex cursor-pointer items-center space-x-2">
+                    <input
+                      type="radio"
+                      name="copy-format"
+                      value="tree"
+                      checked={copyFormat === 'tree'}
+                      onChange={() => setCopyFormat('tree')}
+                    />
+                    <span>tree 形式</span>
+                  </label>
+                  <label className="mt-2 flex cursor-pointer items-center space-x-2">
+                    <input
+                      type="radio"
+                      name="copy-format"
+                      value="table"
+                      checked={copyFormat === 'table'}
+                      onChange={() => setCopyFormat('table')}
+                    />
+                    <span>表形式（ファイル名・フォルダパス）</span>
+                  </label>
+                </div>
+                <div className="border-t border-gray-200 px-3 py-2 dark:border-gray-700">
+                  <button
+                    className="w-full rounded bg-blue-600 px-3 py-1 text-white hover:bg-blue-700 disabled:opacity-50"
+                    onClick={handleCopyRequest}
+                    disabled={isCopyingStructure}
+                  >
+                    {isCopyingStructure ? 'コピー中...' : 'コピーする'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+          <button
             className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
             onClick={handleNewFileInRoot}
             title="新規ファイル作成"
