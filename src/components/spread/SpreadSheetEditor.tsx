@@ -31,6 +31,7 @@ const SpreadSheetEditor: React.FC<SpreadSheetEditorProps> = ({
 }) => {
   const spreadRef = useRef<GC.Spread.Sheets.Workbook | null>(null);
   const handlerRef = useRef<(() => void) | null>(null);
+  const clipboardHandlerRef = useRef<(() => void) | null>(null);
 
   const normalizedColumns = useMemo(() => {
     if (columns && columns.length > 0) {
@@ -50,6 +51,25 @@ const SpreadSheetEditor: React.FC<SpreadSheetEditorProps> = ({
     handlerRef.current = null;
   }, []);
 
+  const buildColumnNames = useCallback((sheet: GC.Spread.Sheets.Worksheet) => {
+    const columnCount = sheet.getColumnCount(GC.Spread.Sheets.SheetArea.viewport);
+
+    if (normalizedColumns.length === 0) {
+      return Array.from({ length: columnCount }, (_, index) => `Column${index + 1}`);
+    }
+
+    if (normalizedColumns.length >= columnCount) {
+      return normalizedColumns;
+    }
+
+    const additionalColumns = Array.from(
+      { length: columnCount - normalizedColumns.length },
+      (_, index) => `Column${normalizedColumns.length + index + 1}`,
+    );
+
+    return [...normalizedColumns, ...additionalColumns];
+  }, [normalizedColumns]);
+
   const extractRows = useCallback((): any[] => {
     const spread = spreadRef.current;
     if (!spread) return [];
@@ -67,9 +87,7 @@ const SpreadSheetEditor: React.FC<SpreadSheetEditorProps> = ({
       }
     }
 
-    const sheetColumns = normalizedColumns.length > 0
-      ? normalizedColumns
-      : Array.from({ length: sheet.getColumnCount(GC.Spread.Sheets.SheetArea.viewport) }, (_, index) => `Column${index + 1}`);
+    const sheetColumns = buildColumnNames(sheet);
 
     const rowCount = sheet.getRowCount(GC.Spread.Sheets.SheetArea.viewport);
     const extracted: any[] = [];
@@ -92,7 +110,98 @@ const SpreadSheetEditor: React.FC<SpreadSheetEditorProps> = ({
     }
 
     return extracted;
-  }, [normalizedColumns]);
+  }, [buildColumnNames]);
+
+  const ensureColumnHeaders = useCallback((sheet: GC.Spread.Sheets.Worksheet) => {
+    const columnNames = buildColumnNames(sheet);
+    columnNames.forEach((columnName, columnIndex) => {
+      sheet.setValue(0, columnIndex, columnName, GC.Spread.Sheets.SheetArea.colHeader);
+    });
+  }, [buildColumnNames]);
+
+  const detachClipboardListener = useCallback(() => {
+    if (!clipboardHandlerRef.current) return;
+    clipboardHandlerRef.current();
+    clipboardHandlerRef.current = null;
+  }, []);
+
+  const attachClipboardListener = useCallback(() => {
+    const spread = spreadRef.current;
+    if (!spread) return;
+
+    detachClipboardListener();
+
+    const handler = (_: GC.Spread.Sheets.Workbook, args: GC.Spread.Sheets.ClipboardPastingEventArgs) => {
+      const sheet = args.sheet ?? spread.getActiveSheet();
+      if (!sheet || args.cancel) {
+        return;
+      }
+
+      const cellRange = args.cellRange;
+      if (!cellRange) {
+        return;
+      }
+
+      const startRow = Math.max(cellRange.row ?? 0, 0);
+      const startColumn = Math.max(cellRange.col ?? 0, 0);
+
+      const currentRowCount = sheet.getRowCount(GC.Spread.Sheets.SheetArea.viewport);
+      const currentColumnCount = sheet.getColumnCount(GC.Spread.Sheets.SheetArea.viewport);
+
+      let pasteRowCount = 0;
+      let pasteColumnCount = 0;
+
+      const dataTable = args.pasteData?.dataTable;
+      if (Array.isArray(dataTable) && dataTable.length > 0) {
+        pasteRowCount = dataTable.length;
+        pasteColumnCount = dataTable.reduce((max, row) => {
+          if (!row) return max;
+          const length = Array.isArray(row) ? row.length : Object.keys(row).length;
+          return Math.max(max, length);
+        }, 0);
+      }
+
+      if (pasteRowCount === 0 || pasteColumnCount === 0) {
+        const text = args.text ?? args.pasteData?.text;
+        if (typeof text === 'string' && text.length > 0) {
+          const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+          const rows = normalized.split('\n');
+          if (rows[rows.length - 1] === '') {
+            rows.pop();
+          }
+          if (rows.length > 0) {
+            pasteRowCount = Math.max(pasteRowCount, rows.length);
+            pasteColumnCount = Math.max(
+              pasteColumnCount,
+              ...rows.map(row => (row === '' ? 1 : row.split('\t').length)),
+            );
+          }
+        }
+      }
+
+      if (pasteRowCount === 0 || pasteColumnCount === 0) {
+        return;
+      }
+
+      const requiredRowCount = Math.max(currentRowCount, startRow + pasteRowCount);
+      const requiredColumnCount = Math.max(currentColumnCount, startColumn + pasteColumnCount);
+
+      if (requiredRowCount > currentRowCount) {
+        sheet.setRowCount(requiredRowCount, GC.Spread.Sheets.SheetArea.viewport);
+      }
+
+      if (requiredColumnCount > currentColumnCount) {
+        sheet.setColumnCount(requiredColumnCount, GC.Spread.Sheets.SheetArea.viewport);
+        ensureColumnHeaders(sheet);
+      }
+    };
+
+    spread.bind(GC.Spread.Sheets.Events.ClipboardPasting, handler);
+
+    clipboardHandlerRef.current = () => {
+      spread.unbind(GC.Spread.Sheets.Events.ClipboardPasting, handler);
+    };
+  }, [detachClipboardListener, ensureColumnHeaders]);
 
   const attachListeners = useCallback(() => {
     const spread = spreadRef.current;
@@ -155,13 +264,14 @@ const SpreadSheetEditor: React.FC<SpreadSheetEditorProps> = ({
 
     const source = cloneRows(data ?? []);
     sheet.setDataSource(source);
+    ensureColumnHeaders(sheet);
 
     if (!readOnly) {
       sheet.getRange(-1, -1, -1, -1).locked(false);
     }
 
     sheet.resumePaint();
-  }, [data, normalizedColumns, readOnly, sheetName]);
+  }, [data, ensureColumnHeaders, normalizedColumns, readOnly, sheetName]);
 
   const handleWorkbookInitialized = useCallback((spread: GC.Spread.Sheets.Workbook) => {
     spreadRef.current = spread;
@@ -171,17 +281,19 @@ const SpreadSheetEditor: React.FC<SpreadSheetEditorProps> = ({
     const sheet = spread.getActiveSheet();
     configureSheet(sheet);
     attachListeners();
+    attachClipboardListener();
 
     if (onDataChange) {
       onDataChange(extractRows());
     }
-  }, [attachListeners, configureSheet, extractRows, onDataChange]);
+  }, [attachClipboardListener, attachListeners, configureSheet, extractRows, onDataChange]);
 
   useEffect(() => {
     return () => {
       detachListeners();
+      detachClipboardListener();
     };
-  }, [detachListeners]);
+  }, [detachClipboardListener, detachListeners]);
 
   useEffect(() => {
     const spread = spreadRef.current;
@@ -190,10 +302,11 @@ const SpreadSheetEditor: React.FC<SpreadSheetEditorProps> = ({
     configureSheet(sheet);
     detachListeners();
     attachListeners();
+    attachClipboardListener();
     if (onDataChange) {
       onDataChange(extractRows());
     }
-  }, [attachListeners, configureSheet, detachListeners, extractRows, onDataChange]);
+  }, [attachClipboardListener, attachListeners, configureSheet, detachListeners, extractRows, onDataChange]);
 
   return (
     <SpreadSheets
