@@ -10,7 +10,7 @@
 'use client';
 'use client';
 
-import React, { useEffect, useState, useMemo, useRef, forwardRef } from 'react';
+import React, { useEffect, useState, useMemo, useRef, forwardRef, useCallback } from 'react';
 import GithubSlugger from 'github-slugger';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -19,6 +19,7 @@ import { useEditorStore } from '@/store/editorStore';
 import { generateToc, TocItem } from '@/lib/tocUtils';
 import { IoList, IoChevronDown, IoChevronForward } from 'react-icons/io5';
 import MermaidPreview from './MermaidPreview';
+import { arrayToMarkdownTable } from '@/lib/dataFormatUtils';
 
 export interface MarkdownPreviewProps {
   tabId: string;
@@ -203,6 +204,191 @@ const MarkdownPreviewImage: React.FC<MarkdownPreviewImageProps> = ({
   }
 
   return null;
+};
+
+type TableCopyFormat = 'csv' | 'tsv' | 'markdown';
+
+const TABLE_COPY_FORMATS: { value: TableCopyFormat; label: string }[] = [
+  { value: 'csv', label: 'CSV形式でコピー' },
+  { value: 'tsv', label: 'TSV形式でコピー' },
+  { value: 'markdown', label: 'Markdown表でコピー' }
+];
+
+const formatLabelMap: Record<TableCopyFormat, string> = {
+  csv: 'CSV形式',
+  tsv: 'TSV形式',
+  markdown: 'Markdown表形式'
+};
+
+const sanitizeCellValue = (value: string): string => value.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+const tableRowsToArray = (table: HTMLTableElement): string[][] => {
+  const rows: string[][] = [];
+  Array.from(table.rows).forEach((row) => {
+    const cells = Array.from(row.cells);
+    if (cells.length === 0) return;
+    rows.push(cells.map((cell) => sanitizeCellValue(cell.textContent ?? '')));
+  });
+  return rows;
+};
+
+const rowsToDelimitedText = (rows: string[][], delimiter: string): string => {
+  const escapeCell = (value: string): string => {
+    const needsQuote = value.includes(delimiter) || value.includes('"') || /[\r\n]/.test(value);
+    const escaped = value.replace(/"/g, '""');
+    return needsQuote ? `"${escaped}"` : escaped;
+  };
+
+  return rows.map((row) => row.map((cell) => escapeCell(cell)).join(delimiter)).join('\n');
+};
+
+interface MarkdownTableContainerProps {
+  children: React.ReactElement;
+}
+
+const MarkdownTableContainer: React.FC<MarkdownTableContainerProps> = ({ children }) => {
+  const tableRef = useRef<HTMLTableElement | null>(null);
+  const menuContainerRef = useRef<HTMLDivElement | null>(null);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [copiedFormat, setCopiedFormat] = useState<TableCopyFormat | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
+
+  const closeMenu = useCallback(() => setIsMenuOpen(false), []);
+
+  useEffect(() => {
+    if (!isMenuOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!menuContainerRef.current) return;
+      if (menuContainerRef.current.contains(event.target as Node)) return;
+      closeMenu();
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isMenuOpen, closeMenu]);
+
+  const handleCopy = useCallback(
+    async (format: TableCopyFormat) => {
+      const table = tableRef.current;
+      if (!table) {
+        setCopyError('テーブルが見つかりませんでした。');
+        setCopiedFormat(null);
+        closeMenu();
+        return;
+      }
+
+      const rows = tableRowsToArray(table);
+      if (rows.length === 0) {
+        setCopyError('コピーできるデータがありません。');
+        setCopiedFormat(null);
+        closeMenu();
+        return;
+      }
+
+      let text = '';
+      switch (format) {
+        case 'csv':
+          text = rowsToDelimitedText(rows, ',');
+          break;
+        case 'tsv':
+          text = rowsToDelimitedText(rows, '\t');
+          break;
+        case 'markdown':
+          text = arrayToMarkdownTable(rows);
+          break;
+        default:
+          text = '';
+      }
+
+      if (!text) {
+        setCopyError('コピーできるデータがありません。');
+        setCopiedFormat(null);
+        closeMenu();
+        return;
+      }
+
+      if (!navigator.clipboard || !navigator.clipboard.writeText) {
+        setCopyError('クリップボード機能が利用できません。');
+        setCopiedFormat(null);
+        closeMenu();
+        return;
+      }
+
+      try {
+        await navigator.clipboard.writeText(text);
+        setCopyError(null);
+        setCopiedFormat(format);
+        setTimeout(() => setCopiedFormat(null), 2000);
+      } catch (err) {
+        console.error('Failed to copy markdown table:', err);
+        setCopyError('コピーに失敗しました。');
+        setCopiedFormat(null);
+      } finally {
+        closeMenu();
+      }
+    },
+    [closeMenu]
+  );
+
+  const clonedChild = React.isValidElement(children)
+    ? React.cloneElement(children, {
+        ref: (node: HTMLTableElement) => {
+          tableRef.current = node;
+          const { ref } = children as React.ReactElement & { ref?: React.Ref<HTMLTableElement> };
+          if (typeof ref === 'function') {
+            ref(node);
+          } else if (ref && typeof ref === 'object') {
+            (ref as React.MutableRefObject<HTMLTableElement | null>).current = node;
+          }
+        },
+        className: `w-full ${((children.props as { className?: string }).className ?? '').trim()}`.trim()
+      })
+    : children;
+
+  const statusMessage = copyError
+    ? { text: copyError, className: 'text-red-500' }
+    : copiedFormat
+      ? { text: `${formatLabelMap[copiedFormat]}をコピーしました`, className: 'text-green-600' }
+      : null;
+
+  return (
+    <div className="my-4">
+      <div className="relative group border border-gray-200 dark:border-gray-700 rounded-lg">
+        <div className="overflow-x-auto rounded-lg">
+          {clonedChild}
+        </div>
+        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div ref={menuContainerRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setIsMenuOpen((prev) => !prev)}
+              className="px-3 py-1 text-xs font-medium bg-white/90 dark:bg-gray-800/90 border border-gray-300 dark:border-gray-600 rounded shadow-sm hover:bg-blue-600 hover:text-white transition"
+            >
+              表をコピー
+            </button>
+            {isMenuOpen && (
+              <div className="absolute right-0 mt-2 w-40 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-20">
+                {TABLE_COPY_FORMATS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => handleCopy(option.value)}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      {statusMessage && (
+        <p className={`mt-1 text-xs text-right ${statusMessage.className}`}>
+          {statusMessage.text}
+        </p>
+      )}
+    </div>
+  );
 };
 
 const MarkdownPreview = forwardRef<HTMLDivElement, MarkdownPreviewProps>(({ tabId, onScroll }, ref) => {
@@ -490,9 +676,9 @@ const MarkdownPreview = forwardRef<HTMLDivElement, MarkdownPreviewProps>(({ tabI
                   );
                 },
                 table: ({ children, ...props }) => (
-                  <div className="overflow-x-auto my-4">
+                  <MarkdownTableContainer>
                     <table {...props}>{children}</table>
-                  </div>
+                  </MarkdownTableContainer>
                 ),
                 img: ({ node, ...props }) => (
                   <MarkdownPreviewImage
