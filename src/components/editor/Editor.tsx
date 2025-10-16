@@ -43,8 +43,12 @@ const SUPPORTED_CLIPBOARD_FILE_TYPES = new Set<TabData['type']>([
   'kmz',
   'shapefile',
   'excel',
+  'pptx',
   'ipynb',
   'pdf',
+  'gdoc',
+  'gsheet',
+  'gslides',
 ]);
 
 const SUPPORTED_PASTED_FILE_TYPES = new Set<TabData['type']>([
@@ -63,8 +67,12 @@ const SUPPORTED_PASTED_FILE_TYPES = new Set<TabData['type']>([
   'kmz',
   'shapefile',
   'excel',
+  'pptx',
   'ipynb',
   'pdf',
+  'gdoc',
+  'gsheet',
+  'gslides',
 ]);
 
 const MIME_FALLBACK_EXTENSION: Record<string, string> = {
@@ -77,6 +85,7 @@ const MIME_FALLBACK_EXTENSION: Record<string, string> = {
   'application/pdf': 'pdf',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
   'application/vnd.ms-excel': 'xls',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
 };
 
 const ensureNamedFile = (file: File, index: number, timestamp: number): File => {
@@ -218,7 +227,7 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
 
             let content = '';
             try {
-              if (fileType === 'excel') {
+              if (fileType === 'excel' || fileType === 'pptx') {
                 content = '';
               } else if (fileType === 'pdf') {
                 content = URL.createObjectURL(file);

@@ -276,7 +276,7 @@ const FileExplorer = () => {
         
         let content: string | ArrayBuffer = '';
 
-        if (fileType === 'excel') {
+        if (fileType === 'excel' || fileType === 'pptx') {
           content = '';
         } else if (fileType === 'pdf') {
           const file = await item.fileHandle.getFile();
