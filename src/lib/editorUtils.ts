@@ -140,7 +140,24 @@ export const getEditorExtensions = (
  */
 export const getFileType = (
   fileName: string,
-): 'text' | 'markdown' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' | 'excel' | 'ipynb' | 'pdf' => {
+  ):
+    | 'text'
+    | 'markdown'
+    | 'html'
+    | 'json'
+    | 'yaml'
+    | 'sql'
+    | 'csv'
+    | 'tsv'
+    | 'parquet'
+    | 'mermaid'
+    | 'excel'
+    | 'pptx'
+    | 'gdoc'
+    | 'gsheet'
+    | 'gslides'
+    | 'ipynb'
+    | 'pdf' => {
   const lowerFileName = fileName.toLowerCase();
 
   if (lowerFileName.endsWith('.md') || lowerFileName.endsWith('.markdown')) {
@@ -176,6 +193,14 @@ export const getFileType = (
     return 'mermaid';
   } else if (lowerFileName.endsWith('.xlsx') || lowerFileName.endsWith('.xls')) {
     return 'excel';
+  } else if (lowerFileName.endsWith('.pptx')) {
+    return 'pptx';
+  } else if (lowerFileName.endsWith('.gdoc')) {
+    return 'gdoc';
+  } else if (lowerFileName.endsWith('.gsheet')) {
+    return 'gsheet';
+  } else if (lowerFileName.endsWith('.gslides')) {
+    return 'gslides';
   } else if (lowerFileName.endsWith('.ipynb')) {
     return 'ipynb';
   } else if (lowerFileName.endsWith('.pdf')) {
