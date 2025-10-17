@@ -359,6 +359,19 @@ const MainLayoutContent: React.FC = () => {
     return Array.from(new Set(modes));
   }, [activeTab, activeTabViewMode, fileTypeFlags]);
 
+  useEffect(() => {
+    if (!activeTabId || !activeTab) {
+      return;
+    }
+
+    const type = activeTab.type?.toLowerCase();
+    const isGoogleWorkspace = type === 'gdoc' || type === 'gsheet' || type === 'gslides';
+
+    if (isGoogleWorkspace && activeTabViewMode !== 'data-preview') {
+      setViewMode(activeTabId, 'data-preview');
+    }
+  }, [activeTab, activeTabId, activeTabViewMode, setViewMode]);
+
   const handleDroppedFiles = useCallback(
     async (inputFiles: FileList | File[]) => {
       const filesArray = Array.isArray(inputFiles) ? inputFiles : Array.from(inputFiles);
