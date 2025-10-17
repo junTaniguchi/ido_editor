@@ -8,7 +8,15 @@ const DEFAULT_INITIALIZE_OPTIONS = {
   startOnLoad: false,
   theme: 'default',
   securityLevel: 'loose' as const,
-  fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+  fontFamily:
+    'Meiryo, "Hiragino Kaku Gothic ProN", "Hiragino Kaku Gothic Pro", "MS Gothic", "Yu Gothic", sans-serif',
+  themeVariables: {
+    fontFamily:
+      'Meiryo, "Hiragino Kaku Gothic ProN", "Hiragino Kaku Gothic Pro", "MS Gothic", "Yu Gothic", sans-serif',
+    textColor: '#000000',
+    mainBkg: '#ffffff',
+    primaryColor: '#1f78c1',
+  },
   logLevel: 'error' as const,
   flowchart: {
     useMaxWidth: false,
