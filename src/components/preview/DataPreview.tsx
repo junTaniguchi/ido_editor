@@ -49,6 +49,8 @@ import type { MermaidDesignerProps } from '@/components/mermaid/MermaidDesigner'
 import IpynbPreview from './IpynbPreview';
 import PdfPreview from './PdfPreview';
 import ExcelPreview from './ExcelPreview';
+import PptxPreview from './PptxPreview';
+import GoogleWorkspacePreview from './GoogleWorkspacePreview';
 import ExportModal from './ExportModal';
 import {
   IoAlertCircleOutline,
@@ -64,6 +66,11 @@ import {
 } from 'react-icons/io5';
 import * as XLSX from 'xlsx';
 import { Document, Packer, Paragraph } from 'docx';
+import {
+  parseGoogleWorkspaceContent,
+  type GoogleWorkspaceFileType,
+  type GoogleWorkspaceInfo,
+} from '@/utils/googleWorkspace';
 
 const shallowEqualRow = (a: Record<string, any>, b: Record<string, any>): boolean => {
   if (a === b) {
@@ -232,6 +239,10 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     | 'ipynb'
     | 'pdf'
     | 'excel'
+    | 'pptx'
+    | 'gdoc'
+    | 'gsheet'
+    | 'gslides'
     | null
   >(null);
   const [parsedData, setParsedData] = useState<any>(null);
@@ -247,6 +258,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [tableViewMode, setTableViewMode] = useState<'react-table' | 'spread'>('react-table');
   const [markdownPreviewMode, setMarkdownPreviewMode] = useState<'document' | 'mindmap'>('document');
+  const [googleWorkspaceInfo, setGoogleWorkspaceInfo] = useState<GoogleWorkspaceInfo | null>(null);
   const tableEditingColumns = useMemo(() => {
     if (Array.isArray(editedData) && editedData.length > 0 && typeof editedData[0] === 'object' && editedData[0] !== null) {
       return Object.keys(editedData[0]);
@@ -265,6 +277,10 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     editedDataRef.current = editedData;
   }, [editedData]);
 
+  const isGoogleWorkspaceType = useMemo(() => {
+    return type === 'gdoc' || type === 'gsheet' || type === 'gslides';
+  }, [type]);
+
   const isTabularData = useMemo(() => {
     if (!type) return false;
     const isStructuredType = ['csv', 'tsv', 'parquet', 'json', 'yaml', 'excel'].includes(type);
@@ -273,6 +289,26 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     if (typeof parsedData[0] !== 'object' || parsedData[0] === null) return false;
     return columns.length > 0;
   }, [type, parsedData, columns]);
+
+  const googleWorkspaceFileType = useMemo<GoogleWorkspaceFileType | null>(() => {
+    if (!isGoogleWorkspaceType || !type) {
+      return null;
+    }
+    return type as GoogleWorkspaceFileType;
+  }, [isGoogleWorkspaceType, type]);
+
+  const canEdit = useMemo(() => {
+    if (!type) {
+      return false;
+    }
+    if (['excel', 'ipynb', 'pdf', 'pptx', 'gdoc', 'gsheet', 'gslides'].includes(type)) {
+      return false;
+    }
+    if (isTabularData) {
+      return true;
+    }
+    return !isGoogleWorkspaceType;
+  }, [isGoogleWorkspaceType, isTabularData, type]);
 
   const handleMindmapDesignerChange = useCallback(
     (nextCode: string) => {
@@ -508,12 +544,13 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     setParsedData(null);
     setOriginalData(null);
     setColumns([]);
+    setGoogleWorkspaceInfo(null);
 
     const tab = tabs.get(tabId);
 
     // コンテンツが空の場合（Excelファイルは除く）
     const isStringContent = typeof content === 'string';
-    if (type !== 'excel') {
+    if (type !== 'excel' && type !== 'pptx') {
       if (!content || (isStringContent && content.trim() === '')) {
         setLoading(false);
         setParsedData(null);
@@ -522,7 +559,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     }
 
     const stringContent = isStringContent ? content : '';
-    if (!stringContent && isStringContent && type !== 'excel') {
+    if (!stringContent && isStringContent && type !== 'excel' && type !== 'pptx') {
       setLoading(false);
       setParsedData(null);
       return;
@@ -812,6 +849,57 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
             setError(`Excelファイルの読み込みに失敗しました: ${err instanceof Error ? err.message : 'Unknown error'}`);
           }
           break;
+
+        case 'pptx': {
+          try {
+            if (!tab?.file) {
+              throw new Error('ファイルハンドルが見つかりません');
+            }
+
+            let buffer: ArrayBuffer;
+
+            if ('getFile' in tab.file) {
+              const file = await (tab.file as FileSystemFileHandle).getFile();
+              buffer = await file.arrayBuffer();
+            } else if (tab.file instanceof File) {
+              buffer = await tab.file.arrayBuffer();
+            } else {
+              throw new Error('対応していないファイル形式です');
+            }
+
+            setContent(buffer);
+            setParsedData({ type: 'pptx' });
+          } catch (err) {
+            console.error('PPTX処理エラー:', err);
+            setError(`PPTXファイルの読み込みに失敗しました: ${err instanceof Error ? err.message : 'Unknown error'}`);
+          }
+          break;
+        }
+
+        case 'gdoc':
+        case 'gsheet':
+        case 'gslides': {
+          if (!isStringContent) {
+            setError('Google Workspaceファイルの内容を解析できませんでした');
+            break;
+          }
+
+          const info = parseGoogleWorkspaceContent(stringContent, type as GoogleWorkspaceFileType);
+          setGoogleWorkspaceInfo(info);
+
+          if (info.metadata) {
+            setParsedData(info.metadata);
+            setOriginalData(info.metadata);
+          } else {
+            setParsedData(info);
+            setOriginalData(info);
+          }
+
+          if (info.error) {
+            setError(info.error);
+          }
+          break;
+        }
 
         case 'mermaid':
           // Mermaidファイルのパース処理
@@ -1210,23 +1298,25 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
                 <IoDownload className="inline mr-1" /> エクスポート
               </button>
             )}
-            <button
-              className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 mr-2"
-              onClick={() => {
-                if ((type === 'csv' || type === 'tsv' || type === 'parquet' ||
-                    type === 'json' || type === 'yaml') &&
-                    Array.isArray(parsedData) && parsedData.length > 0 && 
-                    typeof parsedData[0] === 'object' && 
-                    columns.length > 0) {
-                  setIsTableEditing(true);
-                  setEditedData([...parsedData]);
-                } else {
-                  setIsEditing(true);
-                }
-              }}
-            >
-              編集
-            </button>
+            {canEdit && (
+              <button
+                className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 mr-2"
+                onClick={() => {
+                  if ((type === 'csv' || type === 'tsv' || type === 'parquet' ||
+                      type === 'json' || type === 'yaml') &&
+                      Array.isArray(parsedData) && parsedData.length > 0 &&
+                      typeof parsedData[0] === 'object' &&
+                      columns.length > 0) {
+                    setIsTableEditing(true);
+                    setEditedData([...parsedData]);
+                  } else {
+                    setIsEditing(true);
+                  }
+                }}
+              >
+                編集
+              </button>
+            )}
           </div>
         </div>
         <div className="flex-1 overflow-auto">
@@ -1273,6 +1363,30 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
                   <PdfPreview fileUrl={parsedData} />
                 </div>
               )}
+              {/* Google Workspace プレビュー */}
+              {isGoogleWorkspaceType && googleWorkspaceInfo && googleWorkspaceFileType && (
+                <div className="p-2">
+                  <GoogleWorkspacePreview
+                    info={googleWorkspaceInfo}
+                    fileType={googleWorkspaceFileType}
+                    fileName={tabs.get(tabId)?.name || 'Google Workspace ファイル'}
+                  />
+                </div>
+              )}
+              {/* PPTXプレビュー */}
+              {type === 'pptx' && content instanceof ArrayBuffer && (
+                <div className="p-2">
+                  <PptxPreview
+                    content={content as ArrayBuffer}
+                    fileName={tabs.get(tabId)?.name || 'presentation.pptx'}
+                  />
+                </div>
+              )}
+              {type === 'pptx' && !(content instanceof ArrayBuffer) && (
+                <div className="p-4 text-center text-red-500">
+                  PPTXファイルの読み込みに失敗しました
+                </div>
+              )}
               {/* Excelプレビュー */}
               {type === 'excel' && (() => {
                 console.log('Excel条件チェック:', {
@@ -1316,7 +1430,11 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
                 </div>
               ) : (
                 // それ以外はオブジェクトビューアで表示（Mermaid以外）
-                type !== 'mermaid' && type !== 'ipynb' && type !== 'pdf' && (
+                type !== 'mermaid' &&
+                type !== 'ipynb' &&
+                type !== 'pdf' &&
+                type !== 'pptx' &&
+                !isGoogleWorkspaceType && (
                   <div className="p-2">
                     <ObjectViewer
                       data={parsedData}

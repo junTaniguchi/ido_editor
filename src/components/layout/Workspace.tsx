@@ -121,6 +121,10 @@ const Workspace: React.FC<WorkspaceProps> = ({
     const markdown = fileType === 'markdown' || fileType === 'md';
     const mermaid = fileType === 'mermaid' || fileType === 'mmd';
     const html = fileType === 'html';
+    const pdf = fileType === 'pdf';
+    const pptx = fileType === 'pptx';
+    const ipynb = fileType === 'ipynb';
+    const googleWorkspace = fileType === 'gdoc' || fileType === 'gsheet' || fileType === 'gslides';
     const structuredDataPreviewable =
       fileType === 'csv' ||
       fileType === 'tsv' ||
@@ -132,7 +136,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
       fileType === 'kml' ||
       fileType === 'kmz' ||
       fileType === 'shapefile';
-    const dataPreviewable = structuredDataPreviewable || mermaid;
+    const dataPreviewable = structuredDataPreviewable || mermaid || pdf || pptx || ipynb || googleWorkspace;
     const gisData =
       fileType === 'geojson' ||
       fileType === 'kml' ||
@@ -143,7 +147,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
       isMarkdown: markdown,
       isMermaid: mermaid,
       isHtml: html,
-      isPreviewableSpecialType: markdown || mermaid || html,
+      isPreviewableSpecialType: markdown || mermaid || html || pdf || pptx || ipynb || googleWorkspace,
       isDataPreviewable: dataPreviewable,
       isDataAnalyzable: structuredDataPreviewable,
       isGisData: gisData,

@@ -80,13 +80,24 @@ const MainLayoutContent: React.FC = () => {
       type === 'kml' ||
       type === 'kmz' ||
       type === 'shapefile';
+    const isGoogleWorkspace = type === 'gdoc' || type === 'gsheet' || type === 'gslides';
+    const isPdf = type === 'pdf';
+    const isExcel = type === 'excel';
+    const isPptx = type === 'pptx';
     const isDataPreviewable = isStructuredDataPreviewable || isMermaid;
 
     return {
       isMarkdown,
       isMermaid,
       isHtml,
-      isPreviewableSpecialType: isMarkdown || isMermaid || isHtml,
+      isPreviewableSpecialType:
+        isMarkdown ||
+        isMermaid ||
+        isHtml ||
+        isPdf ||
+        isExcel ||
+        isPptx ||
+        isGoogleWorkspace,
       isDataPreviewable,
       isGisData:
         type === 'geojson' ||
@@ -366,7 +377,7 @@ const MainLayoutContent: React.FC = () => {
 
         let content = '';
         try {
-          if (fileType === 'excel') {
+          if (fileType === 'excel' || fileType === 'pptx') {
             content = '';
           } else if (fileType === 'pdf') {
             content = URL.createObjectURL(file);
