@@ -80,13 +80,24 @@ const MainLayoutContent: React.FC = () => {
       type === 'kml' ||
       type === 'kmz' ||
       type === 'shapefile';
+    const isGoogleWorkspace = type === 'gdoc' || type === 'gsheet' || type === 'gslides';
+    const isPdf = type === 'pdf';
+    const isExcel = type === 'excel';
+    const isPptx = type === 'pptx';
     const isDataPreviewable = isStructuredDataPreviewable || isMermaid;
 
     return {
       isMarkdown,
       isMermaid,
       isHtml,
-      isPreviewableSpecialType: isMarkdown || isMermaid || isHtml,
+      isPreviewableSpecialType:
+        isMarkdown ||
+        isMermaid ||
+        isHtml ||
+        isPdf ||
+        isExcel ||
+        isPptx ||
+        isGoogleWorkspace,
       isDataPreviewable,
       isGisData:
         type === 'geojson' ||
@@ -348,6 +359,19 @@ const MainLayoutContent: React.FC = () => {
     return Array.from(new Set(modes));
   }, [activeTab, activeTabViewMode, fileTypeFlags]);
 
+  useEffect(() => {
+    if (!activeTabId || !activeTab) {
+      return;
+    }
+
+    const type = activeTab.type?.toLowerCase();
+    const isGoogleWorkspace = type === 'gdoc' || type === 'gsheet' || type === 'gslides';
+
+    if (isGoogleWorkspace && activeTabViewMode !== 'data-preview') {
+      setViewMode(activeTabId, 'data-preview');
+    }
+  }, [activeTab, activeTabId, activeTabViewMode, setViewMode]);
+
   const handleDroppedFiles = useCallback(
     async (inputFiles: FileList | File[]) => {
       const filesArray = Array.isArray(inputFiles) ? inputFiles : Array.from(inputFiles);
@@ -366,7 +390,7 @@ const MainLayoutContent: React.FC = () => {
 
         let content = '';
         try {
-          if (fileType === 'excel') {
+          if (fileType === 'excel' || fileType === 'pptx') {
             content = '';
           } else if (fileType === 'pdf') {
             content = URL.createObjectURL(file);
