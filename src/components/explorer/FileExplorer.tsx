@@ -37,7 +37,9 @@ import {
   extractZipArchive,
   extractTarGzArchive,
   compressToZip,
-  compressToTarGz
+  compressToTarGz,
+  copyFilesToDirectory,
+  ensureHandlePermission,
 } from '@/lib/fileSystemUtils';
 import { getFileType } from '@/lib/editorUtils';
 import { getMermaidTemplate } from '@/lib/mermaid/diagramDefinitions';
@@ -100,6 +102,7 @@ const FileExplorer = () => {
     'directoriesAndFiles',
   );
   const [copyFormat, setCopyFormat] = useState<'tree' | 'table'>('tree');
+  const [fileManagerLabel, setFileManagerLabel] = useState('ファイルマネージャーで表示');
   
   // モーダル関連の状態
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -137,6 +140,24 @@ const FileExplorer = () => {
       return new Set([rootFileTree.path]);
     });
   }, [rootFileTree]);
+
+  useEffect(() => {
+    if (typeof navigator === 'undefined') {
+      return;
+    }
+
+    const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
+    const platform = nav.userAgentData?.platform ?? nav.platform ?? '';
+    const lower = platform.toLowerCase();
+
+    if (lower.includes('mac')) {
+      setFileManagerLabel('Finderで表示');
+    } else if (lower.includes('win')) {
+      setFileManagerLabel('エクスプローラで表示');
+    } else {
+      setFileManagerLabel('ファイルマネージャーで表示');
+    }
+  }, []);
 
   // フォルダ内容を更新する関数
   const refreshFolderContents = useCallback(async (dirHandle: FileSystemDirectoryHandle | null = null) => {
@@ -320,7 +341,63 @@ const FileExplorer = () => {
   const handleCloseContextMenu = () => {
     setShowContextMenu(false);
   };
-  
+
+  const hasFileItems = (dataTransfer: DataTransfer | null): boolean => {
+    if (!dataTransfer) {
+      return false;
+    }
+
+    if (dataTransfer.items && dataTransfer.items.length > 0) {
+      return Array.from(dataTransfer.items).some((item) => item.kind === 'file');
+    }
+
+    return dataTransfer.files.length > 0;
+  };
+
+  const collectFilesFromDataTransfer = (dataTransfer: DataTransfer | null): File[] => {
+    if (!dataTransfer) {
+      return [];
+    }
+
+    if (dataTransfer.items && dataTransfer.items.length > 0) {
+      const files: File[] = [];
+      for (const item of Array.from(dataTransfer.items)) {
+        if (item.kind !== 'file') {
+          continue;
+        }
+        const file = item.getAsFile();
+        if (file) {
+          files.push(file);
+        }
+      }
+      if (files.length > 0) {
+        return files;
+      }
+    }
+
+    return Array.from(dataTransfer.files || []);
+  };
+
+  const handleDragOverForFileCopy = (
+    event: React.DragEvent,
+    canHandle: boolean
+  ) => {
+    if (!canHandle) {
+      return;
+    }
+
+    const dataTransfer = event.dataTransfer;
+    if (!hasFileItems(dataTransfer)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (dataTransfer) {
+      dataTransfer.dropEffect = 'copy';
+    }
+  };
+
   // ルートフォルダに新規ファイルを作成する
   const handleNewFileInRoot = () => {
     if (rootDirHandle) {
@@ -375,23 +452,155 @@ const FileExplorer = () => {
 
   type ArchiveFormat = 'zip' | 'tar.gz';
 
-  const getParentDirectoryHandleForItem = async (item: FileTreeItem): Promise<FileSystemDirectoryHandle | null> => {
-    if (!rootDirHandle) return null;
-    if (!item.path) {
-      return rootDirHandle;
+  const getParentDirectoryHandleForItem = useCallback(
+    async (item: FileTreeItem): Promise<FileSystemDirectoryHandle | null> => {
+      if (!rootDirHandle) return null;
+      if (!item.path) {
+        return rootDirHandle;
+      }
+
+      const segments = item.path.split('/').filter(segment => segment);
+      if (segments.length > 0) {
+        segments.pop();
+      }
+
+      let currentHandle: FileSystemDirectoryHandle = rootDirHandle;
+      for (const segment of segments) {
+        currentHandle = await currentHandle.getDirectoryHandle(segment);
+      }
+      return currentHandle;
+    },
+    [rootDirHandle],
+  );
+
+  const copyFilesIntoDirectory = useCallback(
+    async (
+      directoryHandle: FileSystemDirectoryHandle | null | undefined,
+      files: File[],
+    ) => {
+      if (!directoryHandle || files.length === 0) {
+        return;
+      }
+
+      try {
+        await copyFilesToDirectory(directoryHandle, files);
+        await refreshFolderContents();
+      } catch (error) {
+        console.error('Failed to copy dropped files:', error);
+        alert(`ファイルのコピーに失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    },
+    [refreshFolderContents],
+  );
+
+  const handleDirectoryDrop = useCallback(
+    async (event: React.DragEvent<HTMLDivElement>, item: FileTreeItem) => {
+      const dataTransfer = event.dataTransfer;
+      if (!hasFileItems(dataTransfer)) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const files = collectFilesFromDataTransfer(dataTransfer);
+      if (files.length === 0) {
+        return;
+      }
+
+      const targetHandle = item.directoryHandle ?? rootDirHandle;
+      await copyFilesIntoDirectory(targetHandle, files);
+    },
+    [copyFilesIntoDirectory, rootDirHandle],
+  );
+
+  const handleFileDrop = useCallback(
+    async (event: React.DragEvent<HTMLDivElement>, item: FileTreeItem) => {
+      const dataTransfer = event.dataTransfer;
+      if (!hasFileItems(dataTransfer)) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const files = collectFilesFromDataTransfer(dataTransfer);
+      if (files.length === 0) {
+        return;
+      }
+
+      const parentHandle = await getParentDirectoryHandleForItem(item);
+      await copyFilesIntoDirectory(parentHandle, files);
+    },
+    [copyFilesIntoDirectory, getParentDirectoryHandleForItem],
+  );
+
+  const handleRootDrop = useCallback(
+    async (event: React.DragEvent<HTMLDivElement>) => {
+      const dataTransfer = event.dataTransfer;
+      if (!hasFileItems(dataTransfer)) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const files = collectFilesFromDataTransfer(dataTransfer);
+      if (files.length === 0) {
+        return;
+      }
+
+      await copyFilesIntoDirectory(rootDirHandle, files);
+    },
+    [copyFilesIntoDirectory, rootDirHandle],
+  );
+
+  const handleRevealInFileManager = useCallback(async () => {
+    if (!selectedItem) {
+      return;
     }
 
-    const segments = item.path.split('/').filter(segment => segment);
-    if (segments.length > 0) {
-      segments.pop();
+    if (!rootDirHandle) {
+      alert('フォルダが選択されていません。');
+      return;
     }
 
-    let currentHandle: FileSystemDirectoryHandle = rootDirHandle;
-    for (const segment of segments) {
-      currentHandle = await currentHandle.getDirectoryHandle(segment);
+    const showDirectoryPicker = (window as typeof window & {
+      showDirectoryPicker?: (options?: DirectoryPickerOptions) => Promise<FileSystemDirectoryHandle>;
+    }).showDirectoryPicker;
+
+    if (typeof showDirectoryPicker !== 'function') {
+      alert('この環境ではファイルマネージャーでの表示に対応していません。');
+      return;
     }
-    return currentHandle;
-  };
+
+    try {
+      let directoryToOpen: FileSystemDirectoryHandle | null | undefined = null;
+      if (selectedItem.isDirectory) {
+        directoryToOpen = selectedItem.directoryHandle ?? rootDirHandle;
+      } else {
+        directoryToOpen = await getParentDirectoryHandleForItem(selectedItem);
+      }
+
+      if (!directoryToOpen) {
+        throw new Error('対象のフォルダを取得できませんでした');
+      }
+
+      const granted = await ensureHandlePermission(directoryToOpen, 'read');
+      if (!granted) {
+        alert('フォルダへのアクセスが許可されませんでした。');
+        return;
+      }
+
+      await showDirectoryPicker({ startIn: directoryToOpen });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return;
+      }
+      console.error('Failed to reveal item in file manager:', error);
+      alert(`ファイルマネージャーの表示に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }, [getParentDirectoryHandleForItem, rootDirHandle, selectedItem]);
 
   const deriveArchiveBaseName = (name: string, format: ArchiveFormat) => {
     if (format === 'zip') {
@@ -691,11 +900,17 @@ const FileExplorer = () => {
     if (item.isDirectory) {
       return (
         <div key={item.path}>
-          <div 
+          <div
             className="flex items-center py-1 hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer"
             style={{ paddingLeft }}
             onClick={() => toggleFolder(item.path)}
             onContextMenu={(e) => handleContextMenu(e, item)}
+            onDragOver={(event) =>
+              handleDragOverForFileCopy(event, Boolean(item.directoryHandle ?? rootDirHandle))
+            }
+            onDrop={(event) => {
+              void handleDirectoryDrop(event, item);
+            }}
           >
             <span className="mr-1">
               {isExpanded ? <IoChevronDown size={16} /> : <IoChevronForward size={16} />}
@@ -735,12 +950,16 @@ const FileExplorer = () => {
       }
 
       return (
-        <div 
+        <div
           key={item.path}
           className={fileClassName}
           style={{ paddingLeft }}
           onClick={() => handleFileClick(item)}
           onContextMenu={(e) => handleContextMenu(e, item)}
+          onDragOver={(event) => handleDragOverForFileCopy(event, Boolean(rootDirHandle))}
+          onDrop={(event) => {
+            void handleFileDrop(event, item);
+          }}
           title={multiFileAnalysisEnabled && !isDataFile ? 'データファイルではないため選択できません' : undefined}
         >
           <IoDocumentOutline 
@@ -1098,7 +1317,13 @@ const FileExplorer = () => {
       </div>
       
       {/* ファイルツリー */}
-      <div className="flex-1 overflow-auto">
+      <div
+        className="flex-1 overflow-auto"
+        onDragOver={(event) => handleDragOverForFileCopy(event, Boolean(rootDirHandle))}
+        onDrop={(event) => {
+          void handleRootDrop(event);
+        }}
+      >
         {rootFileTree ? (
           <div className="py-1 text-sm">
             {renderFileTree(rootFileTree)}
@@ -1157,6 +1382,9 @@ const FileExplorer = () => {
           onCompressTarGz={() => handleCompressArchive('tar.gz')}
           showGitHistory={Boolean(repoInitialized && selectedItem && !selectedItem.isDirectory)}
           onShowGitHistory={handleShowGitHistory}
+          showRevealInFileManager={Boolean(rootDirHandle && apiSupported)}
+          revealInFileManagerLabel={fileManagerLabel}
+          onRevealInFileManager={handleRevealInFileManager}
         />
       )}
       
