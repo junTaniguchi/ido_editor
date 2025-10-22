@@ -26,6 +26,172 @@ const ensureDirectory = async (baseDir: FileSystemDirectoryHandle, relativePath:
   return currentDir;
 };
 
+export const ensureHandlePermission = async (
+  handle: FileSystemDirectoryHandle | FileSystemFileHandle,
+  mode: FileSystemHandlePermissionDescriptor['mode'] = 'read'
+): Promise<boolean> => {
+  if (!('queryPermission' in handle) || typeof handle.queryPermission !== 'function') {
+    return true;
+  }
+
+  try {
+    const current = await handle.queryPermission({ mode });
+    if (current === 'granted') {
+      return true;
+    }
+
+    if (!('requestPermission' in handle) || typeof handle.requestPermission !== 'function') {
+      return false;
+    }
+
+    const result = await handle.requestPermission({ mode });
+    return result === 'granted';
+  } catch (error) {
+    console.warn('Failed to check handle permission:', error);
+    return false;
+  }
+};
+
+const extractDirectoryFromFilePath = (filePath: string): string => {
+  if (!filePath) {
+    return filePath;
+  }
+
+  const normalized = filePath.replace(/\\/g, '/');
+  const index = normalized.lastIndexOf('/');
+  if (index < 0) {
+    return normalized;
+  }
+  return normalized.slice(0, index);
+};
+
+const getNativePathFromFileHandle = async (
+  fileHandle: FileSystemFileHandle
+): Promise<string | null> => {
+  try {
+    const file = await fileHandle.getFile();
+    const path = (file as File & { path?: unknown }).path;
+    if (typeof path !== 'string') {
+      return null;
+    }
+    return extractDirectoryFromFilePath(path);
+  } catch (error) {
+    console.warn('Failed to read native path from file handle:', error);
+    return null;
+  }
+};
+
+export const resolveNativeDirectoryPath = async (
+  directoryHandle: FileSystemDirectoryHandle
+): Promise<string | null> => {
+  try {
+    for await (const [, handle] of directoryHandle.entries()) {
+      if (handle.kind === 'file') {
+        const path = await getNativePathFromFileHandle(handle as FileSystemFileHandle);
+        if (path) {
+          return path;
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to enumerate directory entries for native path resolution:', error);
+  }
+
+  const markerName = `.dls-path-marker-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  let fileHandle: FileSystemFileHandle | null = null;
+
+  try {
+    fileHandle = await directoryHandle.getFileHandle(markerName, { create: true });
+  } catch (error) {
+    console.warn('Failed to create marker file for native path resolution:', error);
+    return null;
+  }
+
+  try {
+    const writable = await fileHandle.createWritable();
+    await writable.close();
+    const path = await getNativePathFromFileHandle(fileHandle);
+    if (!path) {
+      console.warn('Marker file does not expose a native path.');
+      return null;
+    }
+    return path;
+  } catch (error) {
+    console.error('Failed to inspect marker file path:', error);
+    return null;
+  } finally {
+    try {
+      await directoryHandle.removeEntry(markerName);
+    } catch (cleanupError) {
+      console.warn('Failed to remove marker file used for native path resolution:', cleanupError);
+    }
+  }
+};
+
+const isDomException = (error: unknown, name: string): boolean =>
+  error instanceof DOMException && error.name === name;
+
+const sanitizeFileName = (name: string) => name.replace(/[\\/]/g, '_');
+
+const generateCopyFileName = async (
+  dirHandle: FileSystemDirectoryHandle,
+  baseName: string
+): Promise<string> => {
+  let targetName = baseName;
+  let counter = 1;
+
+  while (true) {
+    try {
+      await dirHandle.getFileHandle(targetName);
+      const dotIndex = baseName.lastIndexOf('.');
+      const namePart = dotIndex >= 0 ? baseName.slice(0, dotIndex) : baseName;
+      const extension = dotIndex >= 0 ? baseName.slice(dotIndex) : '';
+      targetName = `${namePart} (${counter})${extension}`;
+      counter += 1;
+    } catch (error) {
+      if (isDomException(error, 'NotFoundError')) {
+        break;
+      }
+      throw error;
+    }
+  }
+
+  return targetName;
+};
+
+export const copyFilesToDirectory = async (
+  dirHandle: FileSystemDirectoryHandle,
+  files: File[]
+): Promise<{ originalName: string; copiedName: string }[]> => {
+  if (files.length === 0) {
+    return [];
+  }
+
+  const hasPermission = await ensureHandlePermission(dirHandle, 'readwrite');
+  if (!hasPermission) {
+    throw new Error('フォルダへの書き込み権限がありません');
+  }
+
+  const copied: { originalName: string; copiedName: string }[] = [];
+
+  for (const file of files) {
+    if (!(file instanceof File)) {
+      continue;
+    }
+
+    const sanitizedName = sanitizeFileName(file.name);
+    const targetName = await generateCopyFileName(dirHandle, sanitizedName);
+    const fileHandle = await dirHandle.getFileHandle(targetName, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(file);
+    await writable.close();
+
+    copied.push({ originalName: file.name, copiedName: targetName });
+  }
+
+  return copied;
+};
+
 const writeFileToHandle = async (dirHandle: FileSystemDirectoryHandle, fileName: string, content: Uint8Array) => {
   const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
   const writable = await fileHandle.createWritable();

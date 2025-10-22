@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, Menu, nativeImage, ipcMain, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
@@ -42,7 +42,8 @@ function createWindow(loadUrl) {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false,
+      preload: path.join(__dirname, 'preload.js'),
     },
     show: false,
     autoHideMenuBar: process.platform !== 'darwin',
@@ -121,6 +122,30 @@ if (!gotLock) {
 
   app.whenReady().then(createMainWindow);
 }
+
+ipcMain.handle('dls:reveal-in-file-manager', async (_event, rawPath) => {
+  if (typeof rawPath !== 'string' || !rawPath.trim()) {
+    throw new Error('Invalid path');
+  }
+
+  const targetPath = path.resolve(rawPath);
+
+  try {
+    const stats = await fs.promises.stat(targetPath);
+    if (stats.isFile()) {
+      shell.showItemInFolder(targetPath);
+      return;
+    }
+
+    const result = await shell.openPath(targetPath);
+    if (result) {
+      throw new Error(result);
+    }
+  } catch (error) {
+    console.error('Failed to reveal path in file manager:', error);
+    throw error;
+  }
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

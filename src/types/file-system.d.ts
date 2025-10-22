@@ -20,6 +20,10 @@ interface FileSystemHandle {
   name: string;
 }
 
+interface FileSystemHandlePermissionDescriptor {
+  mode?: 'read' | 'readwrite';
+}
+
 interface FileSystemWritableFileStream extends WritableStream {
   write(data: string | BufferSource | Blob): Promise<void>;
   seek(position: number): Promise<void>;
@@ -28,10 +32,15 @@ interface FileSystemWritableFileStream extends WritableStream {
 
 // window.showDirectoryPickerに型定義を追加
 declare global {
+  interface DataLoomNativeAPI {
+    revealInFileManager(path: string): Promise<void>;
+  }
+
   interface Window {
+    dlsNative?: DataLoomNativeAPI;
     showDirectoryPicker(): Promise<FileSystemDirectoryHandle>;
-    showOpenFilePicker(options?: { 
-      multiple?: boolean; 
+    showOpenFilePicker(options?: {
+      multiple?: boolean;
       types?: Array<{
         description?: string;
         accept: Record<string, string[]>;
