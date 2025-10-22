@@ -7,6 +7,7 @@ import {
   IoGitBranchOutline,
   IoChatbubblesOutline,
   IoGitMergeOutline,
+  IoTerminalOutline,
 } from 'react-icons/io5';
 
 type ActivityItem = 'explorer' | 'gis' | 'git' | 'help';
@@ -18,6 +19,7 @@ interface ActivityBarProps {
   multiFileAnalysisAvailable: boolean;
   multiFileAnalysisEnabled: boolean;
   onToggleMultiFileAnalysis: () => void;
+  onOpenTerminal: () => void;
 }
 
 const ActivityBar: React.FC<ActivityBarProps> = ({
@@ -27,6 +29,7 @@ const ActivityBar: React.FC<ActivityBarProps> = ({
   multiFileAnalysisAvailable,
   multiFileAnalysisEnabled,
   onToggleMultiFileAnalysis,
+  onOpenTerminal,
 }) => {
   const baseButton =
     'w-10 h-10 flex items-center justify-center rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500';
@@ -43,6 +46,15 @@ const ActivityBar: React.FC<ActivityBarProps> = ({
         aria-pressed={activeItem === 'explorer'}
       >
         <IoFolderOpenOutline size={20} />
+      </button>
+      <button
+        type="button"
+        className={`${baseButton} mt-2 ${inactiveClass}`}
+        onClick={onOpenTerminal}
+        title="ターミナル"
+        aria-pressed={false}
+      >
+        <IoTerminalOutline size={20} />
       </button>
       {multiFileAnalysisAvailable && (
         <button

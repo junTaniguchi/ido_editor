@@ -22,6 +22,7 @@ import GitCommitDiffView from '@/components/git/GitCommitDiffView';
 import HelpSidebar from '@/components/help/HelpSidebar';
 import ResizableSidebar from '@/components/layout/ResizableSidebar';
 import { DEFAULT_SIDEBAR_WIDTHS } from '@/constants/layout';
+import { ensureHandlePermission, resolveNativeDirectoryPath } from '@/lib/fileSystemUtils';
 
 interface WorkspaceProps {
   paneState: PaneState;
@@ -46,6 +47,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
 }) => {
   const updatePaneState = useEditorStore((state) => state.updatePaneState);
   const setViewMode = useEditorStore((state) => state.setViewMode);
+  const rootDirHandle = useEditorStore((state) => state.rootDirHandle);
   const editorRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const [isScrollSyncEnabled, setIsScrollSyncEnabled] = useState(false);
@@ -211,6 +213,55 @@ const Workspace: React.FC<WorkspaceProps> = ({
     },
     [aiFeaturesEnabled, activeSidebar, activeTabId, activeTabViewMode, setViewMode, updatePaneState]
   );
+
+  const handleOpenTerminal = useCallback(async () => {
+    if (!rootDirHandle) {
+      alert('フォルダが選択されていません。');
+      return;
+    }
+
+    try {
+      let granted = await ensureHandlePermission(rootDirHandle, 'read');
+      if (!granted) {
+        granted = await ensureHandlePermission(rootDirHandle, 'readwrite');
+      }
+
+      if (!granted) {
+        alert('フォルダへのアクセスが許可されませんでした。');
+        return;
+      }
+
+      let nativePath = await resolveNativeDirectoryPath(rootDirHandle);
+
+      if (!nativePath) {
+        granted = await ensureHandlePermission(rootDirHandle, 'readwrite');
+        if (!granted) {
+          alert('フォルダへのアクセスが許可されませんでした。');
+          return;
+        }
+        nativePath = await resolveNativeDirectoryPath(rootDirHandle);
+      }
+
+      if (!nativePath) {
+        alert('フォルダの場所を取得できませんでした。');
+        return;
+      }
+
+      const dlsNative = (window as typeof window & {
+        dlsNative?: { openTerminal?: (path: string) => Promise<void> };
+      }).dlsNative;
+
+      if (!dlsNative?.openTerminal) {
+        alert('ターミナルの起動がサポートされていません。');
+        return;
+      }
+
+      await dlsNative.openTerminal(nativePath);
+    } catch (error) {
+      console.error('Failed to open terminal:', error);
+      alert(`ターミナルの起動に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }, [rootDirHandle]);
 
   const showSearchPanel = paneState.isSearchVisible;
 
@@ -444,6 +495,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
         multiFileAnalysisAvailable
         multiFileAnalysisEnabled={multiFileAnalysisEnabled}
         onToggleMultiFileAnalysis={onToggleMultiFileAnalysis}
+        onOpenTerminal={handleOpenTerminal}
       />
       {showExplorer && (
         <ResizableSidebar
