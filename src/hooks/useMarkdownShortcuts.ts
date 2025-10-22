@@ -234,12 +234,37 @@ const useMarkdownShortcuts = (editorRef: RefObject<EditorView | null>, tabId: st
   const insertBold = useCallback(() => {
     insertMarkdown('**', '**', '太字');
   }, [insertMarkdown]);
-  
+
   // 斜体の挿入
   const insertItalic = useCallback(() => {
     insertMarkdown('*', '*', '斜体');
   }, [insertMarkdown]);
-  
+
+  // 下線の挿入
+  const insertUnderline = useCallback(() => {
+    insertMarkdown('<u>', '</u>', '下線');
+  }, [insertMarkdown]);
+
+  // 打ち消し線の挿入
+  const insertStrikethrough = useCallback(() => {
+    insertMarkdown('~~', '~~', '打ち消し');
+  }, [insertMarkdown]);
+
+  // ハイライトの挿入
+  const insertHighlight = useCallback(() => {
+    insertMarkdown('==', '==', 'ハイライト');
+  }, [insertMarkdown]);
+
+  // インラインコードの挿入
+  const insertInlineCode = useCallback(() => {
+    insertMarkdown('`', '`', 'インラインコード');
+  }, [insertMarkdown]);
+
+  // チェックボックスの挿入
+  const insertTaskListItem = useCallback(() => {
+    insertMarkdown('- [ ] ', '', 'タスク項目');
+  }, [insertMarkdown]);
+
   // リンクの挿入
   const insertLink = useCallback(() => {
     insertMarkdown('[', '](URL)', 'リンクテキスト');
@@ -619,6 +644,11 @@ const useMarkdownShortcuts = (editorRef: RefObject<EditorView | null>, tabId: st
     insertHeading,
     insertBold,
     insertItalic,
+    insertUnderline,
+    insertStrikethrough,
+    insertHighlight,
+    insertInlineCode,
+    insertTaskListItem,
     insertLink,
     insertBlockquote,
     insertUnorderedList,

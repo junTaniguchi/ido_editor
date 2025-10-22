@@ -50,6 +50,7 @@ import IpynbPreview from './IpynbPreview';
 import PdfPreview from './PdfPreview';
 import ExcelPreview from './ExcelPreview';
 import PptxPreview from './PptxPreview';
+import DocxPreview from './DocxPreview';
 import GoogleWorkspacePreview from './GoogleWorkspacePreview';
 import ExportModal from './ExportModal';
 import {
@@ -240,6 +241,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     | 'pdf'
     | 'excel'
     | 'pptx'
+    | 'docx'
     | 'gdoc'
     | 'gsheet'
     | 'gslides'
@@ -301,7 +303,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     if (!type) {
       return false;
     }
-    if (['excel', 'ipynb', 'pdf', 'pptx', 'gdoc', 'gsheet', 'gslides'].includes(type)) {
+    if (['excel', 'ipynb', 'pdf', 'pptx', 'docx', 'gdoc', 'gsheet', 'gslides'].includes(type)) {
       return false;
     }
     if (isTabularData) {
@@ -550,7 +552,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
 
     // コンテンツが空の場合（Excelファイルは除く）
     const isStringContent = typeof content === 'string';
-    if (type !== 'excel' && type !== 'pptx') {
+    if (type !== 'excel' && type !== 'pptx' && type !== 'docx') {
       if (!content || (isStringContent && content.trim() === '')) {
         setLoading(false);
         setParsedData(null);
@@ -559,7 +561,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
     }
 
     const stringContent = isStringContent ? content : '';
-    if (!stringContent && isStringContent && type !== 'excel' && type !== 'pptx') {
+    if (!stringContent && isStringContent && type !== 'excel' && type !== 'pptx' && type !== 'docx') {
       setLoading(false);
       setParsedData(null);
       return;
@@ -872,6 +874,32 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
           } catch (err) {
             console.error('PPTX処理エラー:', err);
             setError(`PPTXファイルの読み込みに失敗しました: ${err instanceof Error ? err.message : 'Unknown error'}`);
+          }
+          break;
+        }
+
+        case 'docx': {
+          try {
+            if (!tab?.file) {
+              throw new Error('ファイルハンドルが見つかりません');
+            }
+
+            let buffer: ArrayBuffer;
+
+            if ('getFile' in tab.file) {
+              const file = await (tab.file as FileSystemFileHandle).getFile();
+              buffer = await file.arrayBuffer();
+            } else if (tab.file instanceof File) {
+              buffer = await tab.file.arrayBuffer();
+            } else {
+              throw new Error('対応していないファイル形式です');
+            }
+
+            setContent(buffer);
+            setParsedData({ type: 'docx' });
+          } catch (err) {
+            console.error('DOCX処理エラー:', err);
+            setError(`DOCXファイルの読み込みに失敗しました: ${err instanceof Error ? err.message : 'Unknown error'}`);
           }
           break;
         }
@@ -1212,7 +1240,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
       );
     }
     
-    if (!parsedData && type !== 'excel') {
+    if (!parsedData && type !== 'excel' && type !== 'pptx' && type !== 'docx') {
       return (
         <div className="flex flex-col items-center justify-center h-full p-8 text-gray-500">
           <p>プレビューするデータがありません</p>
@@ -1387,6 +1415,20 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
                   PPTXファイルの読み込みに失敗しました
                 </div>
               )}
+              {/* DOCXプレビュー */}
+              {type === 'docx' && content instanceof ArrayBuffer && (
+                <div className="p-2">
+                  <DocxPreview
+                    content={content as ArrayBuffer}
+                    fileName={tabs.get(tabId)?.name || 'document.docx'}
+                  />
+                </div>
+              )}
+              {type === 'docx' && !(content instanceof ArrayBuffer) && (
+                <div className="p-4 text-center text-red-500">
+                  DOCXファイルの読み込みに失敗しました
+                </div>
+              )}
               {/* Excelプレビュー */}
               {type === 'excel' && (() => {
                 console.log('Excel条件チェック:', {
@@ -1434,6 +1476,7 @@ const DataPreview: React.FC<DataPreviewProps> = ({ tabId }) => {
                 type !== 'ipynb' &&
                 type !== 'pdf' &&
                 type !== 'pptx' &&
+                type !== 'docx' &&
                 !isGoogleWorkspaceType && (
                   <div className="p-2">
                     <ObjectViewer
