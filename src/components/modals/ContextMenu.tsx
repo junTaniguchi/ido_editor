@@ -14,6 +14,7 @@ import {
   IoReloadOutline,
   IoArchiveOutline,
   IoFolderOpenOutline,
+  IoOpenOutline,
   IoGitCommitOutline,
 } from 'react-icons/io5';
 
@@ -37,6 +38,9 @@ interface ContextMenuProps {
   onCompressTarGz?: () => void;
   showGitHistory?: boolean;
   onShowGitHistory?: () => void;
+  showRevealInFileManager?: boolean;
+  revealInFileManagerLabel?: string;
+  onRevealInFileManager?: () => void;
 }
 
 const ContextMenu: React.FC<ContextMenuProps> = ({ 
@@ -72,6 +76,9 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   onCompressTarGz,
   showGitHistory = false,
   onShowGitHistory,
+  showRevealInFileManager = false,
+  revealInFileManagerLabel = 'ファイルマネージャーで表示',
+  onRevealInFileManager,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   
@@ -138,6 +145,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   const showCreationActions = !isFile;
 
   const showGitHistoryAction = Boolean(isFile && showGitHistory && onShowGitHistory);
+  const showRevealAction = Boolean(onRevealInFileManager && showRevealInFileManager);
 
   return (
     <div
@@ -214,6 +222,16 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
           <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
         )}
 
+        {showRevealAction && (
+          <button
+            className="w-full px-4 py-2 text-left flex items-center hover:bg-gray-100 dark:hover:bg-gray-700"
+            onClick={() => onRevealInFileManager && handleAction(onRevealInFileManager)}
+          >
+            <IoOpenOutline className="mr-2" />
+            {revealInFileManagerLabel}
+          </button>
+        )}
+
         {showGitHistoryAction && (
           <button
             className="w-full px-4 py-2 text-left flex items-center hover:bg-gray-100 dark:hover:bg-gray-700"
@@ -224,7 +242,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
           </button>
         )}
 
-        {showGitHistoryAction && (
+        {(showRevealAction || showGitHistoryAction) && (
           <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
         )}
 

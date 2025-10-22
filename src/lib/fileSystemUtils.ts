@@ -26,6 +26,96 @@ const ensureDirectory = async (baseDir: FileSystemDirectoryHandle, relativePath:
   return currentDir;
 };
 
+export const ensureHandlePermission = async (
+  handle: FileSystemDirectoryHandle | FileSystemFileHandle,
+  mode: FileSystemHandlePermissionDescriptor['mode'] = 'read'
+): Promise<boolean> => {
+  if (!('queryPermission' in handle) || typeof handle.queryPermission !== 'function') {
+    return true;
+  }
+
+  try {
+    const current = await handle.queryPermission({ mode });
+    if (current === 'granted') {
+      return true;
+    }
+
+    if (!('requestPermission' in handle) || typeof handle.requestPermission !== 'function') {
+      return false;
+    }
+
+    const result = await handle.requestPermission({ mode });
+    return result === 'granted';
+  } catch (error) {
+    console.warn('Failed to check handle permission:', error);
+    return false;
+  }
+};
+
+const isDomException = (error: unknown, name: string): boolean =>
+  error instanceof DOMException && error.name === name;
+
+const sanitizeFileName = (name: string) => name.replace(/[\\/]/g, '_');
+
+const generateCopyFileName = async (
+  dirHandle: FileSystemDirectoryHandle,
+  baseName: string
+): Promise<string> => {
+  let targetName = baseName;
+  let counter = 1;
+
+  while (true) {
+    try {
+      await dirHandle.getFileHandle(targetName);
+      const dotIndex = baseName.lastIndexOf('.');
+      const namePart = dotIndex >= 0 ? baseName.slice(0, dotIndex) : baseName;
+      const extension = dotIndex >= 0 ? baseName.slice(dotIndex) : '';
+      targetName = `${namePart} (${counter})${extension}`;
+      counter += 1;
+    } catch (error) {
+      if (isDomException(error, 'NotFoundError')) {
+        break;
+      }
+      throw error;
+    }
+  }
+
+  return targetName;
+};
+
+export const copyFilesToDirectory = async (
+  dirHandle: FileSystemDirectoryHandle,
+  files: File[]
+): Promise<{ originalName: string; copiedName: string }[]> => {
+  if (files.length === 0) {
+    return [];
+  }
+
+  const hasPermission = await ensureHandlePermission(dirHandle, 'readwrite');
+  if (!hasPermission) {
+    throw new Error('フォルダへの書き込み権限がありません');
+  }
+
+  const copied: { originalName: string; copiedName: string }[] = [];
+
+  for (const file of files) {
+    if (!(file instanceof File)) {
+      continue;
+    }
+
+    const sanitizedName = sanitizeFileName(file.name);
+    const targetName = await generateCopyFileName(dirHandle, sanitizedName);
+    const fileHandle = await dirHandle.getFileHandle(targetName, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(file);
+    await writable.close();
+
+    copied.push({ originalName: file.name, copiedName: targetName });
+  }
+
+  return copied;
+};
+
 const writeFileToHandle = async (dirHandle: FileSystemDirectoryHandle, fileName: string, content: Uint8Array) => {
   const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
   const writable = await fileHandle.createWritable();
