@@ -40,6 +40,7 @@ import {
   compressToTarGz,
   copyFilesToDirectory,
   ensureHandlePermission,
+  resolveNativeDirectoryPath,
 } from '@/lib/fileSystemUtils';
 import { getFileType } from '@/lib/editorUtils';
 import { getMermaidTemplate } from '@/lib/mermaid/diagramDefinitions';
@@ -556,47 +557,74 @@ const FileExplorer = () => {
   );
 
   const handleRevealInFileManager = useCallback(async () => {
-    if (!selectedItem) {
-      return;
-    }
-
     if (!rootDirHandle) {
       alert('フォルダが選択されていません。');
       return;
     }
 
-    const showDirectoryPicker = (window as typeof window & {
-      showDirectoryPicker?: (options?: DirectoryPickerOptions) => Promise<FileSystemDirectoryHandle>;
-    }).showDirectoryPicker;
+    const targetHandle = async (): Promise<FileSystemDirectoryHandle | null> => {
+      if (!selectedItem) {
+        return rootDirHandle;
+      }
 
-    if (typeof showDirectoryPicker !== 'function') {
-      alert('この環境ではファイルマネージャーでの表示に対応していません。');
-      return;
-    }
+      if (selectedItem.isDirectory) {
+        return selectedItem.directoryHandle ?? rootDirHandle;
+      }
+
+      return getParentDirectoryHandleForItem(selectedItem);
+    };
 
     try {
-      let directoryToOpen: FileSystemDirectoryHandle | null | undefined = null;
-      if (selectedItem.isDirectory) {
-        directoryToOpen = selectedItem.directoryHandle ?? rootDirHandle;
-      } else {
-        directoryToOpen = await getParentDirectoryHandleForItem(selectedItem);
+      const directoryToReveal = await targetHandle();
+      if (!directoryToReveal) {
+        alert('対象のフォルダを特定できませんでした。');
+        return;
       }
 
-      if (!directoryToOpen) {
-        throw new Error('対象のフォルダを取得できませんでした');
-      }
-
-      const granted = await ensureHandlePermission(directoryToOpen, 'read');
+      let granted = await ensureHandlePermission(directoryToReveal, 'read');
       if (!granted) {
         alert('フォルダへのアクセスが許可されませんでした。');
         return;
       }
 
-      await showDirectoryPicker({ startIn: directoryToOpen });
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
+      let nativePath = await resolveNativeDirectoryPath(directoryToReveal);
+
+      if (!nativePath) {
+        granted = await ensureHandlePermission(directoryToReveal, 'readwrite');
+        if (!granted) {
+          alert('フォルダへの書き込みアクセスが許可されませんでした。');
+          return;
+        }
+        nativePath = await resolveNativeDirectoryPath(directoryToReveal);
+      }
+
+      if (!nativePath) {
+        alert('フォルダの場所を取得できませんでした。');
         return;
       }
+
+      const dlsNative = (window as typeof window & {
+        dlsNative?: { revealInFileManager?: (path: string) => Promise<void> };
+      }).dlsNative;
+
+      if (dlsNative?.revealInFileManager) {
+        try {
+          await dlsNative.revealInFileManager(nativePath);
+          return;
+        } catch (error) {
+          console.error('Failed to open folder via native bridge:', error);
+        }
+      }
+
+      const normalized = nativePath.replace(/\\/g, '/');
+      const prefix = normalized.startsWith('/') ? 'file://' : 'file:///';
+      const url = encodeURI(`${prefix}${normalized}`);
+
+      const newWindow = window.open(url, '_blank', 'noopener');
+      if (!newWindow) {
+        alert('ファイルマネージャーを開くことができませんでした。');
+      }
+    } catch (error) {
       console.error('Failed to reveal item in file manager:', error);
       alert(`ファイルマネージャーの表示に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }

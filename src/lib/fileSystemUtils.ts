@@ -52,6 +52,82 @@ export const ensureHandlePermission = async (
   }
 };
 
+const extractDirectoryFromFilePath = (filePath: string): string => {
+  if (!filePath) {
+    return filePath;
+  }
+
+  const normalized = filePath.replace(/\\/g, '/');
+  const index = normalized.lastIndexOf('/');
+  if (index < 0) {
+    return normalized;
+  }
+  return normalized.slice(0, index);
+};
+
+const getNativePathFromFileHandle = async (
+  fileHandle: FileSystemFileHandle
+): Promise<string | null> => {
+  try {
+    const file = await fileHandle.getFile();
+    const path = (file as File & { path?: unknown }).path;
+    if (typeof path !== 'string') {
+      return null;
+    }
+    return extractDirectoryFromFilePath(path);
+  } catch (error) {
+    console.warn('Failed to read native path from file handle:', error);
+    return null;
+  }
+};
+
+export const resolveNativeDirectoryPath = async (
+  directoryHandle: FileSystemDirectoryHandle
+): Promise<string | null> => {
+  try {
+    for await (const [, handle] of directoryHandle.entries()) {
+      if (handle.kind === 'file') {
+        const path = await getNativePathFromFileHandle(handle as FileSystemFileHandle);
+        if (path) {
+          return path;
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to enumerate directory entries for native path resolution:', error);
+  }
+
+  const markerName = `.dls-path-marker-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  let fileHandle: FileSystemFileHandle | null = null;
+
+  try {
+    fileHandle = await directoryHandle.getFileHandle(markerName, { create: true });
+  } catch (error) {
+    console.warn('Failed to create marker file for native path resolution:', error);
+    return null;
+  }
+
+  try {
+    const writable = await fileHandle.createWritable();
+    await writable.close();
+    const path = await getNativePathFromFileHandle(fileHandle);
+    if (!path) {
+      console.warn('Marker file does not expose a native path.');
+      return null;
+    }
+    return path;
+  } catch (error) {
+    console.error('Failed to inspect marker file path:', error);
+    return null;
+  } finally {
+    try {
+      await directoryHandle.removeEntry(markerName);
+    } catch (cleanupError) {
+      console.warn('Failed to remove marker file used for native path resolution:', cleanupError);
+    }
+  }
+};
+
 const isDomException = (error: unknown, name: string): boolean =>
   error instanceof DOMException && error.name === name;
 
