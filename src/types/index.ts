@@ -26,6 +26,7 @@ export interface TabData {
     | 'shapefile'
     | 'excel'
     | 'pptx'
+    | 'docx'
     | 'gdoc'
     | 'gsheet'
     | 'gslides'

@@ -44,6 +44,7 @@ const SUPPORTED_CLIPBOARD_FILE_TYPES = new Set<TabData['type']>([
   'shapefile',
   'excel',
   'pptx',
+  'docx',
   'ipynb',
   'pdf',
   'gdoc',
@@ -68,6 +69,7 @@ const SUPPORTED_PASTED_FILE_TYPES = new Set<TabData['type']>([
   'shapefile',
   'excel',
   'pptx',
+  'docx',
   'ipynb',
   'pdf',
   'gdoc',
@@ -86,6 +88,7 @@ const MIME_FALLBACK_EXTENSION: Record<string, string> = {
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
   'application/vnd.ms-excel': 'xls',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
 };
 
 const ensureNamedFile = (file: File, index: number, timestamp: number): File => {

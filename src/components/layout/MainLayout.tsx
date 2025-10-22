@@ -84,6 +84,7 @@ const MainLayoutContent: React.FC = () => {
     const isPdf = type === 'pdf';
     const isExcel = type === 'excel';
     const isPptx = type === 'pptx';
+    const isDocx = type === 'docx';
     const isDataPreviewable = isStructuredDataPreviewable || isMermaid;
 
     return {
@@ -97,6 +98,7 @@ const MainLayoutContent: React.FC = () => {
         isPdf ||
         isExcel ||
         isPptx ||
+        isDocx ||
         isGoogleWorkspace,
       isDataPreviewable,
       isGisData:
