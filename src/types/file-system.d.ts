@@ -34,6 +34,7 @@ interface FileSystemWritableFileStream extends WritableStream {
 declare global {
   interface DataLoomNativeAPI {
     revealInFileManager(path: string): Promise<void>;
+    openTerminal(path: string): Promise<void>;
   }
 
   interface Window {
