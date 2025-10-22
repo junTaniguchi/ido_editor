@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { IoAlertCircleOutline, IoRefresh } from 'react-icons/io5';
-import 'docx-preview/dist/docx-preview.css';
 
 interface DocxPreviewProps {
   content: ArrayBuffer;
