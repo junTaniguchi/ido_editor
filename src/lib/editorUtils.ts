@@ -153,6 +153,7 @@ export const getFileType = (
     | 'mermaid'
     | 'excel'
     | 'pptx'
+    | 'docx'
     | 'gdoc'
     | 'gsheet'
     | 'gslides'
@@ -195,6 +196,8 @@ export const getFileType = (
     return 'excel';
   } else if (lowerFileName.endsWith('.pptx')) {
     return 'pptx';
+  } else if (lowerFileName.endsWith('.docx')) {
+    return 'docx';
   } else if (lowerFileName.endsWith('.gdoc')) {
     return 'gdoc';
   } else if (lowerFileName.endsWith('.gsheet')) {

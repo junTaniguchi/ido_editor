@@ -569,9 +569,33 @@ export const parseMermaid = (content: string) => {
  * ファイルの拡張子からファイルタイプを判定する
  * @param fileName ファイル名
  */
-export const getFileType = (fileName: string): 'text' | 'markdown' | 'html' | 'json' | 'yaml' | 'sql' | 'csv' | 'tsv' | 'parquet' | 'mermaid' => {
+export const getFileType = (
+  fileName: string,
+):
+  | 'text'
+  | 'markdown'
+  | 'html'
+  | 'json'
+  | 'yaml'
+  | 'sql'
+  | 'csv'
+  | 'tsv'
+  | 'parquet'
+  | 'mermaid'
+  | 'excel'
+  | 'pptx'
+  | 'docx'
+  | 'pdf'
+  | 'ipynb'
+  | 'gdoc'
+  | 'gsheet'
+  | 'gslides'
+  | 'geojson'
+  | 'kml'
+  | 'kmz'
+  | 'shapefile' => {
   const extension = fileName.split('.').pop()?.toLowerCase() || '';
-  
+
   switch (extension) {
     case 'md':
       return 'markdown';
@@ -596,6 +620,31 @@ export const getFileType = (fileName: string): 'text' | 'markdown' | 'html' | 'j
     case 'xlsx':
     case 'xls':
       return 'excel';
+    case 'docx':
+      return 'docx';
+    case 'pdf':
+      return 'pdf';
+    case 'pptx':
+      return 'pptx';
+    case 'ipynb':
+      return 'ipynb';
+    case 'gdoc':
+      return 'gdoc';
+    case 'gsheet':
+      return 'gsheet';
+    case 'gslides':
+      return 'gslides';
+    case 'geojson':
+    case 'topojson':
+      return 'geojson';
+    case 'kml':
+      return 'kml';
+    case 'kmz':
+      return 'kmz';
+    case 'shp':
+    case 'shpz':
+    case 'shz':
+      return 'shapefile';
     default:
       return 'text';
   }

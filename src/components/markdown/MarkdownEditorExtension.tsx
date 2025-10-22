@@ -791,10 +791,15 @@ const MarkdownEditorExtension: React.FC<MarkdownEditorExtensionProps> = ({ tabId
     };
   }, [editorRef, tabId]);
   
-  const { 
+  const {
     insertHeading,
     insertBold,
     insertItalic,
+    insertUnderline,
+    insertStrikethrough,
+    insertHighlight,
+    insertInlineCode,
+    insertTaskListItem,
     insertUnorderedList,
     insertOrderedList,
     insertLink,
@@ -878,6 +883,34 @@ const MarkdownEditorExtension: React.FC<MarkdownEditorExtensionProps> = ({ tabId
           >
             <span className="italic">I</span>
           </button>
+          <button
+            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 tooltip"
+            onClick={insertUnderline}
+            title="下線"
+          >
+            <span className="underline font-semibold">U</span>
+          </button>
+          <button
+            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 tooltip"
+            onClick={insertStrikethrough}
+            title="打ち消し線"
+          >
+            <span className="line-through font-semibold">S</span>
+          </button>
+          <button
+            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 tooltip"
+            onClick={insertHighlight}
+            title="ハイライト"
+          >
+            <span className="rounded bg-yellow-200 px-1 text-xs font-semibold text-yellow-900 dark:bg-yellow-500/30 dark:text-yellow-100">HL</span>
+          </button>
+          <button
+            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 tooltip"
+            onClick={insertInlineCode}
+            title="インラインコード"
+          >
+            <span className="font-mono text-xs">{'`code`'}</span>
+          </button>
         </div>
 
         <div className="flex space-x-1 mr-3">
@@ -894,6 +927,13 @@ const MarkdownEditorExtension: React.FC<MarkdownEditorExtensionProps> = ({ tabId
             title="番号付きリスト (Ctrl+O)"
           >
             <IoList size={18} />
+          </button>
+          <button
+            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 tooltip"
+            onClick={insertTaskListItem}
+            title="チェックボックス"
+          >
+            <IoCheckbox size={18} />
           </button>
         </div>
 
