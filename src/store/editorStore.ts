@@ -53,9 +53,11 @@ interface EditorStore {
   rootDirHandle: FileSystemDirectoryHandle | null;
   rootFileTree: FileTreeItem | null;
   rootFolderName: string;
+  rootNativePath: string | null;
   setRootDirHandle: (handle: FileSystemDirectoryHandle | null) => void;
   setRootFileTree: (tree: FileTreeItem | null) => void;
   setRootFolderName: (name: string) => void;
+  setRootNativePath: (path: string | null) => void;
   
   // コンテキストメニュー
   contextMenuTarget: ContextMenuTarget;
@@ -245,9 +247,11 @@ export const useEditorStore = create<EditorStore>()(
       rootDirHandle: null,
       rootFileTree: null,
       rootFolderName: '',
+      rootNativePath: null,
       setRootDirHandle: (handle) => set({ rootDirHandle: handle }),
       setRootFileTree: (tree) => set({ rootFileTree: tree }),
       setRootFolderName: (name) => set({ rootFolderName: name }),
+      setRootNativePath: (path) => set({ rootNativePath: path }),
       
       // コンテキストメニュー
       contextMenuTarget: { path: null, name: null, isFile: false },

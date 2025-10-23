@@ -48,6 +48,8 @@ const Workspace: React.FC<WorkspaceProps> = ({
   const updatePaneState = useEditorStore((state) => state.updatePaneState);
   const setViewMode = useEditorStore((state) => state.setViewMode);
   const rootDirHandle = useEditorStore((state) => state.rootDirHandle);
+  const rootNativePath = useEditorStore((state) => state.rootNativePath);
+  const setRootNativePath = useEditorStore((state) => state.setRootNativePath);
   const editorRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const [isScrollSyncEnabled, setIsScrollSyncEnabled] = useState(false);
@@ -231,7 +233,10 @@ const Workspace: React.FC<WorkspaceProps> = ({
         return;
       }
 
-      let nativePath = await resolveNativeDirectoryPath(rootDirHandle);
+      let nativePath = rootNativePath ?? null;
+      if (!nativePath) {
+        nativePath = await resolveNativeDirectoryPath(rootDirHandle);
+      }
 
       if (!nativePath) {
         granted = await ensureHandlePermission(rootDirHandle, 'readwrite');
@@ -245,6 +250,10 @@ const Workspace: React.FC<WorkspaceProps> = ({
       if (!nativePath) {
         alert('フォルダの場所を取得できませんでした。');
         return;
+      }
+
+      if (rootNativePath !== nativePath) {
+        setRootNativePath(nativePath);
       }
 
       const dlsNative = (window as typeof window & {
@@ -261,7 +270,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
       console.error('Failed to open terminal:', error);
       alert(`ターミナルの起動に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }, [rootDirHandle]);
+  }, [rootDirHandle, rootNativePath, setRootNativePath]);
 
   const showSearchPanel = paneState.isSearchVisible;
 
