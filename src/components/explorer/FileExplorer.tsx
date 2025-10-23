@@ -67,6 +67,7 @@ const FileExplorer = () => {
     setRootDirHandle,
     setRootFileTree,
     setRootFolderName,
+    setRootNativePath,
     addTab,
     addTempTab,
     activeTabId,
@@ -168,6 +169,27 @@ const FileExplorer = () => {
       
       const fileTree = await readDirectoryContents(targetDirHandle);
       setRootFileTree(fileTree);
+      const { rootNativePath } = useEditorStore.getState();
+      if (!rootNativePath) {
+        try {
+          let nativePath = await resolveNativeDirectoryPath(targetDirHandle);
+          if (!nativePath) {
+            let granted = await ensureHandlePermission(targetDirHandle, 'readwrite');
+            if (!granted) {
+              granted = await ensureHandlePermission(targetDirHandle, 'read');
+            }
+            if (granted) {
+              nativePath = await resolveNativeDirectoryPath(targetDirHandle);
+            }
+          }
+
+          if (nativePath) {
+            setRootNativePath(nativePath);
+          }
+        } catch (error) {
+          console.warn('Failed to refresh native root path cache:', error);
+        }
+      }
       const gitState = useGitStore.getState();
       if (gitState.fsAdapter) {
         try {
@@ -180,7 +202,7 @@ const FileExplorer = () => {
       console.error('Failed to refresh directory contents:', error);
       alert(`フォルダの内容を更新できませんでした: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }, [rootDirHandle, setRootFileTree]);
+  }, [rootDirHandle, setRootFileTree, setRootNativePath]);
 
   // フォルダの選択処理
   const handleSelectFolder = async () => {
@@ -197,7 +219,27 @@ const FileExplorer = () => {
       setRootDirHandle(dirHandle);
       await setGitRootDirectory(dirHandle);
       setRootFolderName(dirHandle.name);
-      
+      setRootNativePath(null);
+
+      try {
+        let nativePath = await resolveNativeDirectoryPath(dirHandle);
+        if (!nativePath) {
+          let granted = await ensureHandlePermission(dirHandle, 'readwrite');
+          if (!granted) {
+            granted = await ensureHandlePermission(dirHandle, 'read');
+          }
+          if (granted) {
+            nativePath = await resolveNativeDirectoryPath(dirHandle);
+          }
+        }
+
+        if (nativePath) {
+          setRootNativePath(nativePath);
+        }
+      } catch (pathError) {
+        console.warn('Failed to resolve native root path:', pathError);
+      }
+
       // フォルダ内容を読み込む
       try {
         const fileTree = await readDirectoryContents(dirHandle);

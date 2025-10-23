@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const url = require('url');
+const { spawn } = require('child_process');
 
 const isDev = !app.isPackaged || process.env.ELECTRON_DEV === '1';
 let nextServer = null;
@@ -143,6 +144,88 @@ ipcMain.handle('dls:reveal-in-file-manager', async (_event, rawPath) => {
     }
   } catch (error) {
     console.error('Failed to reveal path in file manager:', error);
+    throw error;
+  }
+});
+
+function launchWindowsTerminals(targetPath) {
+  const commands = [
+    {
+      command: 'powershell.exe',
+      args: ['-NoExit', '-Command', `Set-Location -LiteralPath '${targetPath.replace(/'/g, "''")}'`],
+    },
+    {
+      command: 'cmd.exe',
+      args: ['/K', `cd /d "${targetPath.replace(/"/g, '\\"')}"`],
+    },
+  ];
+
+  let launched = false;
+  for (const { command, args } of commands) {
+    try {
+      const child = spawn(command, args, {
+        cwd: targetPath,
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: false,
+      });
+      child.unref();
+      launched = true;
+    } catch (error) {
+      console.error(`Failed to launch ${command}:`, error);
+    }
+  }
+
+  if (!launched) {
+    throw new Error('Failed to launch any Windows terminal.');
+  }
+}
+
+function launchMacTerminal(targetPath) {
+  try {
+    const child = spawn('open', ['-a', 'Terminal', targetPath], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+  } catch (error) {
+    console.error('Failed to open Terminal.app:', error);
+    throw error;
+  }
+}
+
+function openTerminalAtPath(targetPath) {
+  const normalizedPath = path.resolve(targetPath);
+
+  if (process.platform === 'win32') {
+    launchWindowsTerminals(normalizedPath);
+    return;
+  }
+
+  if (process.platform === 'darwin') {
+    launchMacTerminal(normalizedPath);
+    return;
+  }
+
+  throw new Error('Terminal launching is not supported on this platform.');
+}
+
+ipcMain.handle('dls:open-terminal', async (_event, rawPath) => {
+  if (typeof rawPath !== 'string' || !rawPath.trim()) {
+    throw new Error('Invalid path');
+  }
+
+  const targetPath = path.resolve(rawPath);
+
+  try {
+    const stats = await fs.promises.stat(targetPath);
+    if (!stats.isDirectory()) {
+      throw new Error('Target path is not a directory.');
+    }
+
+    openTerminalAtPath(targetPath);
+  } catch (error) {
+    console.error('Failed to launch terminal:', error);
     throw error;
   }
 });
