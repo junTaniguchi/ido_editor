@@ -10,6 +10,7 @@ import MultiFileAnalysis from '@/components/analysis/MultiFileAnalysis';
 import DataAnalysis from '@/components/analysis/DataAnalysis';
 import GisAnalysisView from '@/components/analysis/GisAnalysisView';
 import GisSidebar from '@/components/analysis/GisSidebar';
+import MediaSplitPanel from '@/components/media/MediaSplitPanel';
 import Editor from '@/components/editor/Editor';
 import MarkdownPreview from '@/components/preview/MarkdownPreview';
 import DataPreview from '@/components/preview/DataPreview';
@@ -22,7 +23,7 @@ import GitCommitDiffView from '@/components/git/GitCommitDiffView';
 import HelpSidebar from '@/components/help/HelpSidebar';
 import ResizableSidebar from '@/components/layout/ResizableSidebar';
 import { DEFAULT_SIDEBAR_WIDTHS } from '@/constants/layout';
-import { ensureHandlePermission, resolveNativeDirectoryPath, promptForNativeDirectoryPath } from '@/lib/fileSystemUtils';
+import { ensureHandlePermission, resolveNativeDirectoryPath, promptForNativeDirectoryPath, canUseNativeDirectoryPathPrompt } from '@/lib/fileSystemUtils';
 
 interface WorkspaceProps {
   paneState: PaneState;
@@ -51,6 +52,9 @@ const Workspace: React.FC<WorkspaceProps> = ({
   const rootFolderName = useEditorStore((state) => state.rootFolderName);
   const rootNativePath = useEditorStore((state) => state.rootNativePath);
   const setRootNativePath = useEditorStore((state) => state.setRootNativePath);
+  const mediaSplitterVisible = useEditorStore((state) => state.mediaSplitterVisible);
+  const setMediaSplitterVisible = useEditorStore((state) => state.setMediaSplitterVisible);
+  const setMultiFileAnalysisFlag = useEditorStore((state) => state.setMultiFileAnalysisEnabled);
   const editorRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const [isScrollSyncEnabled, setIsScrollSyncEnabled] = useState(false);
@@ -217,6 +221,14 @@ const Workspace: React.FC<WorkspaceProps> = ({
     [aiFeaturesEnabled, activeSidebar, activeTabId, activeTabViewMode, setViewMode, updatePaneState]
   );
 
+  const handleToggleMediaSplitter = useCallback(() => {
+    const next = !mediaSplitterVisible;
+    setMediaSplitterVisible(next);
+    if (next) {
+      setMultiFileAnalysisFlag(false);
+    }
+  }, [mediaSplitterVisible, setMediaSplitterVisible, setMultiFileAnalysisFlag]);
+
   const handleOpenTerminal = useCallback(async () => {
     if (!rootDirHandle) {
       alert('フォルダが選択されていません。');
@@ -245,7 +257,9 @@ const Workspace: React.FC<WorkspaceProps> = ({
           message: rootFolderName ? `「${rootFolderName}」フォルダを選択してください。` : 'ターミナルで開きたいフォルダを選択してください。',
         });
         if (!fallbackPath) {
-          alert('フォルダの場所を取得できませんでした。');
+          alert(canUseNativeDirectoryPathPrompt()
+            ? 'フォルダの場所を取得できませんでした。'
+            : 'ターミナルの起動はデスクトップアプリ版のみ対応しています。');
           return;
         }
         nativePath = fallbackPath;
@@ -502,8 +516,15 @@ const Workspace: React.FC<WorkspaceProps> = ({
         helpEnabled={aiFeaturesEnabled}
         multiFileAnalysisAvailable
         multiFileAnalysisEnabled={multiFileAnalysisEnabled}
-        onToggleMultiFileAnalysis={onToggleMultiFileAnalysis}
+        onToggleMultiFileAnalysis={() => {
+          if (!multiFileAnalysisEnabled) {
+            setMediaSplitterVisible(false);
+          }
+          onToggleMultiFileAnalysis();
+        }}
         onOpenTerminal={handleOpenTerminal}
+        mediaSplitterEnabled={mediaSplitterVisible}
+        onToggleMediaSplitter={handleToggleMediaSplitter}
       />
       {showExplorer && (
         <ResizableSidebar
@@ -572,7 +593,14 @@ const Workspace: React.FC<WorkspaceProps> = ({
           </ResizableSidebar>
         )}
         <div className="flex-1 h-full overflow-hidden">
-          {renderMainContent()}
+          {mediaSplitterVisible ? (
+            <MediaSplitPanel
+              defaultOutputDirectory={rootDirHandle ?? null}
+              onRequestClose={() => setMediaSplitterVisible(false)}
+            />
+          ) : (
+            renderMainContent()
+          )}
         </div>
       </div>
     </div>

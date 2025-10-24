@@ -42,6 +42,7 @@ import {
   ensureHandlePermission,
   resolveNativeDirectoryPath,
   promptForNativeDirectoryPath,
+  canUseNativeDirectoryPathPrompt,
 } from '@/lib/fileSystemUtils';
 import { getFileType } from '@/lib/editorUtils';
 import { getMermaidTemplate } from '@/lib/mermaid/diagramDefinitions';
@@ -69,6 +70,7 @@ const FileExplorer = () => {
     setRootFileTree,
     setRootFolderName,
     setRootNativePath,
+    rootNativePath,
     addTab,
     addTempTab,
     activeTabId,
@@ -639,21 +641,65 @@ const FileExplorer = () => {
         return;
       }
 
-      let nativePath = await resolveNativeDirectoryPath(directoryToReveal);
+      let nativePath: string | null = null;
 
-      if (!nativePath) {
-        const fallbackPath = await promptForNativeDirectoryPath({
-          title: 'フォルダを表示',
-          message: `「${directoryToReveal.name}」フォルダの場所を選択してください。`,
-        });
-        if (!fallbackPath) {
-          alert('フォルダの場所を取得できませんでした。');
-          return;
+      if (rootNativePath) {
+        const separator = rootNativePath.includes('\\') ? '\\' : '/';
+        const trimTrailingSeparator = (path: string) => path.replace(new RegExp(`${separator}+$`), '');
+        const joinNativePath = (base: string, relative: string) => {
+          if (!relative) return trimTrailingSeparator(base);
+          const normalizedRelative = relative
+            .split('/')
+            .filter(Boolean)
+            .join(separator);
+          return `${trimTrailingSeparator(base)}${separator}${normalizedRelative}`;
+        };
+
+        if (directoryToReveal === rootDirHandle) {
+          nativePath = rootNativePath;
+        } else if (selectedItem) {
+          const relativePath = selectedItem.isDirectory
+            ? selectedItem.path
+            : selectedItem.path.split('/').slice(0, -1).join('/');
+
+          if (relativePath) {
+            nativePath = joinNativePath(rootNativePath, relativePath);
+          } else {
+            nativePath = rootNativePath;
+          }
         }
-        nativePath = fallbackPath;
+
+        if (!nativePath && typeof rootDirHandle.resolve === 'function') {
+          try {
+            const segments = await rootDirHandle.resolve(directoryToReveal);
+            if (Array.isArray(segments)) {
+              nativePath = joinNativePath(rootNativePath, segments.join('/'));
+            }
+          } catch (resolveError) {
+            console.warn('Failed to resolve directory relative path:', resolveError);
+          }
+        }
       }
 
-      if (directoryToReveal === rootDirHandle) {
+      if (!nativePath) {
+        nativePath = await resolveNativeDirectoryPath(directoryToReveal);
+
+        if (!nativePath) {
+          const fallbackPath = await promptForNativeDirectoryPath({
+            title: 'フォルダを表示',
+            message: `「${directoryToReveal.name}」フォルダの場所を選択してください。`,
+          });
+          if (!fallbackPath) {
+            alert(canUseNativeDirectoryPathPrompt()
+              ? 'フォルダの場所を取得できませんでした。'
+              : 'フォルダの場所の取得はデスクトップアプリ版でのみ利用できます。');
+            return;
+          }
+          nativePath = fallbackPath;
+        }
+      }
+
+      if (directoryToReveal === rootDirHandle && nativePath) {
         setRootNativePath(nativePath);
       }
 
@@ -682,7 +728,7 @@ const FileExplorer = () => {
       console.error('Failed to reveal item in file manager:', error);
       alert(`ファイルマネージャーの表示に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }, [getParentDirectoryHandleForItem, rootDirHandle, selectedItem, setRootNativePath]);
+  }, [getParentDirectoryHandleForItem, rootDirHandle, rootNativePath, selectedItem, setRootNativePath]);
 
   const deriveArchiveBaseName = (name: string, format: ArchiveFormat) => {
     if (format === 'zip') {

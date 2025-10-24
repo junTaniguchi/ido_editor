@@ -167,10 +167,35 @@ export const resolveNativeDirectoryPath = async (
     }
   }
 
-  return resolvedPath;
+  if (resolvedPath) {
+    return resolvedPath;
+  }
+
+  const fallbackPath = await requestNativeDirectoryPath({
+    title: 'フォルダの場所を指定',
+    message: `「${directoryHandle.name}」フォルダの場所を選択してください。`,
+  });
+
+  if (fallbackPath) {
+    return fallbackPath;
+  }
+
+  return null;
 };
 
 export const promptForNativeDirectoryPath = requestNativeDirectoryPath;
+
+export const canUseNativeDirectoryPathPrompt = (): boolean => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  const api = (window as typeof window & {
+    dlsNative?: {
+      pickDirectoryPath?: (options?: { title?: string; message?: string; defaultPath?: string }) => Promise<string | null>;
+    };
+  }).dlsNative;
+  return typeof api?.pickDirectoryPath === 'function';
+};
 
 const isDomException = (error: unknown, name: string): boolean =>
   error instanceof DOMException && error.name === name;

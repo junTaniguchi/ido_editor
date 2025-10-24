@@ -8,6 +8,7 @@ import {
   IoChatbubblesOutline,
   IoGitMergeOutline,
   IoTerminalOutline,
+  IoCutOutline,
 } from 'react-icons/io5';
 
 type ActivityItem = 'explorer' | 'gis' | 'git' | 'help';
@@ -20,6 +21,8 @@ interface ActivityBarProps {
   multiFileAnalysisEnabled: boolean;
   onToggleMultiFileAnalysis: () => void;
   onOpenTerminal: () => void;
+  mediaSplitterEnabled: boolean;
+  onToggleMediaSplitter: () => void;
 }
 
 const ActivityBar: React.FC<ActivityBarProps> = ({
@@ -30,6 +33,8 @@ const ActivityBar: React.FC<ActivityBarProps> = ({
   multiFileAnalysisEnabled,
   onToggleMultiFileAnalysis,
   onOpenTerminal,
+  mediaSplitterEnabled,
+  onToggleMediaSplitter,
 }) => {
   const baseButton =
     'w-10 h-10 flex items-center justify-center rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500';
@@ -56,7 +61,16 @@ const ActivityBar: React.FC<ActivityBarProps> = ({
       >
         <IoTerminalOutline size={20} />
       </button>
-      {multiFileAnalysisAvailable && (
+      <button
+        type="button"
+        className={`${baseButton} mt-2 ${mediaSplitterEnabled ? activeClass : inactiveClass}`}
+        onClick={onToggleMediaSplitter}
+        title={`音声・動画ファイル分割 ${mediaSplitterEnabled ? '表示中' : ''}`}
+        aria-pressed={mediaSplitterEnabled}
+      >
+        <IoCutOutline size={20} />
+      </button>
+     {multiFileAnalysisAvailable && (
         <button
           type="button"
           className={`${baseButton} mt-2 ${multiFileAnalysisEnabled ? activeClass : inactiveClass}`}

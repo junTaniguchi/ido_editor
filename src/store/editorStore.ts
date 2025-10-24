@@ -106,6 +106,8 @@ interface EditorStore {
   clearSelectedFiles: () => void;
   multiFileAnalysisEnabled: boolean;
   setMultiFileAnalysisEnabled: (enabled: boolean) => void;
+  mediaSplitterVisible: boolean;
+  setMediaSplitterVisible: (visible: boolean) => void;
 
   // ペアライティング履歴
   pairWritingHistory: Record<string, PairWritingHistoryEntry[]>;
@@ -400,6 +402,8 @@ export const useEditorStore = create<EditorStore>()(
       clearSelectedFiles: () => set({ selectedFiles: new Set<string>() }),
       multiFileAnalysisEnabled: false,
       setMultiFileAnalysisEnabled: (enabled) => set({ multiFileAnalysisEnabled: enabled }),
+      mediaSplitterVisible: false,
+      setMediaSplitterVisible: (visible) => set({ mediaSplitterVisible: visible }),
       reorderTabs: (newOrder: string[]) => set((state: EditorStore) => {
         const newTabs = new Map<string, TabData>();
         newOrder.forEach((id: string) => {
