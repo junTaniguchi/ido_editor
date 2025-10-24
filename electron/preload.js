@@ -13,4 +13,7 @@ contextBridge.exposeInMainWorld('dlsNative', {
     }
     return ipcRenderer.invoke('dls:open-terminal', path);
   },
+  pickDirectoryPath(options) {
+    return ipcRenderer.invoke('dls:pick-directory-path', options ?? null);
+  },
 });

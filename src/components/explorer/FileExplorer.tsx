@@ -41,6 +41,7 @@ import {
   copyFilesToDirectory,
   ensureHandlePermission,
   resolveNativeDirectoryPath,
+  promptForNativeDirectoryPath,
 } from '@/lib/fileSystemUtils';
 import { getFileType } from '@/lib/editorUtils';
 import { getMermaidTemplate } from '@/lib/mermaid/diagramDefinitions';
@@ -91,6 +92,7 @@ const FileExplorer = () => {
   
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [apiSupported, setApiSupported] = useState<boolean>(true);
+  const [isSelectingFolder, setIsSelectingFolder] = useState(false);
   const [isCopyingStructure, setIsCopyingStructure] = useState(false);
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
   const copyMenuContainerRef = useRef<HTMLDivElement | null>(null);
@@ -196,6 +198,11 @@ const FileExplorer = () => {
 
   // フォルダの選択処理
   const handleSelectFolder = async () => {
+    if (isSelectingFolder) {
+      return;
+    }
+
+    setIsSelectingFolder(true);
     try {
       // File System Access APIがサポートされているか確認
       if (!('showDirectoryPicker' in window)) {
@@ -250,10 +257,18 @@ const FileExplorer = () => {
         // キャンセルは正常な操作なのでログを出さない
         return;
       }
+      const message = error instanceof Error ? error.message : '不明なエラー';
+      if (typeof message === 'string' && message.includes('File picker already active')) {
+        console.warn('Folder picker already active:', error);
+        alert('別のファイル選択ダイアログが開いています。ダイアログを閉じてから再度お試しください。');
+        return;
+      }
       
       // その他のエラーはログを出力し、ユーザーにフィードバックを提供
       console.error('Failed to select folder:', error);
-      alert(`フォルダの選択中にエラーが発生しました: ${error instanceof Error ? error.message : '不明なエラー'}`);
+      alert(`フォルダの選択中にエラーが発生しました: ${message}`);
+    } finally {
+      setIsSelectingFolder(false);
     }
   };
 
@@ -624,11 +639,22 @@ const FileExplorer = () => {
         return;
       }
 
-      const nativePath = await resolveNativeDirectoryPath(directoryToReveal);
+      let nativePath = await resolveNativeDirectoryPath(directoryToReveal);
 
       if (!nativePath) {
-        alert('フォルダの場所を取得できませんでした。');
-        return;
+        const fallbackPath = await promptForNativeDirectoryPath({
+          title: 'フォルダを表示',
+          message: `「${directoryToReveal.name}」フォルダの場所を選択してください。`,
+        });
+        if (!fallbackPath) {
+          alert('フォルダの場所を取得できませんでした。');
+          return;
+        }
+        nativePath = fallbackPath;
+      }
+
+      if (directoryToReveal === rootDirHandle) {
+        setRootNativePath(nativePath);
       }
 
       const dlsNative = (window as typeof window & {
@@ -656,7 +682,7 @@ const FileExplorer = () => {
       console.error('Failed to reveal item in file manager:', error);
       alert(`ファイルマネージャーの表示に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }, [getParentDirectoryHandleForItem, rootDirHandle, selectedItem]);
+  }, [getParentDirectoryHandleForItem, rootDirHandle, selectedItem, setRootNativePath]);
 
   const deriveArchiveBaseName = (name: string, format: ArchiveFormat) => {
     if (format === 'zip') {
@@ -1355,9 +1381,10 @@ const FileExplorer = () => {
             <IoCreateOutline size={18} />
           </button>
           <button 
-            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={handleSelectFolder}
             title="フォルダを開く"
+            disabled={isSelectingFolder}
           >
             <IoFolderOutline size={18} />
           </button>
@@ -1390,8 +1417,9 @@ const FileExplorer = () => {
             <p className="mb-4">フォルダが選択されていません</p>
             {apiSupported ? (
               <button
-                className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={handleSelectFolder}
+                disabled={isSelectingFolder}
               >
                 フォルダを開く
               </button>

@@ -81,6 +81,35 @@ const getNativePathFromFileHandle = async (
   }
 };
 
+const requestNativeDirectoryPath = async (
+  options: {
+    title?: string;
+    message?: string;
+    defaultPath?: string;
+  } = {}
+): Promise<string | null> => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const api = (window as typeof window & {
+    dlsNative?: {
+      pickDirectoryPath?: (options?: { title?: string; message?: string; defaultPath?: string }) => Promise<string | null>;
+    };
+  }).dlsNative;
+
+  if (!api?.pickDirectoryPath) {
+    return null;
+  }
+
+  try {
+    return await api.pickDirectoryPath(options);
+  } catch (error) {
+    console.warn('Failed to resolve directory via native dialog:', error);
+    return null;
+  }
+};
+
 export const resolveNativeDirectoryPath = async (
   directoryHandle: FileSystemDirectoryHandle
 ): Promise<string | null> => {
@@ -109,6 +138,7 @@ export const resolveNativeDirectoryPath = async (
 
   const markerName = `.dls-path-marker-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   let fileHandle: FileSystemFileHandle | null = null;
+  let resolvedPath: string | null = null;
 
   try {
     fileHandle = await directoryHandle.getFileHandle(markerName, { create: true });
@@ -121,14 +151,14 @@ export const resolveNativeDirectoryPath = async (
     const writable = await fileHandle.createWritable();
     await writable.close();
     const path = await getNativePathFromFileHandle(fileHandle);
-    if (!path) {
+    if (path) {
+      resolvedPath = path;
+    } else {
       console.warn('Marker file does not expose a native path.');
-      return null;
     }
-    return path;
   } catch (error) {
     console.error('Failed to inspect marker file path:', error);
-    return null;
+    resolvedPath = null;
   } finally {
     try {
       await directoryHandle.removeEntry(markerName);
@@ -136,7 +166,11 @@ export const resolveNativeDirectoryPath = async (
       console.warn('Failed to remove marker file used for native path resolution:', cleanupError);
     }
   }
+
+  return resolvedPath;
 };
+
+export const promptForNativeDirectoryPath = requestNativeDirectoryPath;
 
 const isDomException = (error: unknown, name: string): boolean =>
   error instanceof DOMException && error.name === name;

@@ -22,7 +22,7 @@ import GitCommitDiffView from '@/components/git/GitCommitDiffView';
 import HelpSidebar from '@/components/help/HelpSidebar';
 import ResizableSidebar from '@/components/layout/ResizableSidebar';
 import { DEFAULT_SIDEBAR_WIDTHS } from '@/constants/layout';
-import { ensureHandlePermission, resolveNativeDirectoryPath } from '@/lib/fileSystemUtils';
+import { ensureHandlePermission, resolveNativeDirectoryPath, promptForNativeDirectoryPath } from '@/lib/fileSystemUtils';
 
 interface WorkspaceProps {
   paneState: PaneState;
@@ -48,6 +48,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
   const updatePaneState = useEditorStore((state) => state.updatePaneState);
   const setViewMode = useEditorStore((state) => state.setViewMode);
   const rootDirHandle = useEditorStore((state) => state.rootDirHandle);
+  const rootFolderName = useEditorStore((state) => state.rootFolderName);
   const rootNativePath = useEditorStore((state) => state.rootNativePath);
   const setRootNativePath = useEditorStore((state) => state.setRootNativePath);
   const editorRef = useRef<HTMLDivElement>(null);
@@ -239,8 +240,15 @@ const Workspace: React.FC<WorkspaceProps> = ({
       }
 
       if (!nativePath) {
-        alert('フォルダの場所を取得できませんでした。');
-        return;
+        const fallbackPath = await promptForNativeDirectoryPath({
+          title: 'ターミナルで開くフォルダを選択',
+          message: rootFolderName ? `「${rootFolderName}」フォルダを選択してください。` : 'ターミナルで開きたいフォルダを選択してください。',
+        });
+        if (!fallbackPath) {
+          alert('フォルダの場所を取得できませんでした。');
+          return;
+        }
+        nativePath = fallbackPath;
       }
 
       if (rootNativePath !== nativePath) {
@@ -261,7 +269,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
       console.error('Failed to open terminal:', error);
       alert(`ターミナルの起動に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }, [rootDirHandle, rootNativePath, setRootNativePath]);
+  }, [rootDirHandle, rootNativePath, rootFolderName, setRootNativePath]);
 
   const showSearchPanel = paneState.isSearchVisible;
 

@@ -35,6 +35,11 @@ declare global {
   interface DataLoomNativeAPI {
     revealInFileManager(path: string): Promise<void>;
     openTerminal(path: string): Promise<void>;
+    pickDirectoryPath(options?: {
+      title?: string;
+      message?: string;
+      defaultPath?: string;
+    }): Promise<string | null>;
   }
 
   interface Window {

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, nativeImage, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Menu, nativeImage, ipcMain, shell, dialog } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
@@ -144,6 +144,25 @@ ipcMain.handle('dls:reveal-in-file-manager', async (_event, rawPath) => {
     }
   } catch (error) {
     console.error('Failed to reveal path in file manager:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('dls:pick-directory-path', async (_event, options = {}) => {
+  const { title, message, defaultPath } = typeof options === 'object' && options !== null ? options : {};
+  try {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory'],
+      title: typeof title === 'string' ? title : undefined,
+      message: typeof message === 'string' ? message : undefined,
+      defaultPath: typeof defaultPath === 'string' && defaultPath.trim() ? defaultPath : undefined,
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+    return result.filePaths[0];
+  } catch (error) {
+    console.error('Failed to pick directory path via native dialog:', error);
     throw error;
   }
 });
