@@ -6,6 +6,7 @@ import { ensureHandlePermission } from '@/lib/fileSystemUtils';
 
 const FFMPEG_CORE_VERSION = '0.12.6';
 const FFMPEG_CORE_CDN_BASE = `https://unpkg.com/@ffmpeg/core@${FFMPEG_CORE_VERSION}/dist/umd`;
+const BROWSER_FFMPEG_MAX_INPUT_BYTES = 2 * 1024 ** 3; // 約 2 GiB が現実的な上限
 
 type ProgressStage = 'idle' | 'loading' | 'probing' | 'splitting' | 'collecting';
 
@@ -127,6 +128,10 @@ const padIndex = (index: number, width = 3): string => {
   return String(index).padStart(width, '0');
 };
 
+const formatGiB = (bytes: number): string => {
+  return (bytes / 1024 ** 3).toFixed(1);
+};
+
 export const splitMediaFile = async (
   file: File,
   options: SplitMediaOptions,
@@ -136,6 +141,15 @@ export const splitMediaFile = async (
   }
 
   const onProgress = options.onProgress;
+
+  if (file.size > BROWSER_FFMPEG_MAX_INPUT_BYTES) {
+    const fileSizeGiB = formatGiB(file.size);
+    const limitGiB = formatGiB(BROWSER_FFMPEG_MAX_INPUT_BYTES);
+    throw new Error(
+      `選択したファイルは約 ${fileSizeGiB}GiB あり、ブラウザ版 FFmpeg が扱える目安 (${limitGiB}GiB 前後) を超えています。` +
+        ' お手数ですがファイルを再圧縮してサイズを下げるか、デスクトップ版 FFmpeg などをご利用ください。',
+    );
+  }
 
   const ffmpeg = await getFfmpeg(onProgress);
 
@@ -344,4 +358,3 @@ export const saveSegmentsToDirectory = async (
 
   return saved;
 };
-
