@@ -818,8 +818,8 @@ const MarkdownEditorExtension: React.FC<MarkdownEditorExtensionProps> = ({ tabId
   } = useMarkdownShortcuts(editorRef, tabId);
 
   // テーブルウィザードで設定した値に基づいてテーブルを挿入
-  const handleInsertTable = (rows: number, cols: number, alignments: string[]) => {
-    insertTable(rows, cols, alignments);
+  const handleInsertTable = (tableData: string[][], alignments: ('left' | 'center' | 'right')[]) => {
+    insertTable(tableData, alignments);
     setShowTableWizard(false);
   };
 

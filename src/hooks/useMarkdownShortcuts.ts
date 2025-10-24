@@ -3,7 +3,31 @@
 import { useCallback, useEffect, RefObject } from 'react';
 import type { EditorView } from '@codemirror/view';
 import { useEditorStore } from '@/store/editorStore';
-import type { EditorRefValue } from '@/types/editor';
+
+type MarkdownTableAlignment = 'left' | 'center' | 'right';
+
+const sanitizeMarkdownTableCell = (value: unknown): string => {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/\u00a0/g, ' ')
+    .replace(/\r\n|\r|\n/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\|/g, '\\|')
+    .trim();
+};
+
+const alignmentToMarkdownRule = (alignment?: MarkdownTableAlignment): string => {
+  switch (alignment) {
+    case 'left':
+      return ':---';
+    case 'center':
+      return ':---:';
+    case 'right':
+      return '---:';
+    default:
+      return '---';
+  }
+};
 
 const useMarkdownShortcuts = (editorRef: RefObject<EditorView | null>, tabId: string) => {
   const { tabs, updateTab } = useEditorStore();
@@ -314,36 +338,42 @@ const useMarkdownShortcuts = (editorRef: RefObject<EditorView | null>, tabId: st
   }, [insertMarkdown]);
   
   // テーブルの挿入
-  const insertTable = useCallback((rows: number, cols: number, alignments: string[]) => {
+  const insertTable = useCallback((tableData: string[][], alignments: MarkdownTableAlignment[]) => {
     const editor = editorRef.current;
     if (!editor) return;
-    
-    // ヘッダー行を作成
-    const headerRow = '| ' + Array(cols).fill('ヘッダー').join(' | ') + ' |';
-    
-    // 区切り行を作成（列の配置を反映）
-    const separatorRow = '| ' + alignments.map(align => {
-      switch(align) {
-        case 'left': return ':---';
-        case 'center': return ':---:';
-        case 'right': return '---:';
-        default: return '---';
-      }
-    }).join(' | ') + ' |';
-    
-    // データ行を作成
-    const dataRows = Array(rows - 1).fill(0).map(() => 
-      '| ' + Array(cols).fill('データ').join(' | ') + ' |'
+
+    const columnCount = Math.max(2, alignments.length, ...tableData.map(row => row.length));
+
+    const normalizedAlignments: MarkdownTableAlignment[] = Array.from(
+      { length: columnCount },
+      (_, index) => alignments[index] ?? 'left',
     );
-    
-    // 全てを結合
-    const tableContent = [
-      headerRow,
-      separatorRow,
-      ...dataRows
-    ].join('\n');
-    
-    // カーソル位置に挿入
+
+    const normalizedRows = tableData.map(row =>
+      Array.from({ length: columnCount }, (_, columnIndex) =>
+        sanitizeMarkdownTableCell(row[columnIndex] ?? ''),
+      ),
+    );
+
+    if (normalizedRows.length === 0) {
+      normalizedRows.push(Array(columnCount).fill(''));
+    }
+
+    const headerRow = normalizedRows[0] ?? Array(columnCount).fill('');
+    const dataRows = normalizedRows.slice(1);
+
+    if (dataRows.length === 0) {
+      dataRows.push(Array(columnCount).fill(''));
+    }
+
+    const headerLine = `| ${headerRow.map(value => (value.length > 0 ? value : ' ')).join(' | ')} |`;
+    const separatorLine = `| ${normalizedAlignments.map(alignmentToMarkdownRule).join(' | ')} |`;
+    const bodyLines = dataRows.map(
+      row => `| ${row.map(value => (value.length > 0 ? value : ' ')).join(' | ')} |`,
+    );
+
+    const tableContent = [headerLine, separatorLine, ...bodyLines].join('\n');
+
     const { from, to } = editor.state.selection.main;
     editor.dispatch({
       changes: { from, to, insert: tableContent }

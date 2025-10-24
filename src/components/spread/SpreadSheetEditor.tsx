@@ -12,6 +12,9 @@ export interface SpreadSheetEditorProps {
   onDataChange?: (rows: any[]) => void;
   height?: string | number;
   sheetName?: string;
+  bindColumns?: boolean;
+  preserveEmptyRows?: boolean;
+  onWorkbookReady?: (spread: GC.Spread.Sheets.Workbook) => void;
 }
 
 const cloneRows = (rows: any[]): any[] => rows.map(row => ({ ...row }));
@@ -28,6 +31,9 @@ const SpreadSheetEditor: React.FC<SpreadSheetEditorProps> = ({
   onDataChange,
   height,
   sheetName,
+  bindColumns = true,
+  preserveEmptyRows = false,
+  onWorkbookReady,
 }) => {
   const spreadRef = useRef<GC.Spread.Sheets.Workbook | null>(null);
   const handlerRef = useRef<(() => void) | null>(null);
@@ -104,13 +110,13 @@ const SpreadSheetEditor: React.FC<SpreadSheetEditorProps> = ({
         record[columnName] = value ?? '';
       });
 
-      if (hasValue) {
+      if (hasValue || preserveEmptyRows) {
         extracted.push(record);
       }
     }
 
     return extracted;
-  }, [buildColumnNames]);
+  }, [buildColumnNames, preserveEmptyRows]);
 
   const ensureColumnHeaders = useCallback((sheet: GC.Spread.Sheets.Worksheet) => {
     const columnNames = buildColumnNames(sheet);
@@ -254,11 +260,14 @@ const SpreadSheetEditor: React.FC<SpreadSheetEditorProps> = ({
       dataField: columnName,
     }));
 
-    sheet.autoGenerateColumns = bindingColumns.length === 0;
-
-    if (bindingColumns.length > 0) {
+    if (!bindColumns) {
+      sheet.autoGenerateColumns = true;
+      sheet.bindColumns(null as any);
+    } else if (bindingColumns.length > 0) {
+      sheet.autoGenerateColumns = false;
       sheet.bindColumns(bindingColumns as any);
     } else {
+      sheet.autoGenerateColumns = true;
       sheet.bindColumns(null as any);
     }
 
@@ -271,7 +280,7 @@ const SpreadSheetEditor: React.FC<SpreadSheetEditorProps> = ({
     }
 
     sheet.resumePaint();
-  }, [data, ensureColumnHeaders, normalizedColumns, readOnly, sheetName]);
+  }, [bindColumns, data, ensureColumnHeaders, normalizedColumns, readOnly, sheetName]);
 
   const handleWorkbookInitialized = useCallback((spread: GC.Spread.Sheets.Workbook) => {
     spreadRef.current = spread;
@@ -286,7 +295,11 @@ const SpreadSheetEditor: React.FC<SpreadSheetEditorProps> = ({
     if (onDataChange) {
       onDataChange(extractRows());
     }
-  }, [attachClipboardListener, attachListeners, configureSheet, extractRows, onDataChange]);
+
+    if (onWorkbookReady) {
+      onWorkbookReady(spread);
+    }
+  }, [attachClipboardListener, attachListeners, configureSheet, extractRows, onDataChange, onWorkbookReady]);
 
   useEffect(() => {
     return () => {
