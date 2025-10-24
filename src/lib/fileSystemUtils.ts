@@ -84,6 +84,11 @@ const getNativePathFromFileHandle = async (
 export const resolveNativeDirectoryPath = async (
   directoryHandle: FileSystemDirectoryHandle
 ): Promise<string | null> => {
+  const hasReadPermission = await ensureHandlePermission(directoryHandle, 'read');
+  if (!hasReadPermission) {
+    return null;
+  }
+
   try {
     for await (const [, handle] of directoryHandle.entries()) {
       if (handle.kind === 'file') {
@@ -95,6 +100,11 @@ export const resolveNativeDirectoryPath = async (
     }
   } catch (error) {
     console.warn('Failed to enumerate directory entries for native path resolution:', error);
+  }
+
+  const hasWritePermission = await ensureHandlePermission(directoryHandle, 'readwrite');
+  if (!hasWritePermission) {
+    return null;
   }
 
   const markerName = `.dls-path-marker-${Date.now()}-${Math.random().toString(36).slice(2)}`;

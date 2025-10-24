@@ -223,9 +223,9 @@ const Workspace: React.FC<WorkspaceProps> = ({
     }
 
     try {
-      let granted = await ensureHandlePermission(rootDirHandle, 'read');
+      let granted = await ensureHandlePermission(rootDirHandle, 'readwrite');
       if (!granted) {
-        granted = await ensureHandlePermission(rootDirHandle, 'readwrite');
+        granted = await ensureHandlePermission(rootDirHandle, 'read');
       }
 
       if (!granted) {
@@ -235,15 +235,6 @@ const Workspace: React.FC<WorkspaceProps> = ({
 
       let nativePath = rootNativePath ?? null;
       if (!nativePath) {
-        nativePath = await resolveNativeDirectoryPath(rootDirHandle);
-      }
-
-      if (!nativePath) {
-        granted = await ensureHandlePermission(rootDirHandle, 'readwrite');
-        if (!granted) {
-          alert('フォルダへのアクセスが許可されませんでした。');
-          return;
-        }
         nativePath = await resolveNativeDirectoryPath(rootDirHandle);
       }
 

@@ -39,7 +39,9 @@ declare global {
 
   interface Window {
     dlsNative?: DataLoomNativeAPI;
-    showDirectoryPicker(): Promise<FileSystemDirectoryHandle>;
+    showDirectoryPicker(options?: {
+      mode?: 'read' | 'readwrite';
+    }): Promise<FileSystemDirectoryHandle>;
     showOpenFilePicker(options?: {
       multiple?: boolean;
       types?: Array<{

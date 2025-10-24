@@ -172,17 +172,7 @@ const FileExplorer = () => {
       const { rootNativePath } = useEditorStore.getState();
       if (!rootNativePath) {
         try {
-          let nativePath = await resolveNativeDirectoryPath(targetDirHandle);
-          if (!nativePath) {
-            let granted = await ensureHandlePermission(targetDirHandle, 'readwrite');
-            if (!granted) {
-              granted = await ensureHandlePermission(targetDirHandle, 'read');
-            }
-            if (granted) {
-              nativePath = await resolveNativeDirectoryPath(targetDirHandle);
-            }
-          }
-
+          const nativePath = await resolveNativeDirectoryPath(targetDirHandle);
           if (nativePath) {
             setRootNativePath(nativePath);
           }
@@ -214,25 +204,29 @@ const FileExplorer = () => {
       }
       
       // ファイルシステムアクセスAPIを使用してフォルダを選択
-      // @ts-ignore - TypeScriptの型定義エラーを無視
-      const dirHandle = await window.showDirectoryPicker();
+      // @ts-ignore - File System Access API は実験的
+      let dirHandle: FileSystemDirectoryHandle;
+      try {
+        dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      } catch (pickerError) {
+        if (pickerError instanceof Error && pickerError.name === 'AbortError') {
+          throw pickerError;
+        }
+        if (pickerError instanceof TypeError) {
+          // 一部環境では mode オプションが未対応のためフォールバック
+          // @ts-ignore - File System Access API は実験的
+          dirHandle = await window.showDirectoryPicker();
+        } else {
+          throw pickerError;
+        }
+      }
       setRootDirHandle(dirHandle);
       await setGitRootDirectory(dirHandle);
       setRootFolderName(dirHandle.name);
       setRootNativePath(null);
 
       try {
-        let nativePath = await resolveNativeDirectoryPath(dirHandle);
-        if (!nativePath) {
-          let granted = await ensureHandlePermission(dirHandle, 'readwrite');
-          if (!granted) {
-            granted = await ensureHandlePermission(dirHandle, 'read');
-          }
-          if (granted) {
-            nativePath = await resolveNativeDirectoryPath(dirHandle);
-          }
-        }
-
+        const nativePath = await resolveNativeDirectoryPath(dirHandle);
         if (nativePath) {
           setRootNativePath(nativePath);
         }
@@ -623,22 +617,14 @@ const FileExplorer = () => {
         return;
       }
 
-      let granted = await ensureHandlePermission(directoryToReveal, 'read');
-      if (!granted) {
-        alert('フォルダへのアクセスが許可されませんでした。');
+      const writeGranted = await ensureHandlePermission(directoryToReveal, 'readwrite');
+      if (!writeGranted) {
+        const readGranted = await ensureHandlePermission(directoryToReveal, 'read');
+        alert(readGranted ? 'フォルダへの書き込みアクセスが許可されませんでした。' : 'フォルダへのアクセスが許可されませんでした。');
         return;
       }
 
-      let nativePath = await resolveNativeDirectoryPath(directoryToReveal);
-
-      if (!nativePath) {
-        granted = await ensureHandlePermission(directoryToReveal, 'readwrite');
-        if (!granted) {
-          alert('フォルダへの書き込みアクセスが許可されませんでした。');
-          return;
-        }
-        nativePath = await resolveNativeDirectoryPath(directoryToReveal);
-      }
+      const nativePath = await resolveNativeDirectoryPath(directoryToReveal);
 
       if (!nativePath) {
         alert('フォルダの場所を取得できませんでした。');
