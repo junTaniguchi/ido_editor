@@ -398,6 +398,25 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({
     setTimeout(() => setShowToast(false), 3000);
   };
 
+  const handleCopyErrorDetails = async () => {
+    if (!error) {
+      return;
+    }
+
+    if (!navigator?.clipboard) {
+      showToastMessage('クリップボードAPIが利用できません');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(error);
+      showToastMessage('エラー内容をコピーしました');
+    } catch (copyError) {
+      console.error('Failed to copy mermaid error message:', copyError);
+      showToastMessage('エラー内容のコピーに失敗しました');
+    }
+  };
+
   return (
     <div className="h-full flex flex-col bg-white dark:bg-gray-900">
       {/* ヘッダー */}
@@ -603,20 +622,28 @@ const MermaidPreview: React.FC<MermaidPreviewProps> = ({
               <p className="text-red-600 dark:text-red-300 text-sm max-w-md">
                 {error}
               </p>
-              <button
-                onClick={renderDiagram}
-                className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-              >
-                再試行
-              </button>
-              {enableAiActions && (
+              <div className="mt-4 flex flex-col items-center gap-2 sm:flex-row sm:justify-center">
                 <button
-                  onClick={handleFixErrorWithAi}
-                  className="mt-2 px-4 py-2 rounded bg-purple-600 text-white hover:bg-purple-700"
+                  onClick={renderDiagram}
+                  className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
                 >
-                  AIに修正を依頼
+                  再試行
                 </button>
-              )}
+                <button
+                  onClick={handleCopyErrorDetails}
+                  className="rounded border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:border-gray-400 hover:text-gray-900 dark:border-gray-600 dark:text-gray-200 dark:hover:border-gray-500 dark:hover:text-white"
+                >
+                  エラー内容をコピー
+                </button>
+                {enableAiActions && (
+                  <button
+                    onClick={handleFixErrorWithAi}
+                    className="rounded bg-purple-600 px-4 py-2 text-white hover:bg-purple-700"
+                  >
+                    AIに修正を依頼
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}
