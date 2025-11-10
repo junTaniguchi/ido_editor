@@ -216,18 +216,18 @@ const FileExplorer = () => {
       // @ts-ignore - File System Access API は実験的
       let dirHandle: FileSystemDirectoryHandle;
       try {
-        dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+        dirHandle = await window.showDirectoryPicker();
       } catch (pickerError) {
         if (pickerError instanceof Error && pickerError.name === 'AbortError') {
           throw pickerError;
         }
-        if (pickerError instanceof TypeError) {
-          // 一部環境では mode オプションが未対応のためフォールバック
-          // @ts-ignore - File System Access API は実験的
-          dirHandle = await window.showDirectoryPicker();
-        } else {
-          throw pickerError;
-        }
+        throw pickerError;
+      }
+
+      const hasWritePermission = await ensureHandlePermission(dirHandle, 'readwrite');
+      if (!hasWritePermission) {
+        alert('フォルダへのアクセス権限が許可されませんでした。権限を付与してから再度お試しください。');
+        return;
       }
       setRootDirHandle(dirHandle);
       await setGitRootDirectory(dirHandle);

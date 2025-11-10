@@ -17,7 +17,7 @@ import { useEditorStore } from '@/store/editorStore';
 import type { EditorViewMode } from '@/store/editorStore';
 import { getLanguageByFileName, getTheme, getEditorExtensions, getFileType } from '@/lib/editorUtils';
 import { TabData } from '@/types';
-import { IoCodeSlash, IoEye, IoSave, IoGrid, IoDownload } from 'react-icons/io5';
+import { IoCodeSlash, IoEye, IoSave, IoGrid, IoDownload, IoReloadOutline } from 'react-icons/io5';
 import DataPreview from '@/components/preview/DataPreview';
 import MarkdownPreview from '@/components/preview/MarkdownPreview';
 import HtmlPreview from '@/components/preview/HtmlPreview';
@@ -25,7 +25,7 @@ import MermaidPreview from '@/components/preview/MermaidPreview';
 import MarkdownEditorExtension from '@/components/markdown/MarkdownEditorExtension';
 import ExportModal from '@/components/preview/ExportModal';
 import { parseCSV, parseJSON, parseYAML, parseParquet } from '@/lib/dataPreviewUtils';
-import { writeFileContent } from '@/lib/fileSystemUtils';
+import { ensureHandlePermission, readFileContent, writeFileContent } from '@/lib/fileSystemUtils';
 import type { EditorRefValue } from '@/types/editor';
 const SUPPORTED_CLIPBOARD_FILE_TYPES = new Set<TabData['type']>([
   'text',
@@ -136,6 +136,7 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
   const [isInitialized, setIsInitialized] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [parsedDataForExport, setParsedDataForExport] = useState<any[] | null>(null);
+  const [isReloading, setIsReloading] = useState(false);
   const editorRef = useRef<EditorView | null>(null);
   // CodeMirrorのscroller要素をrefで取得
   const codeMirrorScrollerRef = useRef<HTMLDivElement | null>(null);
@@ -165,6 +166,8 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
   }, [editorSettings.theme]);
   
   const viewMode = getViewMode(tabId);
+
+  const canReloadFromDisk = Boolean(currentTab && (currentTab.file || rootDirHandle));
 
   // 初期化時にタブデータを設定
   useEffect(() => {
@@ -328,19 +331,73 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
     const nextMode = currentIndex === -1 ? 'editor' : viewCycle[(currentIndex + 1) % viewCycle.length];
 
     setViewMode(tabId, nextMode);
-    
+
     // 強制的に状態を更新して再レンダリングを促す
     // これによりモード変更が確実に反映されるようにする
     setTimeout(() => {
       const currentMode = getViewMode(tabId);
-      
+
       // ここで強制的にローカル状態も更新
       if (currentTab) {
-        setCurrentTab({...currentTab}); // 新しいオブジェクトを作成して再レンダリングを強制
+        setCurrentTab({ ...currentTab }); // 新しいオブジェクトを作成して再レンダリングを強制
       }
     }, 50);
   };
-  
+
+  const resolveFileHandleForCurrentTab = useCallback(
+    async (options: { createIfMissing?: boolean } = {}): Promise<FileSystemFileHandle | null> => {
+      if (!currentTab) {
+        return null;
+      }
+
+      const existingHandle = currentTab.file;
+      if (existingHandle && typeof (existingHandle as FileSystemFileHandle).getFile === 'function') {
+        return existingHandle as FileSystemFileHandle;
+      }
+
+      if (!rootDirHandle) {
+        return null;
+      }
+
+      const candidatePath =
+        currentTab.id && !currentTab.id.startsWith('temp_') ? currentTab.id : currentTab.name;
+
+      if (!candidatePath) {
+        return null;
+      }
+
+      const segments = candidatePath.split('/').filter(Boolean);
+      if (segments.length === 0) {
+        return null;
+      }
+
+      let directoryHandle: FileSystemDirectoryHandle = rootDirHandle;
+
+      for (let index = 0; index < segments.length - 1; index += 1) {
+        try {
+          directoryHandle = await directoryHandle.getDirectoryHandle(segments[index]);
+        } catch (error) {
+          console.error('Failed to resolve directory for file handle:', error);
+          return null;
+        }
+      }
+
+      try {
+        const fileHandle = await directoryHandle.getFileHandle(segments[segments.length - 1], {
+          create: options.createIfMissing ?? false,
+        });
+        return fileHandle;
+      } catch (error) {
+        if (options.createIfMissing) {
+          throw error;
+        }
+        console.error('Failed to resolve file handle:', error);
+        return null;
+      }
+    },
+    [currentTab, rootDirHandle],
+  );
+
   // ファイルの保存処理
   const saveFile = useCallback(async () => {
     if (!currentTab || !currentTab.isDirty) {
@@ -363,28 +420,11 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
 
     if (existingHandle && typeof (existingHandle as FileSystemFileHandle).createWritable === 'function') {
       fileHandle = existingHandle as FileSystemFileHandle;
-    } else if (rootDirHandle) {
-      const candidatePath = currentTab.id && !currentTab.id.startsWith('temp_')
-        ? currentTab.id
-        : currentTab.name;
-
-      if (candidatePath) {
-        const segments = candidatePath.split('/').filter(Boolean);
-
-        if (segments.length > 0) {
-          try {
-            let directoryHandle: FileSystemDirectoryHandle = rootDirHandle;
-
-            for (let i = 0; i < segments.length - 1; i += 1) {
-              directoryHandle = await directoryHandle.getDirectoryHandle(segments[i]);
-            }
-
-            const targetFileName = segments[segments.length - 1];
-            fileHandle = await directoryHandle.getFileHandle(targetFileName, { create: true });
-          } catch (error) {
-            console.error('Failed to resolve file handle for saving:', error);
-          }
-        }
+    } else {
+      try {
+        fileHandle = await resolveFileHandleForCurrentTab({ createIfMissing: true });
+      } catch (error) {
+        console.error('Failed to resolve file handle for saving:', error);
       }
     }
 
@@ -426,13 +466,107 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
       console.error('Failed to save file:', error);
       alert(`ファイルの保存に失敗しました: ${error instanceof Error ? error.message : '不明なエラー'}`);
     }
-  }, [currentTab, rootDirHandle, tabId, updateTab]);
+  }, [currentTab, resolveFileHandleForCurrentTab, tabId, updateTab]);
 
   useEffect(() => {
     saveShortcutHandlerRef.current = () => {
       void saveFile();
     };
   }, [saveFile]);
+
+  const reloadFileFromDisk = useCallback(async () => {
+    if (!currentTab) {
+      return;
+    }
+
+    const targetTab = currentTab;
+    if (targetTab.isDirty) {
+      const shouldReload = window.confirm(
+        '未保存の変更があります。ファイルを再読み込みすると変更は失われます。続行しますか？',
+      );
+      if (!shouldReload) {
+        return;
+      }
+    }
+
+    setIsReloading(true);
+
+    try {
+      const fileHandle = await resolveFileHandleForCurrentTab();
+      if (!fileHandle) {
+        alert('ファイルの場所を特定できませんでした。フォルダを開き直してください。');
+        return;
+      }
+
+      const hasPermission = await ensureHandlePermission(fileHandle, 'read');
+      if (!hasPermission) {
+        alert('ファイルへのアクセス権限が許可されませんでした。');
+        return;
+      }
+
+      let previousObjectUrl: string | null = null;
+      if (
+        targetTab.type === 'pdf' &&
+        typeof targetTab.content === 'string' &&
+        targetTab.content.startsWith('blob:')
+      ) {
+        previousObjectUrl = targetTab.content;
+      }
+
+      let refreshedContent: string;
+
+      switch (targetTab.type) {
+        case 'excel':
+        case 'pptx':
+        case 'docx':
+          refreshedContent = '';
+          break;
+        case 'pdf': {
+          const file = await fileHandle.getFile();
+          refreshedContent = URL.createObjectURL(file);
+          if (previousObjectUrl) {
+            URL.revokeObjectURL(previousObjectUrl);
+          }
+          break;
+        }
+        case 'shapefile':
+          refreshedContent = `# Shapefile: ${targetTab.name}\n\nこのファイルはバイナリGISデータです。データプレビューや分析タブで属性情報を確認してください。`;
+          break;
+        case 'kmz':
+          refreshedContent = `# KMZ: ${targetTab.name}\n\nKMZは圧縮されたKMLファイルです。データプレビューや分析タブで展開して読み込めます。`;
+          break;
+        default:
+          refreshedContent = await readFileContent(fileHandle);
+          break;
+      }
+
+      updateTab(tabId, {
+        content: refreshedContent,
+        originalContent: refreshedContent,
+        isDirty: false,
+        file: fileHandle,
+      });
+
+      setCurrentTab((previous) => {
+        if (!previous) {
+          return null;
+        }
+        return {
+          ...previous,
+          content: refreshedContent,
+          originalContent: refreshedContent,
+          isDirty: false,
+          file: fileHandle,
+        };
+      });
+      setIsDirty(false);
+    } catch (error) {
+      console.error('Failed to reload file from disk:', error);
+      alert(`ファイルの再読み込みに失敗しました: ${error instanceof Error ? error.message : '不明なエラー'}`);
+    } finally {
+      setIsReloading(false);
+    }
+  }, [currentTab, resolveFileHandleForCurrentTab, tabId, updateTab]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -556,6 +690,14 @@ const Editor = forwardRef<HTMLDivElement, EditorProps>(({ tabId, onScroll }, ref
                 <IoDownload className="mr-1" size={16} /> エクスポート
               </button>
             )}
+            <button
+              className="px-3 py-1 bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-100 rounded hover:bg-gray-300 dark:hover:bg-gray-600 mr-2 flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => void reloadFileFromDisk()}
+              disabled={isReloading || !canReloadFromDisk}
+            >
+              <IoReloadOutline className={`mr-1 ${isReloading ? 'animate-spin' : ''}`} />
+              {isReloading ? '再読み込み中…' : '再読み込み'}
+            </button>
             <button
               className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 mr-2"
               onClick={() => void saveFile()}
