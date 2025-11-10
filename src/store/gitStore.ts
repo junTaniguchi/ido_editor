@@ -1,6 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import { createTwoFilesPatch } from 'diff';
 import type { ReadCommitResult, StatusMatrixResult } from 'isomorphic-git';
 import { FileSystemAccessFs } from '@/lib/git/fileSystemAccessFs';
@@ -78,6 +79,9 @@ interface GitStoreState {
     reference?: string;
   }) => Promise<{ handle: FileSystemDirectoryHandle; folderName: string } | null>;
 }
+
+const DEFAULT_AUTHOR_NAME = 'DataLoom User';
+const DEFAULT_AUTHOR_EMAIL = 'dataloom@example.com';
 
 const interpretStatus = (head: number, value: number): GitFileStatus => {
   if (value === 0) {
@@ -195,7 +199,9 @@ const loadGitHttpClient = async () => {
   return gitHttpClient;
 };
 
-export const useGitStore = create<GitStoreState>((set, get) => ({
+export const useGitStore = create<GitStoreState>()(
+  persist(
+    (set, get) => ({
   rootDirHandle: null,
   fsAdapter: null,
   repoInitialized: false,
@@ -205,8 +211,8 @@ export const useGitStore = create<GitStoreState>((set, get) => ({
   branches: [],
   currentBranch: null,
   commits: [],
-  authorName: 'DataLoom User',
-  authorEmail: 'dataloom@example.com',
+  authorName: DEFAULT_AUTHOR_NAME,
+  authorEmail: DEFAULT_AUTHOR_EMAIL,
 
   setRootDirectory: async (handle) => {
     if (!handle) {
@@ -400,6 +406,13 @@ export const useGitStore = create<GitStoreState>((set, get) => ({
       return;
     }
 
+    const authorName = state.authorName.trim();
+    const authorEmail = state.authorEmail.trim();
+    if (!authorName || !authorEmail) {
+      set({ error: 'Gitのユーザー名とメールアドレスを入力してください。' });
+      return;
+    }
+
     await withFs(state, async ({ fs }) => {
       set({ loading: true, error: null });
       try {
@@ -409,12 +422,12 @@ export const useGitStore = create<GitStoreState>((set, get) => ({
           dir: '/',
           message,
           author: {
-            name: state.authorName,
-            email: state.authorEmail,
+            name: authorName,
+            email: authorEmail,
           },
           committer: {
-            name: state.authorName,
-            email: state.authorEmail,
+            name: authorName,
+            email: authorEmail,
           },
         });
         await get().refreshRepository();
@@ -475,6 +488,12 @@ export const useGitStore = create<GitStoreState>((set, get) => ({
 
   pullRepository: async () => {
     const state = get();
+    const authorName = state.authorName.trim();
+    const authorEmail = state.authorEmail.trim();
+    if (!authorName || !authorEmail) {
+      set({ error: 'Gitのユーザー名とメールアドレスを入力してください。' });
+      return;
+    }
     await withFs(state, async ({ fs }) => {
       set({ loading: true, error: null });
       try {
@@ -498,6 +517,14 @@ export const useGitStore = create<GitStoreState>((set, get) => ({
           ref: currentBranch,
           singleBranch: true,
           corsProxy: 'https://cors.isomorphic-git.org',
+          author: {
+            name: authorName,
+            email: authorEmail,
+          },
+          committer: {
+            name: authorName,
+            email: authorEmail,
+          },
         });
 
         await get().refreshRepository();
@@ -1177,4 +1204,13 @@ export const useGitStore = create<GitStoreState>((set, get) => ({
 
   setAuthorName: (name) => set({ authorName: name }),
   setAuthorEmail: (email) => set({ authorEmail: email }),
-}));
+    }),
+    {
+      name: 'git-store',
+      partialize: (state) => ({
+        authorName: state.authorName,
+        authorEmail: state.authorEmail,
+      }),
+    },
+  ),
+);
